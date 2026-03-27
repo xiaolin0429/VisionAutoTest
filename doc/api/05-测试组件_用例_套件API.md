@@ -35,57 +35,72 @@
 - 方法：`PATCH`
 - 路径：`/api/v1/components/{component_id}`
 
-### 3.5 查询用例列表
+### 3.5 查询组件步骤
+
+- 方法：`GET`
+- 路径：`/api/v1/components/{component_id}/steps`
+
+### 3.6 全量替换组件步骤
+
+- 方法：`PUT`
+- 路径：`/api/v1/components/{component_id}/steps`
+
+### 3.7 查询用例列表
 
 - 方法：`GET`
 - 路径：`/api/v1/test-cases`
 
-### 3.6 创建用例
+### 3.8 创建用例
 
 - 方法：`POST`
 - 路径：`/api/v1/test-cases`
 
-### 3.7 查询用例详情
+### 3.9 查询用例详情
 
 - 方法：`GET`
 - 路径：`/api/v1/test-cases/{test_case_id}`
 
-### 3.8 更新用例
+### 3.10 更新用例
 
 - 方法：`PATCH`
 - 路径：`/api/v1/test-cases/{test_case_id}`
 
-### 3.9 查询用例步骤
+### 3.11 查询用例步骤
 
 - 方法：`GET`
 - 路径：`/api/v1/test-cases/{test_case_id}/steps`
 
-### 3.10 全量替换用例步骤
+### 3.12 全量替换用例步骤
 
 - 方法：`PUT`
 - 路径：`/api/v1/test-cases/{test_case_id}/steps`
 
-### 3.11 查询套件列表
+### 3.13 查询套件列表
 
 - 方法：`GET`
 - 路径：`/api/v1/test-suites`
 
-### 3.12 创建套件
+### 3.14 创建套件
 
 - 方法：`POST`
 - 路径：`/api/v1/test-suites`
 
-### 3.13 查询套件详情
+### 3.15 查询套件详情
 
 - 方法：`GET`
 - 路径：`/api/v1/test-suites/{test_suite_id}`
 
-### 3.14 更新套件
+### 3.16 更新套件
 
 - 方法：`PATCH`
 - 路径：`/api/v1/test-suites/{test_suite_id}`
 
-### 3.15 全量替换套件用例集合
+### 3.17 查询套件用例集合
+
+- 方法：`GET`
+- 路径：`/api/v1/test-suites/{test_suite_id}/cases`
+
+### 3.18 全量替换套件用例集合
 
 - 方法：`PUT`
 - 路径：`/api/v1/test-suites/{test_suite_id}/cases`
@@ -93,8 +108,9 @@
 ## 4. 业务规则
 
 - 步骤顺序必须连续，`step_no` 从 1 开始。
+- 当步骤类型为 `component_call` 时，必须显式传入 `component_id`。
 - 用例和组件均采用草稿/已发布双态，执行时只能引用已发布版本。
-- 套件中的用例顺序必须可控，用于稳定回放。
+- 套件中的用例顺序必须可控，用于稳定回放；套件本身采用 `draft/active/archived` 状态流转。
 - 步骤中的变量占位符统一采用 `{{ variable_name }}` 语法。
 
 ## 5. 推荐错误码
@@ -105,4 +121,5 @@
 | `TEST_CASE_NOT_FOUND` | 用例不存在 |
 | `TEST_SUITE_NOT_FOUND` | 套件不存在 |
 | `STEP_SEQUENCE_INVALID` | 步骤顺序非法 |
+| `SUITE_CASE_SEQUENCE_INVALID` | 套件用例顺序非法 |
 | `PUBLISHED_VERSION_REQUIRED` | 执行引用了未发布对象 |

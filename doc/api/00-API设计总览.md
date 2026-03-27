@@ -139,10 +139,10 @@ GET /api/v1/test-runs?page=1&page_size=20&status=running&sort=-created_at
 
 ## 10. 模块拆分
 
-- [01-认证与身份 API](/Users/xiaolin/Dev/VisionAutoTest/doc/api/01-认证与身份API.md)
-- [02-工作空间与成员 API](/Users/xiaolin/Dev/VisionAutoTest/doc/api/02-工作空间与成员API.md)
-- [03-环境与设备配置 API](/Users/xiaolin/Dev/VisionAutoTest/doc/api/03-环境与设备配置API.md)
-- [04-模板与基准资产 API](/Users/xiaolin/Dev/VisionAutoTest/doc/api/04-模板与基准资产API.md)
-- [05-测试组件、用例与套件 API](/Users/xiaolin/Dev/VisionAutoTest/doc/api/05-测试组件_用例_套件API.md)
-- [06-测试执行与报告 API](/Users/xiaolin/Dev/VisionAutoTest/doc/api/06-测试执行与报告API.md)
-- [07-通知与 Webhook API](/Users/xiaolin/Dev/VisionAutoTest/doc/api/07-通知与Webhook API.md)
+- [01-认证与身份 API](./01-认证与身份API.md)
+- [02-工作空间与成员 API](./02-工作空间与成员API.md)
+- [03-环境与设备配置 API](./03-环境与设备配置API.md)
+- [04-模板与基准资产 API](./04-模板与基准资产API.md)
+- [05-测试组件、用例与套件 API](./05-测试组件_用例_套件API.md)
+- [06-测试执行与报告 API](./06-测试执行与报告API.md)
+- [07-通知与 Webhook API](./07-通知与Webhook API.md)

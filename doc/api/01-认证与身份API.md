@@ -2,13 +2,14 @@
 
 ## 1. 模块范围
 
-本模块负责登录会话、当前用户信息、用户与角色的基础管理。为保持 RESTful 一致性，登录能力抽象为 `sessions` 资源。
+本模块负责登录会话、令牌续期、当前用户信息、用户与系统角色管理。为保持 RESTful 一致性，登录能力抽象为 `sessions` 资源。
 
 ## 2. 资源清单
 
 | 资源 | 说明 |
 |---|---|
 | `sessions` | 登录会话 |
+| `session-refreshes` | 令牌续期请求 |
 | `users` | 用户主体 |
 | `roles` | 角色定义 |
 
@@ -46,38 +47,63 @@
 }
 ```
 
-### 3.2 获取当前会话
+### 3.2 创建令牌续期请求
+
+- 方法：`POST`
+- 路径：`/api/v1/session-refreshes`
+
+请求体：
+
+```json
+{
+  "refresh_token": "refresh_token"
+}
+```
+
+响应体：
+
+```json
+{
+  "data": {
+    "access_token": "new_jwt_token",
+    "refresh_token": "new_refresh_token",
+    "expires_in": 7200
+  }
+}
+```
+
+### 3.3 获取当前会话
 
 - 方法：`GET`
 - 路径：`/api/v1/sessions/current`
 
-### 3.3 删除当前会话
+### 3.4 删除当前会话
 
 - 方法：`DELETE`
 - 路径：`/api/v1/sessions/current`
 
-### 3.4 获取当前用户
+### 3.5 获取当前用户
 
 - 方法：`GET`
 - 路径：`/api/v1/users/current`
 
-### 3.5 查询用户列表
+### 3.6 查询用户列表
 
 - 方法：`GET`
 - 路径：`/api/v1/users`
 - 查询参数：`page`、`page_size`、`status`、`keyword`
 
-### 3.6 创建用户
+### 3.7 创建用户
 
 - 方法：`POST`
 - 路径：`/api/v1/users`
 
-### 3.7 查询单个用户
+### 3.8 查询单个用户
 
 - 方法：`GET`
 - 路径：`/api/v1/users/{user_id}`
 
-### 3.8 更新用户
+### 3.9 更新用户
 
 - 方法：`PATCH`
 - 路径：`/api/v1/users/{user_id}`
@@ -89,17 +115,38 @@
 - `mobile`
 - `status`
 
-### 3.9 查询角色列表
+### 3.10 查询用户系统角色
+
+- 方法：`GET`
+- 路径：`/api/v1/users/{user_id}/roles`
+
+### 3.11 全量替换用户系统角色
+
+- 方法：`PUT`
+- 路径：`/api/v1/users/{user_id}/roles`
+
+请求体：
+
+```json
+{
+  "role_ids": [
+    1,
+    2
+  ]
+}
+```
+
+### 3.12 查询角色列表
 
 - 方法：`GET`
 - 路径：`/api/v1/roles`
 
-### 3.10 创建角色
+### 3.13 创建角色
 
 - 方法：`POST`
 - 路径：`/api/v1/roles`
 
-### 3.11 更新角色
+### 3.14 更新角色
 
 - 方法：`PATCH`
 - 路径：`/api/v1/roles/{role_id}`
@@ -107,8 +154,10 @@
 ## 4. 业务规则
 
 - `username` 全局唯一，不允许复用。
-- 删除当前会话后，服务端应立即吊销访问令牌。
+- `access_token` 应短期有效，`refresh_token` 应支持轮换续期。
+- 删除当前会话后，服务端应立即吊销当前访问令牌及其活跃刷新令牌。
 - 角色只定义权限集合，不直接附着工作空间；工作空间授权通过成员关系完成。
+- 用户与系统角色关系应通过独立关联关系维护，不以内嵌 JSON 直接存储。
 - `users/current` 仅返回当前操作者可见的基础身份信息，不返回敏感字段。
 
 ## 5. 推荐错误码
@@ -119,4 +168,7 @@
 | `USER_DISABLED` | 账号已禁用 |
 | `TOKEN_EXPIRED` | 令牌过期 |
 | `TOKEN_REVOKED` | 令牌已失效 |
+| `REFRESH_TOKEN_INVALID` | 刷新令牌非法或已失效 |
+| `SESSION_NOT_FOUND` | 会话不存在 |
+| `ROLE_NOT_FOUND` | 角色不存在 |
 | `USERNAME_ALREADY_EXISTS` | 用户名冲突 |

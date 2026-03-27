@@ -75,13 +75,13 @@
 
 1. **前端交互展示层 (Frontend)**：建议采用 Vue3 + Tailwind CSS 的轻量级 / 渐进式前端方案。相比于纯原生 HTML+JS，该方案具备出色的数据双向绑定和组件化能力，能极为轻松地实现“画框涂抹忽略区域”、“拖拽编排用例”、“局部截图动态高亮”等强交互体验；且主流 AI 对此栈代码生成精准度极高。
 2. **API 路由控制层 (API Gateway)**：基于 Python `FastAPI` 框架。使用异步通信处理高并发访问，自带完整的文档驱动（Swagger UI），提供与前端及外部 CI 系统交互的标准 REST 规范化服务接口。
-3. **测试任务调度层 (Job Scheduler)**：引入任务队列机制。在企业级场景下，推荐配置 `Celery + Redis` 以管理大量并发的 UI 测试请求，防止资源跑满导致的崩溃；在单机便携部署时，可向下兼容简单的内存异步或者 `APScheduler`。
+3. **测试任务调度层 (Job Scheduler)**：引入任务队列机制。MVP 阶段默认采用单节点进程内异步任务机制，降低部署门槛；在企业级场景下，推荐升级为 `Celery + Redis` 以管理大量并发的 UI 测试请求，防止资源跑满导致的崩溃；定时任务可兼容 `APScheduler`。
 4. **核心执行与推断引擎 (Core Enginge)**：
     * **驱动控制器**：采用 Python 版 Playwright，负责分配沙盒隔离（Context）、页面仿真、录屏截图与输入交互。
     * **计算机视觉比对**：封装 OpenCV (模板阈值 / ORB, SIFT 特征分析组合策略)。
     * **光学字符识别**：封装 PaddleOCR 等 AI 轻量化文字位置和内容推测能力。
 5. **持久化数据与存储层 (Data Layer)**：
-    * 关系型数据：使用 SQLAlchemy 作为 ORM 抽象代理。平台默认采用 SQLite 兜底以提升下载即得的演示体验；同时完美支持一键切换至 MySQL / PostgreSQL，从根本上解决系统高并发写入时的读写死锁瓶颈。
+    * 关系型数据：使用 SQLAlchemy 作为 ORM 抽象代理。平台在 MVP 阶段建议默认采用 PostgreSQL 16 单实例；本地演示可退化到 SQLite；企业现网若已有 MySQL 8，也应支持兼容适配，从根本上解决系统高并发写入时的读写瓶颈。
     * 文件存储系统：提供本地或 S3 兼容的云端接入能力供存储图片、报告录像。
 6. **环境基建侧部署层 (Infrastructure)**：全部件 Docker 容器化打包，提供 `docker-compose.yml` 实现零配置组网及网络互通。
 
@@ -93,7 +93,7 @@
 | API 接口层 | Python + FastAPI | 享用原生异步能力，强制契约生成，提供稳定高效网关抽象。 |
 | 执行推理引擎 | Playwright + OpenCV + PaddleOCR | 当下自动化测试界生态主流，无痕沙盒技术有效防止上下文串扰。 |
 | 任务分发列队 | Celery + Redis (可选内置) | 分离 HTTP 请求层和密集 IO/CPU 层测试消耗，防止架构雪崩。 |
-| 数据持久与存管| SQLAlchemy + MySQL/SQLite 适配 | 企业级并发下依靠 MySQL 行锁摆脱 SQLite 性能问题。 |
+| 数据持久与存管| SQLAlchemy + PostgreSQL/MySQL（SQLite 仅本地演示） | MVP 优先 PostgreSQL 16，企业级支持 MySQL 8，兼顾易用性与并发能力。 |
 | 容器与分发环境| Docker + Docker Compose | 提供统一、极简的运行一致性容器，支持横向扩展 Worker 节点。|
 
 # 五、核心功能模块需求细化（含企业级杀手功能）

@@ -19,36 +19,36 @@
 
 ### 核心业务与架构
 
-- [PRD](/Users/xiaolin/Dev/VisionAutoTest/doc/企业级跨端视觉自动化测试平台PRD.md)
-- [服务端技术架构设计文档](/Users/xiaolin/Dev/VisionAutoTest/doc/backend/服务端技术架构设计文档.md)
-- [前端技术架构设计文档](/Users/xiaolin/Dev/VisionAutoTest/doc/frontend/前端技术架构设计文档.md)
-- [文档索引](/Users/xiaolin/Dev/VisionAutoTest/doc/文档索引.md)
+- [PRD](./doc/企业级跨端视觉自动化测试平台PRD.md)
+- [服务端技术架构设计文档](./doc/backend/服务端技术架构设计文档.md)
+- [前端技术架构设计文档](./doc/frontend/前端技术架构设计文档.md)
+- [文档索引](./doc/文档索引.md)
 
 ### 项目推进
 
-- [MVP 定义](/Users/xiaolin/Dev/VisionAutoTest/doc/MVP定义.md)
-- [实施路线图](/Users/xiaolin/Dev/VisionAutoTest/doc/实施路线图.md)
+- [MVP 定义](./doc/MVP定义.md)
+- [实施路线图](./doc/实施路线图.md)
 
 ### API 设计
 
-- [API 设计总览](/Users/xiaolin/Dev/VisionAutoTest/doc/api/00-API设计总览.md)
-- [认证与身份 API](/Users/xiaolin/Dev/VisionAutoTest/doc/api/01-认证与身份API.md)
-- [工作空间与成员 API](/Users/xiaolin/Dev/VisionAutoTest/doc/api/02-工作空间与成员API.md)
-- [环境与设备配置 API](/Users/xiaolin/Dev/VisionAutoTest/doc/api/03-环境与设备配置API.md)
-- [模板与基准资产 API](/Users/xiaolin/Dev/VisionAutoTest/doc/api/04-模板与基准资产API.md)
-- [测试组件、用例与套件 API](/Users/xiaolin/Dev/VisionAutoTest/doc/api/05-测试组件_用例_套件API.md)
-- [测试执行与报告 API](/Users/xiaolin/Dev/VisionAutoTest/doc/api/06-测试执行与报告API.md)
-- [通知与 Webhook API](/Users/xiaolin/Dev/VisionAutoTest/doc/api/07-通知与Webhook API.md)
+- [API 设计总览](./doc/api/00-API设计总览.md)
+- [认证与身份 API](./doc/api/01-认证与身份API.md)
+- [工作空间与成员 API](./doc/api/02-工作空间与成员API.md)
+- [环境与设备配置 API](./doc/api/03-环境与设备配置API.md)
+- [模板与基准资产 API](./doc/api/04-模板与基准资产API.md)
+- [测试组件、用例与套件 API](./doc/api/05-测试组件_用例_套件API.md)
+- [测试执行与报告 API](./doc/api/06-测试执行与报告API.md)
+- [通知与Webhook API](./doc/api/07-通知与WebhookAPI.md)
 
 ### 数据库设计
 
-- [数据库设计总览](/Users/xiaolin/Dev/VisionAutoTest/doc/database/00-数据库设计总览.md)
-- [身份与权限模型](/Users/xiaolin/Dev/VisionAutoTest/doc/database/01-身份与权限模型.md)
-- [工作空间与配置模型](/Users/xiaolin/Dev/VisionAutoTest/doc/database/02-工作空间与配置模型.md)
-- [模板与基准资产模型](/Users/xiaolin/Dev/VisionAutoTest/doc/database/03-模板与基准资产模型.md)
-- [测试编排模型](/Users/xiaolin/Dev/VisionAutoTest/doc/database/04-测试编排模型.md)
-- [执行与报告模型](/Users/xiaolin/Dev/VisionAutoTest/doc/database/05-执行与报告模型.md)
-- [通知与集成模型](/Users/xiaolin/Dev/VisionAutoTest/doc/database/06-通知与集成模型.md)
+- [数据库设计总览](./doc/database/00-数据库设计总览.md)
+- [身份与权限模型](./doc/database/01-身份与权限模型.md)
+- [工作空间与配置模型](./doc/database/02-工作空间与配置模型.md)
+- [模板与基准资产模型](./doc/database/03-模板与基准资产模型.md)
+- [测试编排模型](./doc/database/04-测试编排模型.md)
+- [执行与报告模型](./doc/database/05-执行与报告模型.md)
+- [通知与集成模型](./doc/database/06-通知与集成模型.md)
 
 ## 建议源码目录
 
