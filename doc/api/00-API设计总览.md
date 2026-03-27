@@ -145,4 +145,6 @@ GET /api/v1/test-runs?page=1&page_size=20&status=running&sort=-created_at
 - [04-模板与基准资产 API](./04-模板与基准资产API.md)
 - [05-测试组件、用例与套件 API](./05-测试组件_用例_套件API.md)
 - [06-测试执行与报告 API](./06-测试执行与报告API.md)
-- [07-通知与 Webhook API](./07-通知与Webhook API.md)
+- [07-通知与 Webhook API](./07-通知与WebhookAPI.md)
+- [08-权限与授权 API](./08-权限与授权API.md)
+- [09-媒体对象 API](./09-媒体对象API.md)

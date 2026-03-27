@@ -39,16 +39,20 @@
 - [测试组件、用例与套件 API](./doc/api/05-测试组件_用例_套件API.md)
 - [测试执行与报告 API](./doc/api/06-测试执行与报告API.md)
 - [通知与Webhook API](./doc/api/07-通知与WebhookAPI.md)
+- [权限与授权 API](./doc/api/08-权限与授权API.md)
+- [媒体对象 API](./doc/api/09-媒体对象API.md)
 
 ### 数据库设计
 
 - [数据库设计总览](./doc/database/00-数据库设计总览.md)
-- [身份与权限模型](./doc/database/01-身份与权限模型.md)
+- [身份与会话模型](./doc/database/01-身份与权限模型.md)
 - [工作空间与配置模型](./doc/database/02-工作空间与配置模型.md)
 - [模板与基准资产模型](./doc/database/03-模板与基准资产模型.md)
 - [测试编排模型](./doc/database/04-测试编排模型.md)
 - [执行与报告模型](./doc/database/05-执行与报告模型.md)
 - [通知与集成模型](./doc/database/06-通知与集成模型.md)
+- [权限与授权模型](./doc/database/07-权限与授权模型.md)
+- [媒体对象与引用模型](./doc/database/08-媒体对象与引用模型.md)
 
 ## 建议源码目录
 
