@@ -1,0 +1,83 @@
+# VisionAutoTest
+
+企业级跨端视觉自动化测试平台的设计仓库。当前仓库以产品、架构、API 和数据库设计文档为主，目标是在正式编码前先固定业务边界、接口契约和数据模型，降低后续实现偏差。
+
+## 当前状态
+
+- 当前阶段：文档先行，尚未进入源码实现阶段。
+- 已完成：PRD、前后端架构设计、RESTful API 设计、数据库分模块设计、MVP 与路线图。
+- 下一步：按 `MVP` 文档先落地后端契约层和最小可运行脚手架，再进入视觉引擎与前端管理台实现。
+
+## 项目目标
+
+- 基于 `Playwright + OpenCV + OCR` 构建跨端视觉自动化测试能力。
+- 支持基准图、忽略区域、数据驱动、任务调度、差异报告和 CI 集成。
+- 兼容单机运行与企业级扩展部署。
+- 以严格 API 契约和规范化表设计作为实现基线。
+
+## 文档导航
+
+### 核心业务与架构
+
+- [PRD](/Users/xiaolin/Dev/VisionAutoTest/doc/企业级跨端视觉自动化测试平台PRD.md)
+- [服务端技术架构设计文档](/Users/xiaolin/Dev/VisionAutoTest/doc/backend/服务端技术架构设计文档.md)
+- [前端技术架构设计文档](/Users/xiaolin/Dev/VisionAutoTest/doc/frontend/前端技术架构设计文档.md)
+- [文档索引](/Users/xiaolin/Dev/VisionAutoTest/doc/文档索引.md)
+
+### 项目推进
+
+- [MVP 定义](/Users/xiaolin/Dev/VisionAutoTest/doc/MVP定义.md)
+- [实施路线图](/Users/xiaolin/Dev/VisionAutoTest/doc/实施路线图.md)
+
+### API 设计
+
+- [API 设计总览](/Users/xiaolin/Dev/VisionAutoTest/doc/api/00-API设计总览.md)
+- [认证与身份 API](/Users/xiaolin/Dev/VisionAutoTest/doc/api/01-认证与身份API.md)
+- [工作空间与成员 API](/Users/xiaolin/Dev/VisionAutoTest/doc/api/02-工作空间与成员API.md)
+- [环境与设备配置 API](/Users/xiaolin/Dev/VisionAutoTest/doc/api/03-环境与设备配置API.md)
+- [模板与基准资产 API](/Users/xiaolin/Dev/VisionAutoTest/doc/api/04-模板与基准资产API.md)
+- [测试组件、用例与套件 API](/Users/xiaolin/Dev/VisionAutoTest/doc/api/05-测试组件_用例_套件API.md)
+- [测试执行与报告 API](/Users/xiaolin/Dev/VisionAutoTest/doc/api/06-测试执行与报告API.md)
+- [通知与 Webhook API](/Users/xiaolin/Dev/VisionAutoTest/doc/api/07-通知与Webhook API.md)
+
+### 数据库设计
+
+- [数据库设计总览](/Users/xiaolin/Dev/VisionAutoTest/doc/database/00-数据库设计总览.md)
+- [身份与权限模型](/Users/xiaolin/Dev/VisionAutoTest/doc/database/01-身份与权限模型.md)
+- [工作空间与配置模型](/Users/xiaolin/Dev/VisionAutoTest/doc/database/02-工作空间与配置模型.md)
+- [模板与基准资产模型](/Users/xiaolin/Dev/VisionAutoTest/doc/database/03-模板与基准资产模型.md)
+- [测试编排模型](/Users/xiaolin/Dev/VisionAutoTest/doc/database/04-测试编排模型.md)
+- [执行与报告模型](/Users/xiaolin/Dev/VisionAutoTest/doc/database/05-执行与报告模型.md)
+- [通知与集成模型](/Users/xiaolin/Dev/VisionAutoTest/doc/database/06-通知与集成模型.md)
+
+## 建议源码目录
+
+正式进入实现阶段后，建议采用如下目录：
+
+```text
+backend/
+  app/
+    api/
+    core/
+    models/
+    schemas/
+    services/
+    workers/
+frontend/
+  src/
+    api/
+    stores/
+    views/
+infra/
+  docker/
+  scripts/
+tests/
+  unit/
+  integration/
+```
+
+## 工程原则
+
+- API 严格使用 RESTful 风格，URL 使用名词复数，不在路径中使用动作语义。
+- 数据库优先遵守行业规范：统一命名、显式主外键、必要索引、审计字段、软删除策略、乐观锁字段。
+- 先收敛 `MVP`，再扩展企业级功能，避免在第一阶段同时实现多租户、调度集群、复杂报表全部能力。

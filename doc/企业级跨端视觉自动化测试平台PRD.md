@@ -26,6 +26,14 @@
 - 特征点匹配 (Feature Matching)：基于 ORB/SIFT/SURF 等特征提取算法，实现抗形变、抗旋转、抗放缩等高鲁棒性识别。
 - 环境沙箱隔离 (Context Isolation)：自动化每次执行皆启动干净、无历史缓存、无脏 Cookie 的独立容器上下文，保证测试用例独立无污染。
 
+## 1.5 配套实施文档
+
+为避免单一文档过长导致实现歧义，项目已补充拆分式实施文档：
+
+- API 详细契约以 `doc/api/` 下分模块文档为准；
+- 数据库物理表设计以 `doc/database/` 下分模块文档为准；
+- 项目交付边界与实施顺序以 `doc/MVP定义.md` 和 `doc/实施路线图.md` 为准。
+
 # 二、产品定位与核心价值
 
 ## 2.1 产品定位
@@ -131,7 +139,7 @@
 ## 5.4 系统运维调度、监控台与 API 规范化
 
 - **执行节点与计算大盘监控 (Worker Monitoring Dashboard)**：为架构师/管理员提供对下挂载的所有 Celery Worker 和 Playwright 无头实例运行负荷监控可视化页面。可随时查看当前活跃实例数、空闲卡牌数及队列阻塞任务积压（Queue Depth），支持一键强杀僵死任务以释放宿主计算资源。
-- **完备的 Swagger/OpenAPI 定义**：提供 `/api/v1/trigger/suite_id` 便捷的 Webhook 方式。Jenkins / Gitlab CI 部署完毕后，传入 `trigger_id`，异步等待查询返回的结果体 (`Passed`, `Failed_Baseline_Changed`)，决定产线大门是否拦截放行。
+- **完备的 Swagger/OpenAPI 定义**：接口设计严格遵守 RESTful 规范。对于执行触发场景，统一通过 `POST /api/v1/test-runs` 创建异步执行资源，再通过 `GET /api/v1/test-runs/{test_run_id}` 或关联报告资源查询状态与结果，避免使用动作型路径。
 - **任务定期兜底清理策略（Cron）**：定时表达式解析系统定期将系统的老旧截图与废弃记录自动清空丢弃，防止图文膨胀拖垮服务器磁盘存储大盘。
 
 # 六、非功能与平台级落地保障约束
