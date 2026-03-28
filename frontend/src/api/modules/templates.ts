@@ -1,21 +1,22 @@
-import { requestData, requestPage } from '@/api/client'
-import { TEMPLATE_MASK_STORAGE_KEY } from '@/constants/storage'
+import { requestData, requestPage, requestVoid } from '@/api/client'
 import type {
   BaselineRevisionReadDTO,
   MaskRegionReadDTO,
   TemplateReadDTO
 } from '@/types/backend'
 import type {
+  BaselineRevision,
   MaskRegion,
   Template,
+  TemplateCreatePayload,
   TemplateMaskCreatePayload,
-  TemplateMaskUpdatePayload
+  TemplateMaskUpdatePayload,
+  TemplateUpdatePayload,
+  BaselineRevisionCreatePayload
 } from '@/types/models'
 
-type TemplateMaskStore = Record<string, MaskRegion[]>
-
-function mapMaskRegions(items: MaskRegionReadDTO[]) {
-  return items.map((item) => ({
+function mapMaskRegion(item: MaskRegionReadDTO): MaskRegion {
+  return {
     id: item.id,
     name: item.region_name,
     xRatio: Number(item.x_ratio),
@@ -23,72 +24,28 @@ function mapMaskRegions(items: MaskRegionReadDTO[]) {
     widthRatio: Number(item.width_ratio),
     heightRatio: Number(item.height_ratio),
     sortOrder: item.sort_order
-  }))
+  }
 }
 
-function cloneMaskRegion(item: MaskRegion): MaskRegion {
+function mapMaskRegions(items: MaskRegionReadDTO[]) {
+  return items.map(mapMaskRegion)
+}
+
+function mapBaselineRevision(item: BaselineRevisionReadDTO): BaselineRevision {
   return {
     id: item.id,
-    name: item.name,
-    xRatio: item.xRatio,
-    yRatio: item.yRatio,
-    widthRatio: item.widthRatio,
-    heightRatio: item.heightRatio,
-    sortOrder: item.sortOrder
+    templateId: item.template_id,
+    revisionNo: item.revision_no,
+    mediaObjectId: item.media_object_id,
+    sourceType: item.source_type,
+    isCurrent: item.is_current,
+    remark: item.remark ?? '',
+    createdAt: item.created_at
   }
 }
 
-function normalizeMaskRegions(items: MaskRegion[]) {
-  return [...items]
-    .sort((left, right) => left.sortOrder - right.sortOrder)
-    .map((item, index) => ({
-      ...cloneMaskRegion(item),
-      sortOrder: index + 1
-    }))
-}
-
-function readMaskStore() {
-  const raw = localStorage.getItem(TEMPLATE_MASK_STORAGE_KEY)
-  if (!raw) {
-    return {} as TemplateMaskStore
-  }
-
-  try {
-    return JSON.parse(raw) as TemplateMaskStore
-  } catch {
-    localStorage.removeItem(TEMPLATE_MASK_STORAGE_KEY)
-    return {} as TemplateMaskStore
-  }
-}
-
-function writeMaskStore(store: TemplateMaskStore) {
-  localStorage.setItem(TEMPLATE_MASK_STORAGE_KEY, JSON.stringify(store))
-}
-
-function getStoredMaskRegions(templateId: number) {
-  const store = readMaskStore()
-  const key = String(templateId)
-  return store[key]?.map(cloneMaskRegion) ?? null
-}
-
-function persistTemplateMaskRegions(templateId: number, items: MaskRegion[]) {
-  const store = readMaskStore()
-  store[String(templateId)] = normalizeMaskRegions(items)
-  writeMaskStore(store)
-  return store[String(templateId)].map(cloneMaskRegion)
-}
-
-function ensureStoredMaskRegions(templateId: number, fallback: MaskRegion[]) {
-  const stored = getStoredMaskRegions(templateId)
-  if (stored) {
-    return stored
-  }
-
-  return persistTemplateMaskRegions(templateId, fallback)
-}
-
-function getNextMaskRegionId(items: MaskRegion[]) {
-  return items.reduce((maxValue, item) => Math.max(maxValue, item.id), 0) + 1
+function mapBaselineRevisions(items: BaselineRevisionReadDTO[]) {
+  return items.map(mapBaselineRevision)
 }
 
 function resolveBaselineVersion(
@@ -123,6 +80,7 @@ function mapTemplateSummary(item: TemplateReadDTO): Template {
     createdAt: item.created_at,
     updatedAt: item.updated_at,
     imageLabel: `${item.match_strategy} / 阈值 ${Number(item.threshold_value).toFixed(2)}`,
+    baselineRevisions: [],
     maskRegions: []
   }
 }
@@ -138,6 +96,70 @@ export async function listTemplates(): Promise<Template[]> {
   })
 
   return response.data.map(mapTemplateSummary)
+}
+
+export async function createTemplate(payload: TemplateCreatePayload): Promise<Template> {
+  const response = await requestData<TemplateReadDTO>({
+    method: 'post',
+    url: '/templates',
+    data: {
+      template_code: payload.code,
+      template_name: payload.name,
+      template_type: payload.templateType,
+      match_strategy: payload.matchStrategy,
+      threshold_value: payload.thresholdValue,
+      status: payload.status,
+      original_media_object_id: payload.originalMediaObjectId
+    }
+  })
+
+  return mapTemplateSummary(response)
+}
+
+export async function updateTemplate(
+  templateId: number,
+  payload: TemplateUpdatePayload
+): Promise<Template> {
+  const response = await requestData<TemplateReadDTO>({
+    method: 'patch',
+    url: `/templates/${templateId}`,
+    data: {
+      template_name: payload.name,
+      template_type: payload.templateType,
+      match_strategy: payload.matchStrategy,
+      threshold_value: payload.thresholdValue,
+      status: payload.status
+    }
+  })
+
+  return mapTemplateSummary(response)
+}
+
+export async function listBaselineRevisions(templateId: number): Promise<BaselineRevision[]> {
+  const response = await requestData<BaselineRevisionReadDTO[]>({
+    method: 'get',
+    url: `/templates/${templateId}/baseline-revisions`
+  })
+
+  return mapBaselineRevisions(response)
+}
+
+export async function createBaselineRevision(
+  templateId: number,
+  payload: BaselineRevisionCreatePayload
+): Promise<BaselineRevision> {
+  const response = await requestData<BaselineRevisionReadDTO>({
+    method: 'post',
+    url: `/templates/${templateId}/baseline-revisions`,
+    data: {
+      media_object_id: payload.mediaObjectId,
+      source_type: payload.sourceType,
+      remark: payload.remark,
+      is_current: payload.isCurrent
+    }
+  })
+
+  return mapBaselineRevision(response)
 }
 
 export async function getTemplateDetail(templateId: number): Promise<Template> {
@@ -163,7 +185,8 @@ export async function getTemplateDetail(templateId: number): Promise<Template> {
       baselineRevisions
     ),
     imageLabel: `${template.match_strategy} / 阈值 ${Number(template.threshold_value).toFixed(2)}`,
-    maskRegions: ensureStoredMaskRegions(templateId, mapMaskRegions(maskRegions))
+    baselineRevisions: mapBaselineRevisions(baselineRevisions),
+    maskRegions: mapMaskRegions(maskRegions)
   }
 }
 
@@ -171,49 +194,46 @@ export async function createMaskRegion(
   templateId: number,
   payload: TemplateMaskCreatePayload
 ): Promise<MaskRegion> {
-  const currentRegions = getStoredMaskRegions(templateId) ?? []
-  const nextRegion: MaskRegion = {
-    id: getNextMaskRegionId(currentRegions),
-    name: payload.name,
-    xRatio: payload.xRatio,
-    yRatio: payload.yRatio,
-    widthRatio: payload.widthRatio,
-    heightRatio: payload.heightRatio,
-    sortOrder: payload.sortOrder
-  }
-
-  persistTemplateMaskRegions(templateId, [...currentRegions, nextRegion])
-  return cloneMaskRegion(nextRegion)
-}
-
-export async function updateMaskRegion(
-  templateId: number,
-  maskRegionId: number,
-  payload: TemplateMaskUpdatePayload
-): Promise<MaskRegion> {
-  const currentRegions = getStoredMaskRegions(templateId) ?? []
-  const nextRegions = currentRegions.map((item) => {
-    if (item.id !== maskRegionId) {
-      return item
-    }
-
-    return {
-      ...item,
-      ...payload
+  const response = await requestData<MaskRegionReadDTO>({
+    method: 'post',
+    url: `/templates/${templateId}/mask-regions`,
+    data: {
+      name: payload.name,
+      x_ratio: payload.xRatio,
+      y_ratio: payload.yRatio,
+      width_ratio: payload.widthRatio,
+      height_ratio: payload.heightRatio,
+      sort_order: payload.sortOrder
     }
   })
 
-  const stored = persistTemplateMaskRegions(templateId, nextRegions)
-  const updated = stored.find((item) => item.id === maskRegionId)
-  if (!updated) {
-    throw new Error(`Mask region ${maskRegionId} not found.`)
-  }
-
-  return cloneMaskRegion(updated)
+  return mapMaskRegion(response)
 }
 
-export async function deleteMaskRegion(templateId: number, maskRegionId: number): Promise<void> {
-  const currentRegions = getStoredMaskRegions(templateId) ?? []
-  const nextRegions = currentRegions.filter((item) => item.id !== maskRegionId)
-  persistTemplateMaskRegions(templateId, nextRegions)
+export async function updateMaskRegion(
+  _templateId: number,
+  maskRegionId: number,
+  payload: TemplateMaskUpdatePayload
+): Promise<MaskRegion> {
+  const response = await requestData<MaskRegionReadDTO>({
+    method: 'patch',
+    url: `/mask-regions/${maskRegionId}`,
+    data: {
+      name: payload.name,
+      x_ratio: payload.xRatio,
+      y_ratio: payload.yRatio,
+      width_ratio: payload.widthRatio,
+      height_ratio: payload.heightRatio,
+      sort_order: payload.sortOrder
+    }
+  })
+
+  return mapMaskRegion(response)
+}
+
+export async function deleteMaskRegion(_templateId: number, maskRegionId: number): Promise<void> {
+  await requestVoid({
+    method: 'delete',
+    url: `/mask-regions/${maskRegionId}`
+  })
 }

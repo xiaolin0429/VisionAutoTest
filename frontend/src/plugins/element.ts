@@ -8,11 +8,16 @@ import {
   Setting
 } from '@element-plus/icons-vue'
 import {
+  ElCheckbox,
   ElAvatar,
   ElButton,
+  ElDialog,
   ElEmpty,
+  ElForm,
+  ElFormItem,
   ElIcon,
   ElInput,
+  ElInputNumber,
   ElLoadingDirective,
   ElMenu,
   ElMenuItem,
@@ -27,9 +32,14 @@ import {
 
 import 'element-plus/es/components/avatar/style/css'
 import 'element-plus/es/components/button/style/css'
+import 'element-plus/es/components/checkbox/style/css'
+import 'element-plus/es/components/dialog/style/css'
 import 'element-plus/es/components/empty/style/css'
+import 'element-plus/es/components/form/style/css'
+import 'element-plus/es/components/form-item/style/css'
 import 'element-plus/es/components/icon/style/css'
 import 'element-plus/es/components/input/style/css'
+import 'element-plus/es/components/input-number/style/css'
 import 'element-plus/es/components/loading/style/css'
 import 'element-plus/es/components/menu/style/css'
 import 'element-plus/es/components/menu-item/style/css'
@@ -44,9 +54,14 @@ import 'element-plus/es/components/timeline-item/style/css'
 const components: Plugin[] = [
   ElAvatar,
   ElButton,
+  ElCheckbox,
+  ElDialog,
   ElEmpty,
+  ElForm,
+  ElFormItem,
   ElIcon,
   ElInput,
+  ElInputNumber,
   ElMenu,
   ElMenuItem,
   ElOption,

@@ -5,6 +5,7 @@ import { useAuthStore } from '@/stores/auth'
 import { useWorkspaceStore } from '@/stores/workspace'
 
 const LoginView = () => import('@/views/LoginView.vue')
+const EmptyWorkspaceView = () => import('@/views/EmptyWorkspaceView.vue')
 const DashboardView = () => import('@/views/DashboardView.vue')
 const EnvironmentProfilesView = () => import('@/views/EnvironmentProfilesView.vue')
 const TemplatesView = () => import('@/views/TemplatesView.vue')
@@ -53,6 +54,16 @@ const router = createRouter({
           meta: {
             title: '工作台',
             description: '汇总当前工作空间的模板、套件、执行与待办。'
+          }
+        },
+        {
+          path: '/workspace-empty',
+          name: 'workspace-empty',
+          component: EmptyWorkspaceView,
+          meta: {
+            title: '工作空间初始化',
+            description: '当前账号尚未加入任何工作空间。',
+            requiresWorkspace: false
           }
         },
         {
@@ -128,6 +139,7 @@ router.beforeEach(async (to) => {
   const authStore = useAuthStore(pinia)
   const workspaceStore = useWorkspaceStore(pinia)
   const isPublicRoute = Boolean(to.meta.public)
+  const requiresWorkspace = to.meta.requiresWorkspace !== false
 
   if (!isPublicRoute && !authStore.isAuthenticated) {
     return {
@@ -138,12 +150,20 @@ router.beforeEach(async (to) => {
     }
   }
 
-  if (to.path === '/login' && authStore.isAuthenticated) {
-    return '/dashboard'
-  }
-
   if (authStore.isAuthenticated && workspaceStore.workspaces.length === 0) {
     await workspaceStore.bootstrap()
+  }
+
+  if (to.path === '/login' && authStore.isAuthenticated) {
+    return workspaceStore.hasWorkspace ? '/dashboard' : '/workspace-empty'
+  }
+
+  if (authStore.isAuthenticated && !workspaceStore.hasWorkspace && requiresWorkspace) {
+    return '/workspace-empty'
+  }
+
+  if (authStore.isAuthenticated && workspaceStore.hasWorkspace && to.path === '/workspace-empty') {
+    return '/dashboard'
   }
 
   return true

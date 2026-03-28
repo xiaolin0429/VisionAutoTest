@@ -6,7 +6,7 @@ from decimal import Decimal
 from typing import Protocol, Sequence
 
 from app.core.config import get_settings
-from app.models import DeviceProfile, TestCaseStep, utc_now
+from app.models import DeviceProfile, utc_now
 
 
 class UnsupportedStepError(Exception):
@@ -42,6 +42,13 @@ class CaseExecutionResult:
     artifact: BrowserArtifact | None = None
 
 
+class BrowserStep(Protocol):
+    step_no: int
+    step_type: str
+    payload_json: dict
+    timeout_ms: int
+
+
 class BrowserExecutionAdapter(Protocol):
     def execute_case(
         self,
@@ -49,7 +56,7 @@ class BrowserExecutionAdapter(Protocol):
         base_url: str,
         case_run_id: int,
         device_profile: DeviceProfile | None,
-        steps: Sequence[TestCaseStep],
+        steps: Sequence[BrowserStep],
     ) -> CaseExecutionResult: ...
 
 
@@ -72,7 +79,7 @@ class PlaywrightBrowserExecutionAdapter:
         base_url: str,
         case_run_id: int,
         device_profile: DeviceProfile | None,
-        steps: Sequence[TestCaseStep],
+        steps: Sequence[BrowserStep],
     ) -> CaseExecutionResult:
         sync_playwright, playwright_timeout_error = self._load_playwright()
         step_results: list[BrowserStepResult] = []
@@ -188,7 +195,7 @@ class PlaywrightBrowserExecutionAdapter:
             kwargs["user_agent"] = device_profile.user_agent
         return kwargs
 
-    def _execute_step(self, page, step: TestCaseStep) -> None:
+    def _execute_step(self, page, step: BrowserStep) -> None:
         payload = step.payload_json or {}
         timeout_ms = int(step.timeout_ms)
         if step.step_type == "wait":

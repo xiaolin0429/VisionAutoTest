@@ -9,6 +9,18 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 
+TEST_ADMIN_USERNAME = "admin"
+TEST_ADMIN_PASSWORD = "test-admin-password"
+
+
+def _require_test_database_url() -> str:
+    database_url = os.environ.get("VAT_TEST_DATABASE_URL")
+    if not database_url:
+        raise RuntimeError(
+            "VAT_TEST_DATABASE_URL is required. Please prepare an external PostgreSQL test database before running backend tests."
+        )
+    return database_url
+
 
 def _reset_local_data() -> None:
     if "app.db.session" in sys.modules:
@@ -22,8 +34,19 @@ def _reset_local_data() -> None:
     testdata_root = backend_root / ".testdata"
     testdata_root.mkdir(exist_ok=True)
     temp_dir = Path(tempfile.mkdtemp(prefix="case_", dir=testdata_root))
-    os.environ["VAT_DATABASE_URL"] = f"sqlite+pysqlite:///{temp_dir / 'visionautotest.db'}"
+    os.environ["VAT_DATABASE_URL"] = _require_test_database_url()
+    os.environ["VAT_APP_ENV"] = "test"
+    os.environ["VAT_DATABASE_AUTO_CREATE"] = "false"
+    os.environ["VAT_DATABASE_AUTO_MIGRATE"] = "true"
+    os.environ.pop("VAT_DATABASE_ADMIN_URL", None)
     os.environ["VAT_LOCAL_STORAGE_PATH"] = str(temp_dir / "media")
+    os.environ["VAT_DEFAULT_ADMIN_USERNAME"] = TEST_ADMIN_USERNAME
+    os.environ["VAT_DEFAULT_ADMIN_PASSWORD"] = TEST_ADMIN_PASSWORD
+
+    from app.db.migrations import reset_database_schema, upgrade_database
+
+    reset_database_schema(database_url=os.environ["VAT_DATABASE_URL"])
+    upgrade_database(database_url=os.environ["VAT_DATABASE_URL"])
 
 
 def _install_fake_browser_adapter(monkeypatch) -> None:
@@ -110,7 +133,7 @@ def test_mvp_backend_smoke_flow(monkeypatch):
     _install_fake_browser_adapter(monkeypatch)
 
     with TestClient(app) as client:
-        login_resp = client.post("/api/v1/sessions", json={"username": "admin", "password": "admin123456"})
+        login_resp = client.post("/api/v1/sessions", json={"username": TEST_ADMIN_USERNAME, "password": TEST_ADMIN_PASSWORD})
         assert login_resp.status_code == 201
         token = login_resp.json()["data"]["access_token"]
         headers = {"Authorization": f"Bearer {token}"}
@@ -134,7 +157,7 @@ def test_mvp_backend_smoke_flow(monkeypatch):
 
         case_resp = client.post(
             "/api/v1/test-cases",
-            json={"case_code": "case_login", "case_name": "Login Case"},
+            json={"case_code": "case_login", "case_name": "Login Case", "status": "published"},
             headers=workspace_headers,
         )
         assert case_resp.status_code == 201
@@ -206,7 +229,7 @@ def test_empty_suite_cannot_create_test_run():
     from app.main import app
 
     with TestClient(app) as client:
-        login_resp = client.post("/api/v1/sessions", json={"username": "admin", "password": "admin123456"})
+        login_resp = client.post("/api/v1/sessions", json={"username": TEST_ADMIN_USERNAME, "password": TEST_ADMIN_PASSWORD})
         token = login_resp.json()["data"]["access_token"]
         headers = {"Authorization": f"Bearer {token}"}
 
@@ -256,7 +279,7 @@ def test_cancelling_test_run_transitions_to_cancelled(monkeypatch):
     _install_fake_browser_adapter(monkeypatch)
 
     with TestClient(app) as client:
-        login_resp = client.post("/api/v1/sessions", json={"username": "admin", "password": "admin123456"})
+        login_resp = client.post("/api/v1/sessions", json={"username": TEST_ADMIN_USERNAME, "password": TEST_ADMIN_PASSWORD})
         token = login_resp.json()["data"]["access_token"]
         headers = {"Authorization": f"Bearer {token}"}
 
@@ -277,7 +300,7 @@ def test_cancelling_test_run_transitions_to_cancelled(monkeypatch):
 
         case_resp = client.post(
             "/api/v1/test-cases",
-            json={"case_code": "cancel_case", "case_name": "Cancel Case"},
+            json={"case_code": "cancel_case", "case_name": "Cancel Case", "status": "published"},
             headers=workspace_headers,
         )
         test_case_id = case_resp.json()["data"]["id"]
@@ -354,7 +377,7 @@ def test_cancelling_during_finalization_does_not_end_as_passed(monkeypatch):
     _install_fake_browser_adapter(monkeypatch)
 
     with TestClient(app) as client:
-        login_resp = client.post("/api/v1/sessions", json={"username": "admin", "password": "admin123456"})
+        login_resp = client.post("/api/v1/sessions", json={"username": TEST_ADMIN_USERNAME, "password": TEST_ADMIN_PASSWORD})
         token = login_resp.json()["data"]["access_token"]
         headers = {"Authorization": f"Bearer {token}"}
 
@@ -375,7 +398,7 @@ def test_cancelling_during_finalization_does_not_end_as_passed(monkeypatch):
 
         case_resp = client.post(
             "/api/v1/test-cases",
-            json={"case_code": "finalize_race_case", "case_name": "Finalize Race Case"},
+            json={"case_code": "finalize_race_case", "case_name": "Finalize Race Case", "status": "published"},
             headers=workspace_headers,
         )
         test_case_id = case_resp.json()["data"]["id"]
@@ -457,7 +480,7 @@ def test_unsupported_step_marks_test_run_error(monkeypatch):
     _install_fake_browser_adapter(monkeypatch)
 
     with TestClient(app) as client:
-        login_resp = client.post("/api/v1/sessions", json={"username": "admin", "password": "admin123456"})
+        login_resp = client.post("/api/v1/sessions", json={"username": TEST_ADMIN_USERNAME, "password": TEST_ADMIN_PASSWORD})
         token = login_resp.json()["data"]["access_token"]
         headers = {"Authorization": f"Bearer {token}"}
 
@@ -478,7 +501,7 @@ def test_unsupported_step_marks_test_run_error(monkeypatch):
 
         case_resp = client.post(
             "/api/v1/test-cases",
-            json={"case_code": "unsupported_case", "case_name": "Unsupported Case"},
+            json={"case_code": "unsupported_case", "case_name": "Unsupported Case", "status": "published"},
             headers=workspace_headers,
         )
         test_case_id = case_resp.json()["data"]["id"]
@@ -523,3 +546,392 @@ def test_unsupported_step_marks_test_run_error(monkeypatch):
         step_results_resp = client.get(f"/api/v1/case-runs/{case_run_id}/step-results", headers=workspace_headers)
         assert step_results_resp.status_code == 200
         assert step_results_resp.json()["data"][0]["status"] == "error"
+
+
+def test_adapter_initialization_failure_marks_test_run_error(monkeypatch):
+    _reset_local_data()
+    from app.db.session import SessionLocal
+    from app.main import app
+    from app.models import RunReport
+
+    monkeypatch.setattr("app.workers.execution.build_browser_execution_adapter", lambda: (_ for _ in ()).throw(RuntimeError("adapter init failed")))
+
+    with TestClient(app) as client:
+        login_resp = client.post("/api/v1/sessions", json={"username": TEST_ADMIN_USERNAME, "password": TEST_ADMIN_PASSWORD})
+        token = login_resp.json()["data"]["access_token"]
+        headers = {"Authorization": f"Bearer {token}"}
+
+        workspace_resp = client.post(
+            "/api/v1/workspaces",
+            json={"workspace_code": "adapter_failure_ws", "name": "Adapter Failure WS"},
+            headers=headers,
+        )
+        workspace_id = workspace_resp.json()["data"]["id"]
+        workspace_headers = headers | {"X-Workspace-Id": str(workspace_id)}
+
+        env_resp = client.post(
+            "/api/v1/environment-profiles",
+            json={"profile_name": "dev", "base_url": "https://example.com"},
+            headers=workspace_headers,
+        )
+        environment_profile_id = env_resp.json()["data"]["id"]
+
+        case_resp = client.post(
+            "/api/v1/test-cases",
+            json={"case_code": "adapter_failure_case", "case_name": "Adapter Failure Case", "status": "published"},
+            headers=workspace_headers,
+        )
+        test_case_id = case_resp.json()["data"]["id"]
+
+        client.put(
+            f"/api/v1/test-cases/{test_case_id}/steps",
+            json=[{"step_no": 1, "step_type": "wait", "step_name": "Wait Render", "payload_json": {"ms": 100}}],
+            headers=workspace_headers,
+        )
+
+        suite_resp = client.post(
+            "/api/v1/test-suites",
+            json={"suite_code": "suite_adapter_failure", "suite_name": "Adapter Failure Suite", "status": "active"},
+            headers=workspace_headers,
+        )
+        test_suite_id = suite_resp.json()["data"]["id"]
+
+        client.put(
+            f"/api/v1/test-suites/{test_suite_id}/cases",
+            json=[{"test_case_id": test_case_id, "sort_order": 1}],
+            headers=workspace_headers,
+        )
+
+        run_resp = client.post(
+            "/api/v1/test-runs",
+            json={
+                "test_suite_id": test_suite_id,
+                "environment_profile_id": environment_profile_id,
+                "trigger_source": "manual",
+            },
+            headers=workspace_headers | {"Idempotency-Key": "run-adapter-failure"},
+        )
+        assert run_resp.status_code == 201
+        test_run_id = run_resp.json()["data"]["id"]
+
+        detail_resp = client.get(f"/api/v1/test-runs/{test_run_id}", headers=workspace_headers)
+        assert detail_resp.status_code == 200
+        assert detail_resp.json()["data"]["status"] == "error"
+        assert detail_resp.json()["data"]["error_case_count"] == 1
+
+        case_runs_resp = client.get(f"/api/v1/test-runs/{test_run_id}/case-runs", headers=workspace_headers)
+        assert case_runs_resp.status_code == 200
+        assert case_runs_resp.json()["data"][0]["status"] == "error"
+        assert case_runs_resp.json()["data"][0]["failure_reason_code"] == "TEST_RUN_EXECUTION_ERROR"
+
+        with SessionLocal() as db:
+            report = db.query(RunReport).filter(RunReport.test_run_id == test_run_id).one()
+            assert report.summary_status == "error"
+            assert "adapter init failed" in report.summary_json["message"]
+
+
+def test_component_call_steps_are_expanded_and_executed(monkeypatch):
+    _reset_local_data()
+    from app.main import app
+
+    _install_fake_browser_adapter(monkeypatch)
+
+    with TestClient(app) as client:
+        login_resp = client.post("/api/v1/sessions", json={"username": TEST_ADMIN_USERNAME, "password": TEST_ADMIN_PASSWORD})
+        token = login_resp.json()["data"]["access_token"]
+        headers = {"Authorization": f"Bearer {token}"}
+
+        workspace_resp = client.post(
+            "/api/v1/workspaces",
+            json={"workspace_code": "component_call_ws", "name": "Component Call WS"},
+            headers=headers,
+        )
+        workspace_id = workspace_resp.json()["data"]["id"]
+        workspace_headers = headers | {"X-Workspace-Id": str(workspace_id)}
+
+        env_resp = client.post(
+            "/api/v1/environment-profiles",
+            json={"profile_name": "dev", "base_url": "https://example.com"},
+            headers=workspace_headers,
+        )
+        environment_profile_id = env_resp.json()["data"]["id"]
+
+        component_resp = client.post(
+            "/api/v1/components",
+            json={"component_code": "shared_login", "component_name": "Shared Login", "status": "published"},
+            headers=workspace_headers,
+        )
+        assert component_resp.status_code == 201
+        component = component_resp.json()["data"]
+        assert component["published_at"] is not None
+        component_id = component["id"]
+
+        component_steps_resp = client.put(
+            f"/api/v1/components/{component_id}/steps",
+            json=[
+                {"step_no": 1, "step_type": "wait", "step_name": "Wait In Component", "payload_json": {"ms": 100}},
+                {"step_no": 2, "step_type": "click", "step_name": "Click In Component", "payload_json": {"selector": "#login"}},
+            ],
+            headers=workspace_headers,
+        )
+        assert component_steps_resp.status_code == 200
+
+        case_resp = client.post(
+            "/api/v1/test-cases",
+            json={"case_code": "case_component_call", "case_name": "Component Call Case", "status": "published"},
+            headers=workspace_headers,
+        )
+        assert case_resp.status_code == 201
+        test_case_id = case_resp.json()["data"]["id"]
+
+        case_steps_resp = client.put(
+            f"/api/v1/test-cases/{test_case_id}/steps",
+            json=[
+                {"step_no": 1, "step_type": "wait", "step_name": "Outer Wait", "payload_json": {"ms": 100}},
+                {"step_no": 2, "step_type": "component_call", "step_name": "Invoke Component", "component_id": component_id},
+                {"step_no": 3, "step_type": "input", "step_name": "Outer Input", "payload_json": {"selector": "#username", "text": "admin"}},
+            ],
+            headers=workspace_headers,
+        )
+        assert case_steps_resp.status_code == 200
+
+        suite_resp = client.post(
+            "/api/v1/test-suites",
+            json={"suite_code": "suite_component_call", "suite_name": "Component Call Suite", "status": "active"},
+            headers=workspace_headers,
+        )
+        assert suite_resp.status_code == 201
+        test_suite_id = suite_resp.json()["data"]["id"]
+
+        suite_cases_resp = client.put(
+            f"/api/v1/test-suites/{test_suite_id}/cases",
+            json=[{"test_case_id": test_case_id, "sort_order": 1}],
+            headers=workspace_headers,
+        )
+        assert suite_cases_resp.status_code == 200
+
+        run_resp = client.post(
+            "/api/v1/test-runs",
+            json={
+                "test_suite_id": test_suite_id,
+                "environment_profile_id": environment_profile_id,
+                "trigger_source": "manual",
+            },
+            headers=workspace_headers | {"Idempotency-Key": "run-component-call"},
+        )
+        assert run_resp.status_code == 201
+        test_run_id = run_resp.json()["data"]["id"]
+
+        case_runs_resp = client.get(f"/api/v1/test-runs/{test_run_id}/case-runs", headers=workspace_headers)
+        assert case_runs_resp.status_code == 200
+        case_run_id = case_runs_resp.json()["data"][0]["id"]
+
+        step_results_resp = client.get(f"/api/v1/case-runs/{case_run_id}/step-results", headers=workspace_headers)
+        assert step_results_resp.status_code == 200
+        step_results = step_results_resp.json()["data"]
+        assert len(step_results) == 4
+        assert [item["step_no"] for item in step_results] == [1, 2, 3, 4]
+        assert [item["step_type"] for item in step_results] == ["wait", "wait", "click", "input"]
+        assert all(item["status"] == "passed" for item in step_results)
+
+
+def test_non_active_suite_cannot_create_test_run():
+    _reset_local_data()
+    from app.main import app
+
+    with TestClient(app) as client:
+        login_resp = client.post("/api/v1/sessions", json={"username": TEST_ADMIN_USERNAME, "password": TEST_ADMIN_PASSWORD})
+        token = login_resp.json()["data"]["access_token"]
+        headers = {"Authorization": f"Bearer {token}"}
+
+        workspace_resp = client.post(
+            "/api/v1/workspaces",
+            json={"workspace_code": "inactive_suite_ws", "name": "Inactive Suite WS"},
+            headers=headers,
+        )
+        workspace_id = workspace_resp.json()["data"]["id"]
+        workspace_headers = headers | {"X-Workspace-Id": str(workspace_id)}
+
+        env_resp = client.post(
+            "/api/v1/environment-profiles",
+            json={"profile_name": "dev", "base_url": "https://example.com"},
+            headers=workspace_headers,
+        )
+        environment_profile_id = env_resp.json()["data"]["id"]
+
+        case_resp = client.post(
+            "/api/v1/test-cases",
+            json={"case_code": "published_case", "case_name": "Published Case", "status": "published"},
+            headers=workspace_headers,
+        )
+        test_case_id = case_resp.json()["data"]["id"]
+
+        client.put(
+            f"/api/v1/test-cases/{test_case_id}/steps",
+            json=[{"step_no": 1, "step_type": "wait", "step_name": "Wait Render", "payload_json": {"ms": 100}}],
+            headers=workspace_headers,
+        )
+
+        suite_resp = client.post(
+            "/api/v1/test-suites",
+            json={"suite_code": "suite_draft", "suite_name": "Draft Suite", "status": "draft"},
+            headers=workspace_headers,
+        )
+        test_suite_id = suite_resp.json()["data"]["id"]
+
+        client.put(
+            f"/api/v1/test-suites/{test_suite_id}/cases",
+            json=[{"test_case_id": test_case_id, "sort_order": 1}],
+            headers=workspace_headers,
+        )
+
+        run_resp = client.post(
+            "/api/v1/test-runs",
+            json={
+                "test_suite_id": test_suite_id,
+                "environment_profile_id": environment_profile_id,
+                "trigger_source": "manual",
+            },
+            headers=workspace_headers | {"Idempotency-Key": "run-inactive-suite"},
+        )
+        assert run_resp.status_code == 422
+        assert run_resp.json()["error"]["code"] == "TEST_SUITE_NOT_ACTIVE"
+
+
+def test_draft_test_case_cannot_create_test_run():
+    _reset_local_data()
+    from app.main import app
+
+    with TestClient(app) as client:
+        login_resp = client.post("/api/v1/sessions", json={"username": TEST_ADMIN_USERNAME, "password": TEST_ADMIN_PASSWORD})
+        token = login_resp.json()["data"]["access_token"]
+        headers = {"Authorization": f"Bearer {token}"}
+
+        workspace_resp = client.post(
+            "/api/v1/workspaces",
+            json={"workspace_code": "draft_case_ws", "name": "Draft Case WS"},
+            headers=headers,
+        )
+        workspace_id = workspace_resp.json()["data"]["id"]
+        workspace_headers = headers | {"X-Workspace-Id": str(workspace_id)}
+
+        env_resp = client.post(
+            "/api/v1/environment-profiles",
+            json={"profile_name": "dev", "base_url": "https://example.com"},
+            headers=workspace_headers,
+        )
+        environment_profile_id = env_resp.json()["data"]["id"]
+
+        case_resp = client.post(
+            "/api/v1/test-cases",
+            json={"case_code": "draft_case", "case_name": "Draft Case", "status": "draft"},
+            headers=workspace_headers,
+        )
+        test_case_id = case_resp.json()["data"]["id"]
+
+        client.put(
+            f"/api/v1/test-cases/{test_case_id}/steps",
+            json=[{"step_no": 1, "step_type": "wait", "step_name": "Wait Render", "payload_json": {"ms": 100}}],
+            headers=workspace_headers,
+        )
+
+        suite_resp = client.post(
+            "/api/v1/test-suites",
+            json={"suite_code": "suite_active_case", "suite_name": "Active Suite", "status": "active"},
+            headers=workspace_headers,
+        )
+        test_suite_id = suite_resp.json()["data"]["id"]
+
+        client.put(
+            f"/api/v1/test-suites/{test_suite_id}/cases",
+            json=[{"test_case_id": test_case_id, "sort_order": 1}],
+            headers=workspace_headers,
+        )
+
+        run_resp = client.post(
+            "/api/v1/test-runs",
+            json={
+                "test_suite_id": test_suite_id,
+                "environment_profile_id": environment_profile_id,
+                "trigger_source": "manual",
+            },
+            headers=workspace_headers | {"Idempotency-Key": "run-draft-case"},
+        )
+        assert run_resp.status_code == 422
+        assert run_resp.json()["error"]["code"] == "PUBLISHED_VERSION_REQUIRED"
+
+
+def test_draft_component_cannot_create_test_run():
+    _reset_local_data()
+    from app.main import app
+
+    with TestClient(app) as client:
+        login_resp = client.post("/api/v1/sessions", json={"username": TEST_ADMIN_USERNAME, "password": TEST_ADMIN_PASSWORD})
+        token = login_resp.json()["data"]["access_token"]
+        headers = {"Authorization": f"Bearer {token}"}
+
+        workspace_resp = client.post(
+            "/api/v1/workspaces",
+            json={"workspace_code": "draft_component_ws", "name": "Draft Component WS"},
+            headers=headers,
+        )
+        workspace_id = workspace_resp.json()["data"]["id"]
+        workspace_headers = headers | {"X-Workspace-Id": str(workspace_id)}
+
+        env_resp = client.post(
+            "/api/v1/environment-profiles",
+            json={"profile_name": "dev", "base_url": "https://example.com"},
+            headers=workspace_headers,
+        )
+        environment_profile_id = env_resp.json()["data"]["id"]
+
+        component_resp = client.post(
+            "/api/v1/components",
+            json={"component_code": "draft_component", "component_name": "Draft Component", "status": "draft"},
+            headers=workspace_headers,
+        )
+        component_id = component_resp.json()["data"]["id"]
+
+        client.put(
+            f"/api/v1/components/{component_id}/steps",
+            json=[{"step_no": 1, "step_type": "wait", "step_name": "Wait In Component", "payload_json": {"ms": 100}}],
+            headers=workspace_headers,
+        )
+
+        case_resp = client.post(
+            "/api/v1/test-cases",
+            json={"case_code": "published_case_with_component", "case_name": "Published Case With Component", "status": "published"},
+            headers=workspace_headers,
+        )
+        test_case_id = case_resp.json()["data"]["id"]
+
+        client.put(
+            f"/api/v1/test-cases/{test_case_id}/steps",
+            json=[{"step_no": 1, "step_type": "component_call", "step_name": "Invoke Draft Component", "component_id": component_id}],
+            headers=workspace_headers,
+        )
+
+        suite_resp = client.post(
+            "/api/v1/test-suites",
+            json={"suite_code": "suite_draft_component", "suite_name": "Draft Component Suite", "status": "active"},
+            headers=workspace_headers,
+        )
+        test_suite_id = suite_resp.json()["data"]["id"]
+
+        client.put(
+            f"/api/v1/test-suites/{test_suite_id}/cases",
+            json=[{"test_case_id": test_case_id, "sort_order": 1}],
+            headers=workspace_headers,
+        )
+
+        run_resp = client.post(
+            "/api/v1/test-runs",
+            json={
+                "test_suite_id": test_suite_id,
+                "environment_profile_id": environment_profile_id,
+                "trigger_source": "manual",
+            },
+            headers=workspace_headers | {"Idempotency-Key": "run-draft-component"},
+        )
+        assert run_resp.status_code == 422
+        assert run_resp.json()["error"]["code"] == "PUBLISHED_VERSION_REQUIRED"

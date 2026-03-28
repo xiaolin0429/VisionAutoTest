@@ -171,5 +171,5 @@
 ## 7.2 整体开发交付产物与交付基准
 
 - **全库脚手架包**：带有按最佳实践划分项目目录的 (`app/api`, `app/core/vision`, `app/models`, `frontend/`) 分层源码体系。
-- **环境基石配置文件**：`docker-compose.yml` (打包所有微服务组件)、`requirements.txt`。并支持跨 Linux/Mac OS/Windows 全境本地即插即点运行 (`python main.py` 极简式退化运行模式保障）。
+- **环境基石配置文件**：`docker-compose.yml` (打包所有微服务组件)、`requirements-lock.txt`、`requirements-lock-dev.txt`。并支持跨 Linux/Mac OS/Windows 全境本地即插即点运行 (`python main.py` 极简式退化运行模式保障）。
 - **极简的操作部署手册**：内聚 5 分钟上手视频图文流程。说明各类容差特性在平台中的应用设置经验指导原则。

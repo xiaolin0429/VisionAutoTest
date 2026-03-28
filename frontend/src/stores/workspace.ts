@@ -19,6 +19,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   const currentWorkspace = computed(() => {
     return workspaces.value.find((item) => item.id === currentWorkspaceId.value) ?? null
   })
+  const hasWorkspace = computed(() => workspaces.value.length > 0 && currentWorkspace.value !== null)
 
   function setWorkspaces(items: Workspace[]) {
     workspaces.value = items
@@ -45,6 +46,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     workspaces,
     currentWorkspaceId,
     currentWorkspace,
+    hasWorkspace,
     setWorkspaces,
     setCurrentWorkspace,
     bootstrap,

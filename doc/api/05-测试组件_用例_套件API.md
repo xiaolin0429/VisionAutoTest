@@ -109,13 +109,15 @@
 
 - 步骤顺序必须连续，`step_no` 从 1 开始。
 - 当步骤类型为 `component_call` 时，必须显式传入 `component_id`。
-- 用例和组件均采用草稿/已发布双态，执行时只能引用已发布版本。
+- 组件和用例状态统一采用 `draft/published/archived`；执行时只能引用 `published` 版本。
 - 套件中的用例顺序必须可控，用于稳定回放；套件本身采用 `draft/active/archived` 状态流转。
 - 步骤中的变量占位符统一采用 `{{ variable_name }}` 语法。
 - MVP 首批真实浏览器执行支持以下步骤载荷约定：
   - `wait`：`payload_json.ms`
   - `click`：`payload_json.selector`
   - `input`：`payload_json.selector`、`payload_json.text`
+- `component_call` 为编排步骤，不直接映射浏览器动作；执行时会按组件步骤明细展开成真实执行序列。
+- 当前组件展开只支持一层复用，不支持组件内部继续嵌套组件调用。
 
 ## 5. 推荐错误码
 

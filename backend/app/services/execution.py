@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from app.core.http import ApiError
 from app.models import (
+    Component,
+    ComponentStep,
     DeviceProfile,
     EnvironmentProfile,
     MediaObject,
@@ -12,13 +16,27 @@ from app.models import (
     RunReport,
     StepResult,
     SuiteCase,
+    TestCase,
     TestCaseRun,
+    TestCaseStep,
     TestRun,
     TestSuite,
     User,
     utc_now,
 )
 from app.services.helpers import count_total, require_workspace_access
+
+
+@dataclass(slots=True)
+class ResolvedExecutionStep:
+    step_no: int
+    step_type: str
+    step_name: str
+    template_id: int | None
+    component_id: int | None
+    payload_json: dict
+    timeout_ms: int
+    retry_times: int
 
 
 def create_test_run(
@@ -45,6 +63,12 @@ def create_test_run(
     suite = db.get(TestSuite, test_suite_id)
     if suite is None or suite.workspace_id != workspace_id or suite.is_deleted:
         raise ApiError(code="TEST_SUITE_NOT_FOUND", message="Test suite not found.", status_code=404)
+    if suite.status != "active":
+        raise ApiError(
+            code="TEST_SUITE_NOT_ACTIVE",
+            message="Test suite must be active before execution.",
+            status_code=422,
+        )
     environment = db.get(EnvironmentProfile, environment_profile_id)
     if environment is None or environment.workspace_id != workspace_id or environment.is_deleted:
         raise ApiError(code="ENVIRONMENT_PROFILE_NOT_FOUND", message="Environment profile not found.", status_code=404)
@@ -62,6 +86,9 @@ def create_test_run(
             message="Test suite must contain at least one test case before execution.",
             status_code=422,
         )
+    for suite_case in suite_cases:
+        _validate_case_execution_readiness(db, workspace_id=workspace_id, test_case_id=suite_case.test_case_id)
+
     test_run = TestRun(
         workspace_id=workspace_id,
         test_suite_id=test_suite_id,
@@ -87,6 +114,55 @@ def create_test_run(
     db.commit()
     db.refresh(test_run)
     return test_run
+
+
+def build_execution_steps(db: Session, *, workspace_id: int, test_case_id: int) -> list[ResolvedExecutionStep]:
+    test_case = db.get(TestCase, test_case_id)
+    if test_case is None or test_case.workspace_id != workspace_id or test_case.is_deleted:
+        raise ApiError(code="TEST_CASE_NOT_FOUND", message="Test case not found.", status_code=404)
+
+    case_steps = db.scalars(
+        select(TestCaseStep).where(TestCaseStep.test_case_id == test_case_id).order_by(TestCaseStep.step_no.asc())
+    ).all()
+    resolved_steps: list[ResolvedExecutionStep] = []
+
+    for case_step in case_steps:
+        if case_step.step_type != "component_call":
+            resolved_steps.append(
+                ResolvedExecutionStep(
+                    step_no=0,
+                    step_type=case_step.step_type,
+                    step_name=case_step.step_name,
+                    template_id=case_step.template_id,
+                    component_id=case_step.component_id,
+                    payload_json=case_step.payload_json or {},
+                    timeout_ms=case_step.timeout_ms,
+                    retry_times=case_step.retry_times,
+                )
+            )
+            continue
+
+        component = _get_component_in_workspace(db, workspace_id=workspace_id, component_id=case_step.component_id)
+        component_steps = db.scalars(
+            select(ComponentStep).where(ComponentStep.component_id == component.id).order_by(ComponentStep.step_no.asc())
+        ).all()
+        for component_step in component_steps:
+            resolved_steps.append(
+                ResolvedExecutionStep(
+                    step_no=0,
+                    step_type=component_step.step_type,
+                    step_name=component_step.step_name,
+                    template_id=component_step.template_id,
+                    component_id=component.id,
+                    payload_json=component_step.payload_json or {},
+                    timeout_ms=case_step.timeout_ms,
+                    retry_times=case_step.retry_times,
+                )
+            )
+
+    for index, step in enumerate(resolved_steps, start=1):
+        step.step_no = index
+    return resolved_steps
 
 
 def list_test_runs(db: Session, *, user: User, workspace_id: int, page: int, page_size: int, status: str | None):
@@ -237,6 +313,67 @@ def finalize_completed_test_run(
     return latest_test_run
 
 
+def finalize_errored_test_run(
+    db: Session,
+    test_run: TestRun,
+    *,
+    error_message: str,
+) -> TestRun:
+    now = utc_now()
+    case_runs = db.scalars(
+        select(TestCaseRun).where(TestCaseRun.test_run_id == test_run.id).order_by(TestCaseRun.sort_order.asc())
+    ).all()
+    error_count = 0
+    passed_count = 0
+    failed_count = 0
+    for case_run in case_runs:
+        if case_run.status == "passed":
+            passed_count += 1
+            continue
+        if case_run.status == "failed":
+            failed_count += 1
+            continue
+        if case_run.status != "error":
+            case_run.status = "error"
+            case_run.finished_at = case_run.finished_at or now
+            case_run.duration_ms = case_run.duration_ms or 1
+            case_run.failure_reason_code = "TEST_RUN_EXECUTION_ERROR"
+            case_run.failure_summary = error_message
+        error_count += 1
+
+    test_run.status = "error"
+    test_run.finished_at = now
+    test_run.passed_case_count = passed_count
+    test_run.failed_case_count = failed_count
+    test_run.error_case_count = error_count
+
+    report = db.scalar(select(RunReport).where(RunReport.test_run_id == test_run.id))
+    summary_json = {
+        "total_case_count": test_run.total_case_count,
+        "passed_case_count": passed_count,
+        "failed_case_count": failed_count,
+        "error_case_count": error_count,
+        "message": error_message,
+    }
+    if report is None:
+        db.add(
+            RunReport(
+                test_run_id=test_run.id,
+                summary_status="error",
+                summary_json=summary_json,
+                generated_at=now,
+            )
+        )
+    else:
+        report.summary_status = "error"
+        report.summary_json = summary_json
+        report.generated_at = now
+
+    db.commit()
+    db.refresh(test_run)
+    return test_run
+
+
 def list_case_runs(db: Session, *, user: User, test_run: TestRun):
     require_workspace_access(db, user, test_run.workspace_id)
     return db.scalars(
@@ -285,3 +422,38 @@ def create_report_artifact(
     db.commit()
     db.refresh(artifact)
     return artifact
+
+
+def _validate_case_execution_readiness(db: Session, *, workspace_id: int, test_case_id: int) -> None:
+    test_case = db.get(TestCase, test_case_id)
+    if test_case is None or test_case.workspace_id != workspace_id or test_case.is_deleted:
+        raise ApiError(code="TEST_CASE_NOT_FOUND", message="Test case not found.", status_code=404)
+    if test_case.status != "published":
+        raise ApiError(
+            code="PUBLISHED_VERSION_REQUIRED",
+            message="Test case must be published before execution.",
+            status_code=422,
+        )
+
+    case_steps = db.scalars(
+        select(TestCaseStep).where(TestCaseStep.test_case_id == test_case_id).order_by(TestCaseStep.step_no.asc())
+    ).all()
+    for case_step in case_steps:
+        if case_step.component_id is None:
+            continue
+        component = _get_component_in_workspace(db, workspace_id=workspace_id, component_id=case_step.component_id)
+        if component.status != "published":
+            raise ApiError(
+                code="PUBLISHED_VERSION_REQUIRED",
+                message="Component must be published before execution.",
+                status_code=422,
+            )
+
+
+def _get_component_in_workspace(db: Session, *, workspace_id: int, component_id: int | None) -> Component:
+    if component_id is None:
+        raise ApiError(code="COMPONENT_NOT_FOUND", message="Component not found.", status_code=404)
+    component = db.get(Component, component_id)
+    if component is None or component.workspace_id != workspace_id or component.is_deleted:
+        raise ApiError(code="COMPONENT_NOT_FOUND", message="Component not found.", status_code=404)
+    return component

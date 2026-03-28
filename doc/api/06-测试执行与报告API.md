@@ -51,6 +51,7 @@
 
 - 仅允许由 `queued` 或 `running` 变为 `cancelling`
 - 不允许客户端直接写入终态 `passed`、`failed`
+- 创建前要求：套件状态必须为 `active`，套件内测试用例与引用组件必须为 `published`
 
 ### 3.5 查询批次下用例执行实例
 
@@ -99,6 +100,7 @@
 
 - `test-runs` 一经创建即生成独立资源，不使用同步阻塞返回最终结果。
 - 空套件不允许创建执行批次；套件至少需要包含 1 个可执行用例。
+- `component_call` 步骤在执行时会展开为组件内部的真实执行步骤；`step-results` 返回展开后的线性步骤结果。
 - 用例执行实例和步骤结果为执行流水，不允许逻辑删除。
 - 报告为执行结果快照，应与执行批次一一对应。
 - 大文件证据链通过 `artifact_url` 或对象存储键返回，不直接内联在响应中。
@@ -114,3 +116,5 @@
 | `REPORT_NOT_FOUND` | 报告不存在 |
 | `IDEMPOTENCY_KEY_CONFLICT` | 幂等键冲突 |
 | `TEST_SUITE_EMPTY` | 套件未包含任何可执行用例 |
+| `TEST_SUITE_NOT_ACTIVE` | 套件未处于可执行状态 |
+| `PUBLISHED_VERSION_REQUIRED` | 套件内引用了未发布的用例或组件 |

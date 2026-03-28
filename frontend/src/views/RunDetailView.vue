@@ -172,8 +172,8 @@ function selectCaseRun(caseRun: CaseRun) {
       </SectionCard>
 
       <SectionCard
-        description="step-results 页面聚焦失败原因、score 与差异证据，不内联大文件。"
-        title="步骤结果"
+        description="step-results 展示真实执行步骤；若用例含 `component_call`，这里会展示展开后的线性执行序列。"
+        title="真实步骤结果"
       >
         <div
           v-if="currentCaseRun"

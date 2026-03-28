@@ -27,6 +27,7 @@ Read the smallest viable set before coding:
 - API conventions first: `../../../doc/api/00-API设计总览.md`
 - Domain API file matching the task under `../../../doc/api/`
 - Backend truth when docs and code may drift: `../../../backend/app/api/v1/`, `../../../backend/app/schemas/`, `../../../backend/app/models/`
+- Frontend development decision tree for change classification, file landing, risk checks, and validation hints: `./references/frontend-development-decision-tree.md`
 
 For frontend work, prefer this routing:
 - Login/session: `../../../doc/api/01-认证与身份API.md`
@@ -36,6 +37,11 @@ For frontend work, prefer this routing:
 - Cases/suites: `../../../doc/api/05-测试组件_用例_套件API.md`
 - Runs/reports: `../../../doc/api/06-测试执行与报告API.md`
 - Permissions: `../../../doc/api/08-权限与授权API.md`
+
+Read `./references/frontend-development-decision-tree.md` when:
+- You need to decide where a new frontend change belongs before editing.
+- You need a yes/no style path to choose between view, component, store, API module, type, or util changes.
+- You want quick reminders about current hotspots, risks, and validation focus before implementation.
 
 ## Standard Workflow
 1. **Define the boundary**

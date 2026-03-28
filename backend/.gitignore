@@ -4,3 +4,43 @@ __pycache__/
 .venv/
 
 /.testdata/
+
+# Local environment and sensitive config
+.env
+.env.*
+!.env.example
+!.env.sample
+.python-version
+.envrc
+*.local
+
+# Secrets, certificates, and keys
+*.pem
+*.key
+*.crt
+*.cer
+*.p12
+*.pfx
+secrets/
+
+# Local databases and runtime files
+*.db
+*.sqlite
+*.sqlite3
+*.log
+
+# Python build and packaging artifacts
+*.egg-info/
+.eggs/
+dist/
+build/
+pip-wheel-metadata/
+
+# Tooling and coverage artifacts
+.coverage
+.coverage.*
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+.pyre/
+.hypothesis/
