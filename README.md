@@ -4,9 +4,10 @@
 
 ## 当前状态
 
-- 当前阶段：文档先行，尚未进入源码实现阶段。
+- 当前阶段：在文档基线之上开始进入 `MVP` 骨架实现。
 - 已完成：PRD、前后端架构设计、RESTful API 设计、数据库分模块设计、MVP 与路线图。
-- 下一步：按 `MVP` 文档先落地后端契约层和最小可运行脚手架，再进入视觉引擎与前端管理台实现。
+- 新增进展：`frontend/` 已落地 `Vue 3 + Vite + Pinia + Element Plus + Tailwind CSS` 的前端 MVP 骨架。
+- 下一步：继续补齐后端契约层、视觉执行链路与前后端联调。
 
 ## 项目目标
 
@@ -70,6 +71,8 @@ backend/
 frontend/
   src/
     api/
+    components/
+    layouts/
     stores/
     views/
 infra/
@@ -79,6 +82,27 @@ tests/
   unit/
   integration/
 ```
+
+## 前端 MVP 骨架
+
+- 位置：`./frontend`
+- 技术栈：`Vue 3`、`Vite`、`TypeScript`、`Pinia`、`Vue Router`、`Element Plus`、`Tailwind CSS`
+- 当前覆盖页面：登录页、工作台、环境配置页、模板管理页、用例编辑页、套件管理页、执行记录页、执行详情页、404 页、全局异常页
+- 当前运行模式：默认通过 Vite 代理直连本地后端 `FastAPI /api/v1`，前端字段与后端实际定义代码保持一致
+
+启动方式：
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+开发联调说明：
+
+- 前端开发服务器默认代理 `/api` 与 `/healthz` 到 `http://127.0.0.1:8000`
+- 登录默认账号：`admin / admin123456`
+- 当前主链路以 `test-runs -> case-runs -> step-results` 聚合执行详情，不再依赖旧 mock 的报告 ID
 
 ## 工程原则
 
