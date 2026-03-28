@@ -7,6 +7,8 @@ from app.core.http import ApiError
 from app.models import (
     DeviceProfile,
     EnvironmentProfile,
+    MediaObject,
+    ReportArtifact,
     RunReport,
     StepResult,
     SuiteCase,
@@ -182,7 +184,12 @@ def finalize_completed_test_run(
     error_count: int,
 ) -> TestRun:
     now = utc_now()
-    final_status = "passed" if failed_count == 0 and error_count == 0 else "partial_failed"
+    if passed_count == 0 and failed_count == 0 and error_count > 0:
+        final_status = "error"
+    elif failed_count == 0 and error_count == 0:
+        final_status = "passed"
+    else:
+        final_status = "partial_failed"
     update_result = db.execute(
         update(TestRun)
         .where(TestRun.id == test_run.id, TestRun.status == "running")
@@ -255,3 +262,26 @@ def get_report(db: Session, report_id: int) -> RunReport:
     if report is None:
         raise ApiError(code="REPORT_NOT_FOUND", message="Report not found.", status_code=404)
     return report
+
+
+def get_report_by_test_run(db: Session, test_run_id: int) -> RunReport | None:
+    return db.scalar(select(RunReport).where(RunReport.test_run_id == test_run_id))
+
+
+def create_report_artifact(
+    db: Session,
+    *,
+    report: RunReport,
+    media: MediaObject,
+    artifact_type: str = "screenshot",
+) -> ReportArtifact:
+    artifact = ReportArtifact(
+        report_id=report.id,
+        artifact_type=artifact_type,
+        media_object_id=media.id,
+        artifact_url=media.object_key,
+    )
+    db.add(artifact)
+    db.commit()
+    db.refresh(artifact)
+    return artifact

@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import base64
 import os
 import sys
 import tempfile
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -24,6 +26,71 @@ def _reset_local_data() -> None:
     os.environ["VAT_LOCAL_STORAGE_PATH"] = str(temp_dir / "media")
 
 
+def _install_fake_browser_adapter(monkeypatch) -> None:
+    from app.workers.browser import BrowserArtifact, BrowserStepResult, CaseExecutionResult
+
+    class FakeBrowserAdapter:
+        supported_step_types = {"wait", "click", "input"}
+
+        def execute_case(self, *, base_url: str, case_run_id: int, device_profile, steps):
+            _ = (base_url, case_run_id, device_profile)
+            step_results: list[BrowserStepResult] = []
+            for step in steps:
+                started_at = datetime.now(timezone.utc)
+                finished_at = datetime.now(timezone.utc)
+                if step.step_type not in self.supported_step_types:
+                    step_results.append(
+                        BrowserStepResult(
+                            step_no=step.step_no,
+                            step_type=step.step_type,
+                            status="error",
+                            started_at=started_at,
+                            finished_at=finished_at,
+                            duration_ms=1,
+                            error_message=f"Unsupported step type: {step.step_type}",
+                        )
+                    )
+                    return CaseExecutionResult(
+                        status="error",
+                        step_results=step_results,
+                        failure_reason_code="STEP_NOT_SUPPORTED",
+                        failure_summary=f"Unsupported step type: {step.step_type}",
+                        artifact=BrowserArtifact(
+                            file_name=f"case-run-{case_run_id}.png",
+                            content_type="image/png",
+                            content_bytes=base64.b64decode(
+                                "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9s2GoswAAAAASUVORK5CYII="
+                            ),
+                        ),
+                    )
+
+                step_results.append(
+                    BrowserStepResult(
+                        step_no=step.step_no,
+                        step_type=step.step_type,
+                        status="passed",
+                        started_at=started_at,
+                        finished_at=finished_at,
+                        duration_ms=1,
+                        score_value=1.0,
+                    )
+                )
+
+            return CaseExecutionResult(
+                status="passed",
+                step_results=step_results,
+                artifact=BrowserArtifact(
+                    file_name=f"case-run-{case_run_id}.png",
+                    content_type="image/png",
+                    content_bytes=base64.b64decode(
+                        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9s2GoswAAAAASUVORK5CYII="
+                    ),
+                ),
+            )
+
+    monkeypatch.setattr("app.workers.execution.build_browser_execution_adapter", lambda: FakeBrowserAdapter())
+
+
 def test_healthz():
     _reset_local_data()
     from app.main import app
@@ -34,11 +101,13 @@ def test_healthz():
         assert response.json()["data"]["status"] == "ok"
 
 
-def test_mvp_backend_smoke_flow():
+def test_mvp_backend_smoke_flow(monkeypatch):
     _reset_local_data()
     from app.db.session import SessionLocal
     from app.main import app
-    from app.models import RunReport
+    from app.models import MediaObject, ReportArtifact, RunReport, StepResult
+
+    _install_fake_browser_adapter(monkeypatch)
 
     with TestClient(app) as client:
         login_resp = client.post("/api/v1/sessions", json={"username": "admin", "password": "admin123456"})
@@ -121,9 +190,15 @@ def test_mvp_backend_smoke_flow():
 
         with SessionLocal() as db:
             report = db.query(RunReport).filter(RunReport.test_run_id == test_run_id).one()
+            step_result = db.query(StepResult).filter(StepResult.case_run_id == case_runs[0]["id"]).one()
+            media = db.query(MediaObject).filter(MediaObject.id == step_result.actual_media_object_id).one()
+            artifact = db.query(ReportArtifact).filter(ReportArtifact.report_id == report.id).one()
             report_resp = client.get(f"/api/v1/reports/{report.id}", headers=workspace_headers)
             assert report_resp.status_code == 200
             assert report_resp.json()["data"]["summary_status"] == "passed"
+            assert step_result.actual_media_object_id is not None
+            assert media.usage == "artifact"
+            assert artifact.media_object_id == media.id
 
 
 def test_empty_suite_cannot_create_test_run():
@@ -178,6 +253,7 @@ def test_cancelling_test_run_transitions_to_cancelled(monkeypatch):
     from app.workers.execution import process_test_run as real_process_test_run
 
     monkeypatch.setattr("app.api.v1.executions.process_test_run", lambda _run_id: None)
+    _install_fake_browser_adapter(monkeypatch)
 
     with TestClient(app) as client:
         login_resp = client.post("/api/v1/sessions", json={"username": "admin", "password": "admin123456"})
@@ -275,6 +351,7 @@ def test_cancelling_during_finalization_does_not_end_as_passed(monkeypatch):
     from sqlalchemy import select
 
     monkeypatch.setattr("app.api.v1.executions.process_test_run", lambda _run_id: None)
+    _install_fake_browser_adapter(monkeypatch)
 
     with TestClient(app) as client:
         login_resp = client.post("/api/v1/sessions", json={"username": "admin", "password": "admin123456"})
@@ -371,3 +448,78 @@ def test_cancelling_during_finalization_does_not_end_as_passed(monkeypatch):
             report = db.query(RunReport).filter(RunReport.test_run_id == test_run_id).one()
             assert test_run.status == "cancelled"
             assert report.summary_status == "cancelled"
+
+
+def test_unsupported_step_marks_test_run_error(monkeypatch):
+    _reset_local_data()
+    from app.main import app
+
+    _install_fake_browser_adapter(monkeypatch)
+
+    with TestClient(app) as client:
+        login_resp = client.post("/api/v1/sessions", json={"username": "admin", "password": "admin123456"})
+        token = login_resp.json()["data"]["access_token"]
+        headers = {"Authorization": f"Bearer {token}"}
+
+        workspace_resp = client.post(
+            "/api/v1/workspaces",
+            json={"workspace_code": "unsupported_ws", "name": "Unsupported WS"},
+            headers=headers,
+        )
+        workspace_id = workspace_resp.json()["data"]["id"]
+        workspace_headers = headers | {"X-Workspace-Id": str(workspace_id)}
+
+        env_resp = client.post(
+            "/api/v1/environment-profiles",
+            json={"profile_name": "dev", "base_url": "https://example.com"},
+            headers=workspace_headers,
+        )
+        environment_profile_id = env_resp.json()["data"]["id"]
+
+        case_resp = client.post(
+            "/api/v1/test-cases",
+            json={"case_code": "unsupported_case", "case_name": "Unsupported Case"},
+            headers=workspace_headers,
+        )
+        test_case_id = case_resp.json()["data"]["id"]
+
+        client.put(
+            f"/api/v1/test-cases/{test_case_id}/steps",
+            json=[{"step_no": 1, "step_type": "template_assert", "step_name": "Unsupported", "payload_json": {}}],
+            headers=workspace_headers,
+        )
+
+        suite_resp = client.post(
+            "/api/v1/test-suites",
+            json={"suite_code": "suite_unsupported", "suite_name": "Unsupported Suite", "status": "active"},
+            headers=workspace_headers,
+        )
+        test_suite_id = suite_resp.json()["data"]["id"]
+
+        client.put(
+            f"/api/v1/test-suites/{test_suite_id}/cases",
+            json=[{"test_case_id": test_case_id, "sort_order": 1}],
+            headers=workspace_headers,
+        )
+
+        run_resp = client.post(
+            "/api/v1/test-runs",
+            json={
+                "test_suite_id": test_suite_id,
+                "environment_profile_id": environment_profile_id,
+                "trigger_source": "manual",
+            },
+            headers=workspace_headers | {"Idempotency-Key": "run-unsupported"},
+        )
+        assert run_resp.status_code == 201
+        test_run_id = run_resp.json()["data"]["id"]
+
+        detail_resp = client.get(f"/api/v1/test-runs/{test_run_id}", headers=workspace_headers)
+        assert detail_resp.status_code == 200
+        assert detail_resp.json()["data"]["status"] == "error"
+
+        case_runs_resp = client.get(f"/api/v1/test-runs/{test_run_id}/case-runs", headers=workspace_headers)
+        case_run_id = case_runs_resp.json()["data"][0]["id"]
+        step_results_resp = client.get(f"/api/v1/case-runs/{case_run_id}/step-results", headers=workspace_headers)
+        assert step_results_resp.status_code == 200
+        assert step_results_resp.json()["data"][0]["status"] == "error"

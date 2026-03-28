@@ -12,6 +12,8 @@ class Settings(BaseSettings):
     api_v1_prefix: str = "/api/v1"
     database_url: str = "sqlite+pysqlite:///./.data/visionautotest.db"
     local_storage_path: Path = Path(".data/media")
+    playwright_headless: bool = True
+    playwright_navigation_timeout_ms: int = 15000
     access_token_ttl_seconds: int = 7200
     refresh_token_ttl_seconds: int = 7 * 24 * 3600
     default_admin_username: str = "admin"
@@ -23,4 +25,3 @@ class Settings(BaseSettings):
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
     return Settings()
-
