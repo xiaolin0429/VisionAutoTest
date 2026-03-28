@@ -1,0 +1,33 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color: #0f172a;
+  background: #f8fafc;
+  font-family:
+    Inter,
+    -apple-system,
+    BlinkMacSystemFont,
+    'PingFang SC',
+    'Hiragino Sans GB',
+    'Microsoft YaHei',
+    sans-serif;
+}
+
+body {
+  margin: 0;
+  min-width: 1280px;
+}
+
+#app {
+  min-height: 100vh;
+}
+
+.panel-card {
+  @apply rounded-2xl border border-slate-200 bg-white shadow-soft;
+}
+
+.panel-muted {
+  @apply rounded-2xl border border-dashed border-slate-300 bg-slate-50;
+}
