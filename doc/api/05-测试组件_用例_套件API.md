@@ -112,6 +112,10 @@
 - 用例和组件均采用草稿/已发布双态，执行时只能引用已发布版本。
 - 套件中的用例顺序必须可控，用于稳定回放；套件本身采用 `draft/active/archived` 状态流转。
 - 步骤中的变量占位符统一采用 `{{ variable_name }}` 语法。
+- MVP 首批真实浏览器执行支持以下步骤载荷约定：
+  - `wait`：`payload_json.ms`
+  - `click`：`payload_json.selector`
+  - `input`：`payload_json.selector`、`payload_json.text`
 
 ## 5. 推荐错误码
 
