@@ -92,6 +92,8 @@
 ## 4. 业务规则
 
 - 模板与工作空间强绑定。
+- 当前版本 `match_strategy` 只支持 `template` 与 `ocr`。
+- 当前版本模板状态建议使用 `draft/published/archived`，其中只有 `published` 模板可进入执行链路。
 - 同一模板下只允许有一个 `is_current=true` 的基准版本。
 - 忽略区域坐标统一使用相对比例，不允许直接持久化像素值作为标准坐标。
 - 模板创建时必须绑定至少一个原始媒体对象。
@@ -101,6 +103,8 @@
 | 错误码 | 说明 |
 |---|---|
 | `TEMPLATE_NOT_FOUND` | 模板不存在 |
+| `TEMPLATE_MATCH_STRATEGY_UNSUPPORTED` | 当前版本不支持该模板匹配策略 |
+| `TEMPLATE_STATUS_INVALID` | 模板状态非法 |
 | `BASELINE_REVISION_CONFLICT` | 当前基准版本冲突 |
 | `MASK_REGION_OUT_OF_RANGE` | 忽略区域坐标越界 |
 | `MEDIA_OBJECT_NOT_FOUND` | 媒体对象不存在 |

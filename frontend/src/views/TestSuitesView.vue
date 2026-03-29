@@ -3,11 +3,12 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { ApiError } from '@/api/client'
-import { listComponents } from '@/api/modules/components'
+import { getComponentSteps, listComponents } from '@/api/modules/components'
 import SectionCard from '@/components/SectionCard.vue'
 import StatusTag from '@/components/StatusTag.vue'
 import { listDeviceProfiles, listEnvironmentProfiles } from '@/api/modules/environments'
 import { getTestCaseDetail, listTestCases } from '@/api/modules/testCases'
+import { listTemplates } from '@/api/modules/templates'
 import {
   createTestSuite,
   getTestSuiteDetail,
@@ -21,7 +22,9 @@ import type {
   Component,
   DeviceProfile,
   EnvironmentProfile,
+  Step,
   SuiteCaseWritePayload,
+  Template,
   TestCase,
   TestSuite
 } from '@/types/models'
@@ -110,6 +113,8 @@ function formatRunCreationError(error: unknown) {
     TEST_SUITE_NOT_ACTIVE: '套件未激活，无法执行。',
     PUBLISHED_VERSION_REQUIRED: '存在未发布的用例或组件，请先发布。',
     TEST_SUITE_EMPTY: '套件为空，无法执行。',
+    BASELINE_REVISION_REQUIRED: '存在缺少当前基准版本的模板，请先补齐。',
+    STEP_CONFIGURATION_INVALID: '存在模板策略与步骤类型不兼容的配置，请先修正。',
     IDEMPOTENCY_KEY_CONFLICT: '请勿重复触发相同执行请求。',
     WORKSPACE_ID_REQUIRED: '当前工作空间上下文缺失，请重新选择工作空间。',
     WORKSPACE_FORBIDDEN: '当前用户没有该工作空间权限。'
@@ -118,41 +123,84 @@ function formatRunCreationError(error: unknown) {
   return errorMessageMap[error.code] ?? error.message
 }
 
+function collectVisualReadinessIssues(
+  steps: Step[],
+  templateMap: Map<number, Template>,
+  issues: Set<string>
+) {
+  for (const step of steps) {
+    if (
+      (step.type !== 'template_assert' && step.type !== 'ocr_assert') ||
+      step.templateId === null
+    ) {
+      continue
+    }
+
+    const template = templateMap.get(step.templateId)
+    if (!template) {
+      issues.add('套件引用了不存在的模板，请重新保存用例或组件。')
+      continue
+    }
+
+    if (template.status !== 'published') {
+      issues.add('套件引用了未发布模板，请先发布模板后再执行。')
+    }
+
+    if (template.currentBaselineRevisionId === null) {
+      issues.add('套件引用的模板缺少当前基准版本，请先补齐。')
+    }
+
+    if (step.type === 'template_assert' && template.matchStrategy !== 'template') {
+      issues.add('存在 template_assert 步骤引用了非 template 策略模板。')
+    }
+
+    if (step.type === 'ocr_assert' && template.matchStrategy !== 'ocr') {
+      issues.add('存在 ocr_assert 步骤引用了非 ocr 策略模板。')
+    }
+  }
+}
+
 async function inspectSuiteReadiness(suite: TestSuite) {
   readinessLoading.value = true
   readinessIssues.value = []
 
   try {
-    const issues: string[] = []
+    const issues = new Set<string>()
 
     if (suite.status !== 'active') {
-      issues.push('当前套件状态不是 active，不能直接触发执行。')
+      issues.add('当前套件状态不是 active，不能直接触发执行。')
     }
 
     const unpublishedCases = suite.cases.filter((item) => item.status !== 'published')
     if (unpublishedCases.length > 0) {
-      issues.push('套件内存在未发布用例，请先将所有用例发布后再执行。')
+      issues.add('套件内存在未发布用例，请先将所有用例发布后再执行。')
     }
 
     if (suite.cases.length === 0) {
-      issues.push('当前套件为空，至少需要一个可执行用例。')
+      issues.add('当前套件为空，至少需要一个可执行用例。')
     }
 
     if (suite.cases.length > 0) {
-      const [caseDetails, components] = await Promise.all([
+      const [caseDetails, components, templates] = await Promise.all([
         Promise.all(suite.cases.map((item) => getTestCaseDetail(item.testCaseId))),
-        listComponents()
+        listComponents(),
+        listTemplates()
       ])
 
       const componentMap = new Map<number, Component>(components.map((item) => [item.id, item]))
+      const templateMap = new Map<number, Template>(templates.map((item) => [item.id, item]))
       const nonPublishedComponentIds = new Set<number>()
+      const referencedComponentIds = new Set<number>()
 
       for (const testCase of caseDetails) {
+        collectVisualReadinessIssues(testCase.steps, templateMap, issues)
+
         for (const step of testCase.steps) {
           if (step.componentId === null) {
             continue
           }
 
+          referencedComponentIds.add(step.componentId)
           const component = componentMap.get(step.componentId)
           if (!component || component.status !== 'published') {
             nonPublishedComponentIds.add(step.componentId)
@@ -161,11 +209,21 @@ async function inspectSuiteReadiness(suite: TestSuite) {
       }
 
       if (nonPublishedComponentIds.size > 0) {
-        issues.push('套件引用了未发布组件，component_call 对应组件需先发布。')
+        issues.add('套件引用了未发布组件，component_call 对应组件需先发布。')
+      }
+
+      if (referencedComponentIds.size > 0) {
+        const componentStepsList = await Promise.all(
+          [...referencedComponentIds].map((componentId) => getComponentSteps(componentId))
+        )
+
+        for (const componentSteps of componentStepsList) {
+          collectVisualReadinessIssues(componentSteps, templateMap, issues)
+        }
       }
     }
 
-    readinessIssues.value = issues
+    readinessIssues.value = [...issues]
   } catch (error) {
     readinessIssues.value = [
       error instanceof Error ? error.message : '执行门禁检查失败，请稍后重试。'

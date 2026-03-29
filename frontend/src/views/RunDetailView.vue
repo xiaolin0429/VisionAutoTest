@@ -76,12 +76,27 @@ const metrics = computed(() => {
   ]
 })
 
-const reportSummaryEntries = computed(() => {
+const reportSummaryCards = computed(() => {
   if (!runReport.value) {
     return []
   }
 
-  return Object.entries(runReport.value.summaryJson)
+  const summary = runReport.value.summary
+
+  return [
+    { label: '总用例数', value: String(summary.counts.total) },
+    { label: '通过', value: String(summary.counts.passed) },
+    { label: '失败', value: String(summary.counts.failed) },
+    { label: '异常/取消', value: `${summary.counts.error} / ${summary.counts.cancelled}` }
+  ]
+})
+
+const reportArtifactTypeEntries = computed(() => {
+  if (!runReport.value) {
+    return []
+  }
+
+  return Object.entries(runReport.value.summary.artifacts.byType)
 })
 
 function clearPollTimer() {
@@ -381,20 +396,63 @@ onBeforeUnmount(() => {
           </div>
           <div class="rounded-2xl border border-slate-200 bg-slate-50 p-4">
             <p class="m-0 text-sm text-slate-500">产物数</p>
-            <p class="mb-0 mt-3 text-lg font-semibold text-slate-900">{{ reportArtifacts.length }}</p>
+            <p class="mb-0 mt-3 text-lg font-semibold text-slate-900">
+              {{ runReport.summary.artifacts.total }}
+            </p>
           </div>
         </div>
 
         <div class="grid grid-cols-2 gap-4">
           <div
-            v-for="[key, value] in reportSummaryEntries"
-            :key="key"
+            v-for="item in reportSummaryCards"
+            :key="item.label"
             class="rounded-2xl border border-slate-200 bg-slate-50 p-4"
           >
-            <p class="m-0 text-sm text-slate-500">{{ key }}</p>
+            <p class="m-0 text-sm text-slate-500">{{ item.label }}</p>
             <p class="mb-0 mt-3 text-sm font-medium text-slate-900 break-all">
-              {{ typeof value === 'object' ? JSON.stringify(value) : String(value) }}
+              {{ item.value }}
             </p>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-4">
+          <div class="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+            <p class="m-0 text-sm text-slate-500">失败代码</p>
+            <p class="mb-0 mt-3 text-sm font-medium text-slate-900 break-all">
+              {{ runReport.summary.failure?.code ?? '--' }}
+            </p>
+          </div>
+          <div class="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+            <p class="m-0 text-sm text-slate-500">失败摘要</p>
+            <p class="mb-0 mt-3 text-sm font-medium text-slate-900 break-all">
+              {{ runReport.summary.failure?.summary ?? runReport.summary.message ?? '--' }}
+            </p>
+          </div>
+          <div class="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+            <p class="m-0 text-sm text-slate-500">开始时间</p>
+            <p class="mb-0 mt-3 text-sm font-medium text-slate-900 break-all">
+              {{ runReport.summary.timing.startedAt ? formatDateTime(runReport.summary.timing.startedAt) : '--' }}
+            </p>
+          </div>
+          <div class="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+            <p class="m-0 text-sm text-slate-500">总耗时</p>
+            <p class="mb-0 mt-3 text-sm font-medium text-slate-900 break-all">
+              {{ runReport.summary.timing.durationMs !== null ? `${runReport.summary.timing.durationMs} ms` : '--' }}
+            </p>
+          </div>
+        </div>
+
+        <div
+          v-if="reportArtifactTypeEntries.length > 0"
+          class="grid grid-cols-4 gap-4"
+        >
+          <div
+            v-for="[artifactType, count] in reportArtifactTypeEntries"
+            :key="artifactType"
+            class="rounded-2xl border border-slate-200 bg-slate-50 p-4"
+          >
+            <p class="m-0 text-sm text-slate-500">{{ artifactType }}</p>
+            <p class="mb-0 mt-3 text-lg font-semibold text-slate-900">{{ count }}</p>
           </div>
         </div>
 
@@ -436,8 +494,20 @@ onBeforeUnmount(() => {
                 生成时间：{{ formatDateTime(artifact.createdAt) }}
               </p>
               <p
+                v-if="artifact.caseRunId !== null"
+                class="mb-0 text-xs text-slate-500"
+              >
+                case-run #{{ artifact.caseRunId }}
+              </p>
+              <p
+                v-if="artifact.stepResultId !== null"
+                class="mb-0 mt-1 text-xs text-slate-500"
+              >
+                step-result #{{ artifact.stepResultId }}
+              </p>
+              <p
                 v-if="artifact.artifactUrl"
-                class="mb-0 text-xs break-all text-slate-400"
+                class="mb-0 mt-2 text-xs break-all text-slate-400"
               >
                 路径：{{ artifact.artifactUrl }}
               </p>

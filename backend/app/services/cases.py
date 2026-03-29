@@ -15,6 +15,7 @@ from app.models import (
     User,
     utc_now,
 )
+from app.services.assets import SUPPORTED_TEMPLATE_MATCH_STRATEGIES
 from app.services.helpers import apply_keyword, count_total, require_workspace_access, validate_ordered_sequence
 
 
@@ -297,37 +298,62 @@ def _validate_step_payload(db: Session, *, workspace_id: int, item: dict, allow_
     if step_type == "component_call":
         if not allow_component_call:
             raise ApiError(
-                code="STEP_SEQUENCE_INVALID",
+                code="STEP_CONFIGURATION_INVALID",
                 message="component_call is not supported inside component steps.",
                 status_code=422,
             )
         if item.get("component_id") is None:
-            raise ApiError(code="STEP_SEQUENCE_INVALID", message="component_call step requires component_id.", status_code=422)
+            raise ApiError(code="STEP_CONFIGURATION_INVALID", message="component_call step requires component_id.", status_code=422)
         return
 
     if template_id is not None:
         _assert_template(db, workspace_id, template_id)
+        template = db.get(Template, template_id)
+        assert template is not None
+        if template.match_strategy not in SUPPORTED_TEMPLATE_MATCH_STRATEGIES:
+            raise ApiError(
+                code="STEP_CONFIGURATION_INVALID",
+                message="Referenced template match_strategy is not supported in the current version.",
+                status_code=422,
+            )
 
     if step_type == "template_assert":
         if template_id is None:
-            raise ApiError(code="STEP_SEQUENCE_INVALID", message="template_assert step requires template_id.", status_code=422)
+            raise ApiError(code="STEP_CONFIGURATION_INVALID", message="template_assert step requires template_id.", status_code=422)
+        template = db.get(Template, template_id)
+        assert template is not None
+        if template.match_strategy != "template":
+            raise ApiError(
+                code="STEP_CONFIGURATION_INVALID",
+                message="template_assert step requires template match_strategy `template`.",
+                status_code=422,
+            )
         threshold = payload.get("threshold")
         if threshold is not None and (isinstance(threshold, bool) or not isinstance(threshold, (int, float))):
-            raise ApiError(code="STEP_SEQUENCE_INVALID", message="template_assert threshold must be numeric.", status_code=422)
+            raise ApiError(code="STEP_CONFIGURATION_INVALID", message="template_assert threshold must be numeric.", status_code=422)
         if isinstance(threshold, (int, float)) and not (0 <= float(threshold) <= 1):
-            raise ApiError(code="STEP_SEQUENCE_INVALID", message="template_assert threshold must be between 0 and 1.", status_code=422)
+            raise ApiError(code="STEP_CONFIGURATION_INVALID", message="template_assert threshold must be between 0 and 1.", status_code=422)
         return
 
     if step_type == "ocr_assert":
         selector = payload.get("selector")
         expected_text = payload.get("expected_text")
         if not isinstance(selector, str) or not selector.strip():
-            raise ApiError(code="STEP_SEQUENCE_INVALID", message="ocr_assert step requires payload_json.selector.", status_code=422)
+            raise ApiError(code="STEP_CONFIGURATION_INVALID", message="ocr_assert step requires payload_json.selector.", status_code=422)
         if not isinstance(expected_text, str) or not expected_text.strip():
-            raise ApiError(code="STEP_SEQUENCE_INVALID", message="ocr_assert step requires payload_json.expected_text.", status_code=422)
+            raise ApiError(code="STEP_CONFIGURATION_INVALID", message="ocr_assert step requires payload_json.expected_text.", status_code=422)
+        if template_id is not None:
+            template = db.get(Template, template_id)
+            assert template is not None
+            if template.match_strategy != "ocr":
+                raise ApiError(
+                    code="STEP_CONFIGURATION_INVALID",
+                    message="ocr_assert step requires template match_strategy `ocr`.",
+                    status_code=422,
+                )
         match_mode = payload.get("match_mode")
         if match_mode is not None and match_mode not in {"exact", "contains"}:
-            raise ApiError(code="STEP_SEQUENCE_INVALID", message="ocr_assert match_mode must be `exact` or `contains`.", status_code=422)
+            raise ApiError(code="STEP_CONFIGURATION_INVALID", message="ocr_assert match_mode must be `exact` or `contains`.", status_code=422)
         case_sensitive = payload.get("case_sensitive")
         if case_sensitive is not None and not isinstance(case_sensitive, bool):
-            raise ApiError(code="STEP_SEQUENCE_INVALID", message="ocr_assert case_sensitive must be boolean.", status_code=422)
+            raise ApiError(code="STEP_CONFIGURATION_INVALID", message="ocr_assert case_sensitive must be boolean.", status_code=422)

@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from sqlalchemy import select
 
 from app.core.config import get_settings
+from app.core.storage import get_storage_backend
 from app.db.session import SessionLocal
 from app.models import (
     BaselineRevision,
@@ -21,17 +24,28 @@ from app.models import (
 )
 from app.services import assets as asset_service
 from app.services.execution import (
+    build_report_summary,
     build_execution_steps,
     create_report_artifact,
     finalize_cancelled_test_run,
     finalize_completed_test_run,
     finalize_errored_test_run,
     get_report_by_test_run,
+    refresh_report_artifact_summary,
 )
 from app.workers.browser import build_browser_execution_adapter
 from app.workers.vision import MaskRegionRatio, TemplateAssertionContext
 
 settings = get_settings()
+storage_backend = get_storage_backend()
+
+
+@dataclass(slots=True)
+class CapturedArtifactRecord:
+    media: MediaObject
+    artifact_type: str
+    case_run_id: int | None = None
+    step_result_id: int | None = None
 
 
 def process_test_run(test_run_id: int) -> None:
@@ -54,7 +68,7 @@ def process_test_run(test_run_id: int) -> None:
         environment_profile = db.get(EnvironmentProfile, test_run.environment_profile_id)
         device_profile = db.get(DeviceProfile, test_run.device_profile_id) if test_run.device_profile_id is not None else None
         triggered_user = db.get(User, test_run.triggered_by) if test_run.triggered_by is not None else None
-        captured_media: list[MediaObject] = []
+        captured_artifacts: list[CapturedArtifactRecord] = []
 
         try:
             browser_adapter = build_browser_execution_adapter()
@@ -71,7 +85,7 @@ def process_test_run(test_run_id: int) -> None:
                 db.refresh(test_run)
                 if test_run.status == "cancelling":
                     latest = finalize_cancelled_test_run(db, test_run)
-                    _persist_report_artifacts(db, latest.id, captured_media)
+                    _persist_report_artifacts(db, latest.id, captured_artifacts)
                     return
 
                 case_started_at = utc_now()
@@ -90,7 +104,7 @@ def process_test_run(test_run_id: int) -> None:
                     db.refresh(test_run)
                     if test_run.status == "cancelling":
                         latest = finalize_cancelled_test_run(db, test_run)
-                        _persist_report_artifacts(db, latest.id, captured_media)
+                        _persist_report_artifacts(db, latest.id, captured_artifacts)
                         return
 
                 execution_result = browser_adapter.execute_case(
@@ -129,7 +143,14 @@ def process_test_run(test_run_id: int) -> None:
                             remark=f"case-run-{case_run.id}-step-{step_result.step_no}-{step_result.actual_artifact.artifact_type}",
                         )
                         persisted.actual_media_object_id = actual_media.id
-                        captured_media.append(actual_media)
+                        captured_artifacts.append(
+                            CapturedArtifactRecord(
+                                media=actual_media,
+                                artifact_type="step_ocr" if step_result.step_type == "ocr_assert" else "step_actual",
+                                case_run_id=case_run.id,
+                                step_result_id=persisted.id,
+                            )
+                        )
                     if step_result.diff_artifact is not None:
                         diff_media = asset_service.create_media_object_from_bytes(
                             db,
@@ -142,7 +163,14 @@ def process_test_run(test_run_id: int) -> None:
                             remark=f"case-run-{case_run.id}-step-{step_result.step_no}-{step_result.diff_artifact.artifact_type}",
                         )
                         persisted.diff_media_object_id = diff_media.id
-                        captured_media.append(diff_media)
+                        captured_artifacts.append(
+                            CapturedArtifactRecord(
+                                media=diff_media,
+                                artifact_type="step_diff",
+                                case_run_id=case_run.id,
+                                step_result_id=persisted.id,
+                            )
+                        )
                     persisted_step_results.append(persisted)
 
                 if execution_result.artifact is not None:
@@ -156,7 +184,13 @@ def process_test_run(test_run_id: int) -> None:
                         usage="artifact",
                         remark=f"case-run-{case_run.id}-screenshot",
                     )
-                    captured_media.append(media)
+                    captured_artifacts.append(
+                        CapturedArtifactRecord(
+                            media=media,
+                            artifact_type="run_screenshot",
+                            case_run_id=case_run.id,
+                        )
+                    )
                     if persisted_step_results and persisted_step_results[-1].actual_media_object_id is None:
                         persisted_step_results[-1].actual_media_object_id = media.id
 
@@ -181,13 +215,18 @@ def process_test_run(test_run_id: int) -> None:
                     RunReport(
                         test_run_id=test_run.id,
                         summary_status="error",
-                        summary_json={
-                            "total_case_count": 0,
-                            "passed_case_count": 0,
-                            "failed_case_count": 0,
-                            "error_case_count": 0,
-                            "message": "Test run contains no executable cases.",
-                        },
+                        summary_json=build_report_summary(
+                            status="error",
+                            total_case_count=0,
+                            passed_count=0,
+                            failed_count=0,
+                            error_count=0,
+                            cancelled_count=0,
+                            started_at=test_run.started_at,
+                            finished_at=test_run.finished_at,
+                            failure_code="TEST_RUN_EXECUTION_ERROR",
+                            failure_summary="Test run contains no executable cases.",
+                        ),
                         generated_at=utc_now(),
                     )
                 )
@@ -201,31 +240,52 @@ def process_test_run(test_run_id: int) -> None:
                 failed_count=failed_count,
                 error_count=error_count,
             )
-            _persist_report_artifacts(db, latest_test_run.id, captured_media)
+            _persist_report_artifacts(db, latest_test_run.id, captured_artifacts)
         except Exception as exc:  # noqa: BLE001
+            db.rollback()
             latest = finalize_errored_test_run(
                 db,
                 test_run,
+                failure_reason_code="TEST_RUN_EXECUTION_ERROR",
                 error_message=f"{type(exc).__name__}: {str(exc).strip() or 'unexpected execution error'}",
             )
-            _persist_report_artifacts(db, latest.id, captured_media)
+            _persist_report_artifacts(db, latest.id, captured_artifacts)
 
 
-def _persist_report_artifacts(db, test_run_id: int, media_objects: list[MediaObject]) -> None:
-    if not media_objects:
+def _persist_report_artifacts(db, test_run_id: int, captured_artifacts: list[CapturedArtifactRecord]) -> None:
+    if not captured_artifacts:
         return
     report = get_report_by_test_run(db, test_run_id)
     if report is None:
         return
-    existing_media_ids = {
-        artifact.media_object_id
+    existing_artifacts = {
+        (
+            artifact.media_object_id,
+            artifact.artifact_type,
+            artifact.case_run_id,
+            artifact.step_result_id,
+        )
         for artifact in db.scalars(select(ReportArtifact).where(ReportArtifact.report_id == report.id)).all()
     }
-    for media in media_objects:
-        if media.id in existing_media_ids:
+    for captured_artifact in captured_artifacts:
+        artifact_identity = (
+            captured_artifact.media.id,
+            captured_artifact.artifact_type,
+            captured_artifact.case_run_id,
+            captured_artifact.step_result_id,
+        )
+        if artifact_identity in existing_artifacts:
             continue
-        create_report_artifact(db, report=report, media=media)
-        existing_media_ids.add(media.id)
+        create_report_artifact(
+            db,
+            report=report,
+            media=captured_artifact.media,
+            artifact_type=captured_artifact.artifact_type,
+            case_run_id=captured_artifact.case_run_id,
+            step_result_id=captured_artifact.step_result_id,
+        )
+        existing_artifacts.add(artifact_identity)
+    refresh_report_artifact_summary(db, report)
 
 
 def _build_template_contexts(db, *, workspace_id: int, steps) -> dict[int, TemplateAssertionContext]:
@@ -258,7 +318,7 @@ def _build_template_contexts(db, *, workspace_id: int, steps) -> dict[int, Templ
             match_strategy=template.match_strategy,
             threshold_value=float(template.threshold_value),
             baseline_media_object_id=media.id,
-            baseline_file_path=settings.local_storage_path / media.object_key,
+            baseline_file_path=storage_backend.resolve_path(media.object_key),
             mask_regions=[
                 MaskRegionRatio(
                     x_ratio=float(region.x_ratio),

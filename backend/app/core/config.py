@@ -9,6 +9,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
 PLACEHOLDER_DEFAULT_ADMIN_PASSWORD = "change-me-before-use"
+PLACEHOLDER_JWT_SECRET_KEY = "change-me-jwt-secret"
+PLACEHOLDER_DATA_ENCRYPTION_KEY = "change-me-data-encryption-key"
 
 
 class Settings(BaseSettings):
@@ -25,6 +27,10 @@ class Settings(BaseSettings):
     playwright_navigation_timeout_ms: int = 15000
     access_token_ttl_seconds: int = 7200
     refresh_token_ttl_seconds: int = 7 * 24 * 3600
+    jwt_secret_key: str = PLACEHOLDER_JWT_SECRET_KEY
+    jwt_algorithm: str = "HS256"
+    jwt_issuer: str = "visionautotest-backend"
+    data_encryption_key: str = PLACEHOLDER_DATA_ENCRYPTION_KEY
     default_admin_username: str | None = None
     default_admin_password: str | None = None
 
@@ -52,6 +58,12 @@ class Settings(BaseSettings):
             )
         if self.default_admin_password == PLACEHOLDER_DEFAULT_ADMIN_PASSWORD:
             raise ValueError("VAT_DEFAULT_ADMIN_PASSWORD must be changed from the placeholder value before startup.")
+        if self.jwt_secret_key == PLACEHOLDER_JWT_SECRET_KEY:
+            raise ValueError("VAT_JWT_SECRET_KEY must be changed from the placeholder value before startup.")
+        if self.data_encryption_key == PLACEHOLDER_DATA_ENCRYPTION_KEY:
+            raise ValueError("VAT_DATA_ENCRYPTION_KEY must be changed from the placeholder value before startup.")
+        if self.jwt_algorithm != "HS256":
+            raise ValueError("VAT_JWT_ALGORITHM currently only supports HS256.")
         return self
 
 

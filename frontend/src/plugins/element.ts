@@ -23,6 +23,7 @@ import {
   ElMenuItem,
   ElOption,
   ElSelect,
+  ElSwitch,
   ElTable,
   ElTableColumn,
   ElTag,
@@ -45,6 +46,7 @@ import 'element-plus/es/components/menu/style/css'
 import 'element-plus/es/components/menu-item/style/css'
 import 'element-plus/es/components/option/style/css'
 import 'element-plus/es/components/select/style/css'
+import 'element-plus/es/components/switch/style/css'
 import 'element-plus/es/components/table/style/css'
 import 'element-plus/es/components/table-column/style/css'
 import 'element-plus/es/components/tag/style/css'
@@ -66,6 +68,7 @@ const components: Plugin[] = [
   ElMenuItem,
   ElOption,
   ElSelect,
+  ElSwitch,
   ElTable,
   ElTableColumn,
   ElTag,

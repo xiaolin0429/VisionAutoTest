@@ -61,6 +61,8 @@ vim .env
 - `VAT_DATABASE_URL`：业务库连接串
 - `VAT_DATABASE_ADMIN_URL`：开发环境自动建库时使用的管理库连接串
 - `VAT_DEFAULT_ADMIN_USERNAME` / `VAT_DEFAULT_ADMIN_PASSWORD`：默认管理员初始化配置
+- `VAT_JWT_SECRET_KEY` / `VAT_JWT_ALGORITHM` / `VAT_JWT_ISSUER`：JWT 签名与声明配置
+- `VAT_DATA_ENCRYPTION_KEY`：环境变量等敏感配置的应用级加密密钥
 - `VAT_LOCAL_STORAGE_PATH`：本地媒体与执行产物目录
 - `VAT_DEMO_TARGET_BASE_URL`：默认演示环境指向的内置被测页地址
 - `VAT_PLAYWRIGHT_HEADLESS`：是否启用无头浏览器
@@ -124,6 +126,5 @@ pip install -e ".[dev]"
 
 ## 后续建议
 
-- 将当前示例令牌替换为 JWT
-- 将环境变量“伪加密”替换为正式密钥管理方案
 - 将执行 Worker 从进程内任务平滑升级为 `Celery + Redis`
+- 将本地文件存储平滑升级为对象存储抽象层的远端实现

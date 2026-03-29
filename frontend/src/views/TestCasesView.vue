@@ -14,23 +14,72 @@ import {
 } from '@/api/modules/testCases'
 import { listTemplates } from '@/api/modules/templates'
 import { formatDateTime } from '@/utils/format'
-import type { Component, StepWritePayload, Template, TestCase } from '@/types/models'
+import type {
+  Component,
+  OcrAssertMatchMode,
+  Step,
+  StepType,
+  StepWritePayload,
+  Template,
+  TestCase
+} from '@/types/models'
 
 interface StepDraft {
   id: number
   stepNo: number
   name: string
-  type: string
+  type: StepType
   templateId: number | null
   componentId: number | null
-  payloadText: string
+  waitMs: number | null
+  selector: string
+  text: string
+  threshold: number | null
+  expectedText: string
+  matchMode: OcrAssertMatchMode
+  caseSensitive: boolean
+  extraPayloadJson: string
   timeoutMs: number
   retryTimes: number
 }
 
+interface StepValidationErrors {
+  waitMs?: string
+  selector?: string
+  text?: string
+  templateId?: string
+  threshold?: string
+  expectedText?: string
+  matchMode?: string
+  componentId?: string
+  timeoutMs?: string
+  retryTimes?: string
+  extraPayloadJson?: string
+}
+
+interface StepTemplateOption {
+  id: number
+  label: string
+}
+
+const STEP_TYPE_LABELS: Record<StepType, string> = {
+  wait: '等待',
+  click: '点击',
+  input: '输入',
+  template_assert: '模板断言',
+  ocr_assert: 'OCR 断言',
+  component_call: '组件调用'
+}
+
+const OCR_MATCH_MODE_OPTIONS: Array<{ label: string; value: OcrAssertMatchMode }> = [
+  { label: '包含', value: 'contains' },
+  { label: '完全匹配', value: 'exact' }
+]
+
 const loading = ref(false)
 const savingCase = ref(false)
 const savingSteps = ref(false)
+const stepSubmitAttempted = ref(false)
 
 const testCases = ref<TestCase[]>([])
 const components = ref<Component[]>([])
@@ -52,13 +101,13 @@ const caseForm = reactive({
 
 const stepDrafts = ref<StepDraft[]>([])
 
-const stepTypeOptions = [
-  { label: '等待', value: 'wait' },
-  { label: '点击', value: 'click' },
-  { label: '输入', value: 'input' },
-  { label: '模板断言', value: 'template_assert' },
-  { label: 'OCR 断言', value: 'ocr_assert' },
-  { label: '组件调用', value: 'component_call' }
+const stepTypeOptions: Array<{ label: string; value: StepType }> = [
+  { label: STEP_TYPE_LABELS.wait, value: 'wait' },
+  { label: STEP_TYPE_LABELS.click, value: 'click' },
+  { label: STEP_TYPE_LABELS.input, value: 'input' },
+  { label: STEP_TYPE_LABELS.template_assert, value: 'template_assert' },
+  { label: STEP_TYPE_LABELS.ocr_assert, value: 'ocr_assert' },
+  { label: STEP_TYPE_LABELS.component_call, value: 'component_call' }
 ]
 
 const caseStatusOptions = [
@@ -92,7 +141,20 @@ const metrics = computed(() => [
   }
 ])
 
+const stepValidationErrors = computed(() => {
+  return stepDrafts.value.map((step) => validateStepDraft(step))
+})
+
+const hasStepValidationErrors = computed(() => {
+  return stepValidationErrors.value.some((item) => Object.keys(item).length > 0)
+})
+
 function stringifyPayload(payload: Record<string, unknown>) {
+  const keys = Object.keys(payload)
+  if (keys.length === 0) {
+    return '{}'
+  }
+
   return JSON.stringify(payload, null, 2)
 }
 
@@ -104,7 +166,14 @@ function createEmptyStepDraft(index: number): StepDraft {
     type: 'wait',
     templateId: null,
     componentId: null,
-    payloadText: '{}',
+    waitMs: 200,
+    selector: '',
+    text: '',
+    threshold: null,
+    expectedText: '',
+    matchMode: 'contains',
+    caseSensitive: false,
+    extraPayloadJson: '{}',
     timeoutMs: 15000,
     retryTimes: 0
   }
@@ -115,6 +184,326 @@ function normalizeStepDrafts(items: StepDraft[]) {
     ...item,
     stepNo: index + 1
   }))
+}
+
+function toRecord(value: unknown) {
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    return value as Record<string, unknown>
+  }
+
+  return {}
+}
+
+function buildStepDraft(step: Step): StepDraft {
+  const payload = { ...toRecord(step.payloadJson) }
+  const draft = createEmptyStepDraft(step.stepNo - 1)
+
+  switch (step.type) {
+    case 'wait':
+      draft.waitMs =
+        typeof payload.ms === 'number' && Number.isFinite(payload.ms) ? payload.ms : 200
+      delete payload.ms
+      break
+    case 'click':
+      draft.selector = typeof payload.selector === 'string' ? payload.selector : ''
+      delete payload.selector
+      break
+    case 'input':
+      draft.selector = typeof payload.selector === 'string' ? payload.selector : ''
+      draft.text = typeof payload.text === 'string' ? payload.text : ''
+      delete payload.selector
+      delete payload.text
+      break
+    case 'template_assert':
+      draft.threshold =
+        typeof payload.threshold === 'number' && Number.isFinite(payload.threshold)
+          ? payload.threshold
+          : null
+      delete payload.threshold
+      break
+    case 'ocr_assert':
+      draft.selector = typeof payload.selector === 'string' ? payload.selector : ''
+      draft.expectedText =
+        typeof payload.expected_text === 'string' ? payload.expected_text : ''
+      draft.matchMode = payload.match_mode === 'exact' ? 'exact' : 'contains'
+      draft.caseSensitive = payload.case_sensitive === true
+      delete payload.selector
+      delete payload.expected_text
+      delete payload.match_mode
+      delete payload.case_sensitive
+      break
+    case 'component_call':
+      break
+  }
+
+  return {
+    ...draft,
+    id: step.id,
+    stepNo: step.stepNo,
+    name: step.name,
+    type: step.type,
+    templateId: step.templateId,
+    componentId: step.componentId,
+    extraPayloadJson: stringifyPayload(payload),
+    timeoutMs: step.timeoutMs,
+    retryTimes: step.retryTimes
+  }
+}
+
+function getStepTemplateOptions(step: StepDraft): StepTemplateOption[] {
+  if (step.type !== 'template_assert' && step.type !== 'ocr_assert') {
+    return []
+  }
+
+  const expectedStrategy = step.type === 'template_assert' ? 'template' : 'ocr'
+  const options = templates.value
+    .filter((item) => item.matchStrategy === expectedStrategy)
+    .map((item) => ({
+      id: item.id,
+      label: formatTemplateOptionLabel(item)
+    }))
+
+  if (step.templateId !== null && !options.some((item) => item.id === step.templateId)) {
+    const currentTemplate = templates.value.find((item) => item.id === step.templateId)
+    if (currentTemplate) {
+      options.unshift({
+        id: currentTemplate.id,
+        label: `${formatTemplateOptionLabel(currentTemplate)} · 当前值不符合 ${expectedStrategy} 策略`
+      })
+    }
+  }
+
+  return options
+}
+
+function formatTemplateOptionLabel(template: Template) {
+  const baselineLabel =
+    template.currentBaselineRevisionId !== null ? `当前基准 ${template.baselineVersion}` : '无当前基准'
+  return `${template.name} (#${template.id}) · ${template.status} · ${baselineLabel}`
+}
+
+function formatComponentOptionLabel(component: Component) {
+  return `${component.name} (#${component.id}) · ${component.status}`
+}
+
+function parseExtraPayloadJson(step: StepDraft) {
+  const raw = step.extraPayloadJson.trim()
+  if (!raw) {
+    return {
+      value: {} as Record<string, unknown>
+    }
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as unknown
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      return {
+        value: parsed as Record<string, unknown>
+      }
+    }
+  } catch {
+    return {
+      error: '额外 payload 需要是合法 JSON。'
+    }
+  }
+
+  return {
+    error: '额外 payload 需要是 JSON 对象。'
+  }
+}
+
+function getStepTemplateHint(step: StepDraft) {
+  if (step.templateId === null) {
+    return ''
+  }
+
+  const template = templates.value.find((item) => item.id === step.templateId)
+  if (!template) {
+    return '当前模板不存在，请重新选择。'
+  }
+
+  const messages: string[] = []
+
+  if (step.type === 'template_assert' && template.matchStrategy !== 'template') {
+    messages.push('当前模板不是 template 策略。')
+  }
+
+  if (step.type === 'ocr_assert' && template.matchStrategy !== 'ocr') {
+    messages.push('当前模板不是 ocr 策略。')
+  }
+
+  if (template.currentBaselineRevisionId === null) {
+    messages.push('当前模板缺少当前基准版本，执行时可能失败。')
+  }
+
+  if (template.status !== 'published') {
+    messages.push('当前模板未发布，执行前需先发布。')
+  }
+
+  return messages.join(' ')
+}
+
+function normalizeStepByType(step: StepDraft, nextType: StepType) {
+  return {
+    ...step,
+    type: nextType,
+    templateId: nextType === 'template_assert' || nextType === 'ocr_assert' ? step.templateId : null,
+    componentId: nextType === 'component_call' ? step.componentId : null,
+    waitMs: nextType === 'wait' ? step.waitMs ?? 200 : null,
+    selector:
+      nextType === 'click' || nextType === 'input' || nextType === 'ocr_assert'
+        ? step.selector
+        : '',
+    text: nextType === 'input' ? step.text : '',
+    threshold: nextType === 'template_assert' ? step.threshold : null,
+    expectedText: nextType === 'ocr_assert' ? step.expectedText : '',
+    matchMode: nextType === 'ocr_assert' ? step.matchMode : 'contains',
+    caseSensitive: nextType === 'ocr_assert' ? step.caseSensitive : false
+  }
+}
+
+function updateStepType(step: StepDraft, nextType: StepType) {
+  Object.assign(step, normalizeStepByType(step, nextType))
+}
+
+function handleStepTypeModelUpdate(step: StepDraft, value: string | number | boolean) {
+  updateStepType(step, value as StepType)
+}
+
+function validateStepDraft(step: StepDraft): StepValidationErrors {
+  const errors: StepValidationErrors = {}
+
+  if (!Number.isFinite(step.timeoutMs) || step.timeoutMs < 1) {
+    errors.timeoutMs = '超时时间必须大于等于 1 ms。'
+  }
+
+  if (!Number.isFinite(step.retryTimes) || step.retryTimes < 0) {
+    errors.retryTimes = '重试次数必须大于等于 0。'
+  }
+
+  const extraPayload = parseExtraPayloadJson(step)
+  if ('error' in extraPayload) {
+    errors.extraPayloadJson = extraPayload.error
+  }
+
+  switch (step.type) {
+    case 'wait':
+      if (!Number.isFinite(step.waitMs) || (step.waitMs ?? -1) < 0) {
+        errors.waitMs = '等待时长必须大于等于 0 ms。'
+      }
+      break
+    case 'click':
+      if (!step.selector.trim()) {
+        errors.selector = '请选择或填写点击目标选择器。'
+      }
+      break
+    case 'input':
+      if (!step.selector.trim()) {
+        errors.selector = '请输入输入目标选择器。'
+      }
+      if (!step.text.trim()) {
+        errors.text = '请输入要填充的文本。'
+      }
+      break
+    case 'template_assert':
+      if (step.templateId === null) {
+        errors.templateId = '模板断言必须选择模板。'
+      }
+      if (
+        step.threshold !== null &&
+        (!Number.isFinite(step.threshold) || step.threshold < 0 || step.threshold > 1)
+      ) {
+        errors.threshold = '阈值必须在 0 到 1 之间。'
+      }
+      break
+    case 'ocr_assert':
+      if (!step.selector.trim()) {
+        errors.selector = 'OCR 断言必须填写选择器。'
+      }
+      if (!step.expectedText.trim()) {
+        errors.expectedText = 'OCR 断言必须填写期望文本。'
+      }
+      if (step.matchMode !== 'exact' && step.matchMode !== 'contains') {
+        errors.matchMode = '匹配模式仅支持 exact 或 contains。'
+      }
+      break
+    case 'component_call':
+      if (step.componentId === null) {
+        errors.componentId = '组件调用必须选择组件。'
+      }
+      break
+  }
+
+  return errors
+}
+
+function getStepError(index: number, field: keyof StepValidationErrors) {
+  if (!stepSubmitAttempted.value) {
+    return ''
+  }
+
+  return stepValidationErrors.value[index]?.[field] ?? ''
+}
+
+function shouldOpenAdvancedPayload(index: number) {
+  const draft = stepDrafts.value[index]
+  if (!draft) {
+    return false
+  }
+
+  return draft.extraPayloadJson.trim() !== '{}' || Boolean(getStepError(index, 'extraPayloadJson'))
+}
+
+function buildStructuredPayload(step: StepDraft) {
+  switch (step.type) {
+    case 'wait':
+      return {
+        ms: Number(step.waitMs ?? 0)
+      }
+    case 'click':
+      return {
+        selector: step.selector.trim()
+      }
+    case 'input':
+      return {
+        selector: step.selector.trim(),
+        text: step.text
+      }
+    case 'template_assert':
+      return step.threshold === null
+        ? {}
+        : {
+            threshold: Number(step.threshold)
+          }
+    case 'ocr_assert':
+      return {
+        selector: step.selector.trim(),
+        expected_text: step.expectedText,
+        match_mode: step.matchMode,
+        case_sensitive: step.caseSensitive
+      }
+    case 'component_call':
+      return {}
+  }
+}
+
+function buildStepWritePayload(step: StepDraft, index: number): StepWritePayload {
+  const extraPayload = parseExtraPayloadJson(step)
+  const additionalPayload = 'value' in extraPayload ? extraPayload.value : {}
+
+  return {
+    stepNo: index + 1,
+    type: step.type,
+    name: step.name.trim() || `${STEP_TYPE_LABELS[step.type]} ${index + 1}`,
+    templateId: step.type === 'template_assert' || step.type === 'ocr_assert' ? step.templateId : null,
+    componentId: step.type === 'component_call' ? step.componentId : null,
+    payloadJson: {
+      ...additionalPayload,
+      ...buildStructuredPayload(step)
+    },
+    timeoutMs: Number(step.timeoutMs),
+    retryTimes: Number(step.retryTimes)
+  }
 }
 
 async function loadCaseList() {
@@ -146,6 +535,14 @@ function resetCaseForm() {
   caseForm.status = 'draft'
   caseForm.priority = 'p2'
   caseForm.description = ''
+}
+
+function resetStepDialogState() {
+  stepSubmitAttempted.value = false
+}
+
+function handleStepDialogClosed() {
+  resetStepDialogState()
 }
 
 function openCreateCaseDialog() {
@@ -224,19 +621,8 @@ function openStepDialog() {
     return
   }
 
-  normalizeStepDrafts(
-    currentCase.value.steps.map((step) => ({
-      id: step.id,
-      stepNo: step.stepNo,
-      name: step.name,
-      type: step.type,
-      templateId: step.templateId,
-      componentId: step.componentId,
-      payloadText: stringifyPayload(step.payloadJson),
-      timeoutMs: step.timeoutMs,
-      retryTimes: step.retryTimes
-    }))
-  )
+  resetStepDialogState()
+  normalizeStepDrafts(currentCase.value.steps.map((step) => buildStepDraft(step)))
 
   if (stepDrafts.value.length === 0) {
     normalizeStepDrafts([createEmptyStepDraft(0)])
@@ -268,50 +654,25 @@ function moveStep(index: number, direction: -1 | 1) {
   normalizeStepDrafts(nextDrafts)
 }
 
-function updateStepType(step: StepDraft) {
-  if (step.type === 'component_call') {
-    step.templateId = null
-  }
-
-  if (step.type === 'wait' || step.type === 'click' || step.type === 'input') {
-    step.templateId = null
-    step.componentId = null
-  }
-}
-
-function parseStepPayload(step: StepDraft): Record<string, unknown> {
-  try {
-    const parsed = JSON.parse(step.payloadText || '{}') as unknown
-    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-      return parsed as Record<string, unknown>
-    }
-  } catch {
-    throw new Error(`步骤 ${step.stepNo} 的 payload 不是合法 JSON。`)
-  }
-
-  throw new Error(`步骤 ${step.stepNo} 的 payload 需要是 JSON 对象。`)
-}
-
 async function handleSaveSteps() {
   if (!currentCase.value) {
     return
   }
 
+  stepSubmitAttempted.value = true
+
+  if (hasStepValidationErrors.value) {
+    ElMessage.error('请修正步骤配置后再保存。')
+    return
+  }
+
   try {
-    const payload: StepWritePayload[] = stepDrafts.value.map((step, index) => ({
-      stepNo: index + 1,
-      type: step.type,
-      name: step.name.trim() || `Step ${index + 1}`,
-      templateId: step.templateId,
-      componentId: step.componentId,
-      payloadJson: parseStepPayload(step),
-      timeoutMs: Number(step.timeoutMs),
-      retryTimes: Number(step.retryTimes)
-    }))
+    const payload = stepDrafts.value.map((step, index) => buildStepWritePayload(step, index))
 
     savingSteps.value = true
     await replaceTestCaseSteps(currentCase.value.id, payload)
     stepDialogVisible.value = false
+    resetStepDialogState()
     ElMessage.success('步骤编排已保存。')
     await loadCaseDetail(currentCase.value.id)
   } catch (error) {
@@ -482,7 +843,7 @@ onMounted(async () => {
         </SectionCard>
 
         <SectionCard
-          description="步骤顺序从 1 开始连续，支持新增、调整、保存与引用模板/组件。"
+          description="步骤顺序从 1 开始连续，默认通过结构化表单完成常用配置。"
           title="步骤编排"
         >
           <template #action>
@@ -504,8 +865,8 @@ onMounted(async () => {
             <el-table-column label="Step No" prop="stepNo" width="90" />
             <el-table-column label="步骤名称" min-width="220" prop="name" />
             <el-table-column label="类型" min-width="150" prop="type" />
-            <el-table-column label="目标" min-width="220" prop="target" />
-            <el-table-column label="备注" min-width="280" prop="note" />
+            <el-table-column label="摘要" min-width="260" prop="target" />
+            <el-table-column label="配置说明" min-width="320" prop="note" />
           </el-table>
         </SectionCard>
       </div>
@@ -587,14 +948,22 @@ onMounted(async () => {
       title="步骤编排"
       top="4vh"
       width="960px"
+      @closed="handleStepDialogClosed"
     >
-      <div class="mb-4 flex justify-between">
-        <p class="m-0 text-sm text-slate-500">
-          支持编辑步骤名称、类型、模板/组件引用以及 `payload_json`。
+      <div class="mb-4 flex items-start justify-between gap-4">
+        <p class="m-0 text-sm leading-6 text-slate-500">
+          默认使用结构化表单完成六类高频步骤配置；若有扩展需求，可在每个步骤卡片里展开“高级 payload 配置”。
         </p>
         <el-button plain @click="addStepDraft">
           新增步骤
         </el-button>
+      </div>
+
+      <div
+        v-if="stepSubmitAttempted && hasStepValidationErrors"
+        class="mb-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700"
+      >
+        请修正步骤配置后再保存。
       </div>
 
       <div class="max-h-[65vh] space-y-4 overflow-auto pr-2">
@@ -609,7 +978,7 @@ onMounted(async () => {
                 Step {{ step.stepNo }}
               </p>
               <p class="mb-0 mt-1 text-xs text-slate-400">
-                顺序会在保存时自动归一化。
+                类型：{{ STEP_TYPE_LABELS[step.type] }}，顺序会在保存时自动归一化。
               </p>
             </div>
             <div class="flex gap-2">
@@ -632,14 +1001,18 @@ onMounted(async () => {
           <div class="grid grid-cols-2 gap-4">
             <div>
               <label class="mb-2 block text-sm font-medium text-slate-700">步骤名称</label>
-              <el-input v-model="step.name" />
+              <el-input
+                v-model="step.name"
+                :placeholder="`${STEP_TYPE_LABELS[step.type]} ${step.stepNo}`"
+              />
             </div>
+
             <div>
               <label class="mb-2 block text-sm font-medium text-slate-700">步骤类型</label>
               <el-select
-                v-model="step.type"
+                :model-value="step.type"
                 class="!w-full"
-                @change="updateStepType(step)"
+                @update:model-value="handleStepTypeModelUpdate(step, $event)"
               >
                 <el-option
                   v-for="option in stepTypeOptions"
@@ -649,38 +1022,231 @@ onMounted(async () => {
                 />
               </el-select>
             </div>
-            <div>
-              <label class="mb-2 block text-sm font-medium text-slate-700">模板引用</label>
-              <el-select
-                v-model="step.templateId"
-                class="!w-full"
-                clearable
-                placeholder="可选"
-              >
-                <el-option
-                  v-for="item in templates"
-                  :key="item.id"
-                  :label="`${item.name} (#${item.id})`"
-                  :value="item.id"
+
+            <template v-if="step.type === 'wait'">
+              <div>
+                <label class="mb-2 block text-sm font-medium text-slate-700">等待时长(ms)</label>
+                <el-input-number
+                  v-model="step.waitMs"
+                  :min="0"
+                  class="!w-full"
                 />
-              </el-select>
-            </div>
-            <div>
-              <label class="mb-2 block text-sm font-medium text-slate-700">组件引用</label>
-              <el-select
-                v-model="step.componentId"
-                class="!w-full"
-                clearable
-                placeholder="可选"
-              >
-                <el-option
-                  v-for="item in components"
-                  :key="item.id"
-                  :label="`${item.name} (#${item.id})`"
-                  :value="item.id"
+                <p
+                  v-if="getStepError(index, 'waitMs')"
+                  class="mt-2 text-xs text-rose-600"
+                >
+                  {{ getStepError(index, 'waitMs') }}
+                </p>
+              </div>
+            </template>
+
+            <template v-if="step.type === 'click'">
+              <div class="col-span-2">
+                <label class="mb-2 block text-sm font-medium text-slate-700">选择器</label>
+                <el-input
+                  v-model="step.selector"
+                  placeholder="例如 [data-testid='submit-button']"
                 />
-              </el-select>
-            </div>
+                <p
+                  v-if="getStepError(index, 'selector')"
+                  class="mt-2 text-xs text-rose-600"
+                >
+                  {{ getStepError(index, 'selector') }}
+                </p>
+              </div>
+            </template>
+
+            <template v-if="step.type === 'input'">
+              <div>
+                <label class="mb-2 block text-sm font-medium text-slate-700">选择器</label>
+                <el-input
+                  v-model="step.selector"
+                  placeholder="例如 [data-testid='name-input']"
+                />
+                <p
+                  v-if="getStepError(index, 'selector')"
+                  class="mt-2 text-xs text-rose-600"
+                >
+                  {{ getStepError(index, 'selector') }}
+                </p>
+              </div>
+
+              <div>
+                <label class="mb-2 block text-sm font-medium text-slate-700">输入文本</label>
+                <el-input
+                  v-model="step.text"
+                  placeholder="请输入要填充的内容"
+                />
+                <p
+                  v-if="getStepError(index, 'text')"
+                  class="mt-2 text-xs text-rose-600"
+                >
+                  {{ getStepError(index, 'text') }}
+                </p>
+              </div>
+            </template>
+
+            <template v-if="step.type === 'template_assert'">
+              <div>
+                <label class="mb-2 block text-sm font-medium text-slate-700">模板选择</label>
+                <el-select
+                  v-model="step.templateId"
+                  class="!w-full"
+                  clearable
+                  placeholder="请选择 template 策略模板"
+                >
+                  <el-option
+                    v-for="option in getStepTemplateOptions(step)"
+                    :key="option.id"
+                    :label="option.label"
+                    :value="option.id"
+                  />
+                </el-select>
+                <p
+                  v-if="getStepError(index, 'templateId')"
+                  class="mt-2 text-xs text-rose-600"
+                >
+                  {{ getStepError(index, 'templateId') }}
+                </p>
+                <p
+                  v-else-if="getStepTemplateHint(step)"
+                  class="mt-2 text-xs text-amber-600"
+                >
+                  {{ getStepTemplateHint(step) }}
+                </p>
+              </div>
+
+              <div>
+                <label class="mb-2 block text-sm font-medium text-slate-700">阈值(可选)</label>
+                <el-input-number
+                  v-model="step.threshold"
+                  :max="1"
+                  :min="0"
+                  :precision="2"
+                  :step="0.01"
+                  :value-on-clear="null"
+                  class="!w-full"
+                  placeholder="留空则使用模板默认阈值"
+                />
+                <p
+                  v-if="getStepError(index, 'threshold')"
+                  class="mt-2 text-xs text-rose-600"
+                >
+                  {{ getStepError(index, 'threshold') }}
+                </p>
+              </div>
+            </template>
+
+            <template v-if="step.type === 'ocr_assert'">
+              <div>
+                <label class="mb-2 block text-sm font-medium text-slate-700">
+                  OCR 模板(可选)
+                </label>
+                <el-select
+                  v-model="step.templateId"
+                  class="!w-full"
+                  clearable
+                  placeholder="可选，需为 ocr 策略模板"
+                >
+                  <el-option
+                    v-for="option in getStepTemplateOptions(step)"
+                    :key="option.id"
+                    :label="option.label"
+                    :value="option.id"
+                  />
+                </el-select>
+                <p
+                  v-if="getStepTemplateHint(step)"
+                  class="mt-2 text-xs text-amber-600"
+                >
+                  {{ getStepTemplateHint(step) }}
+                </p>
+              </div>
+
+              <div>
+                <label class="mb-2 block text-sm font-medium text-slate-700">选择器</label>
+                <el-input
+                  v-model="step.selector"
+                  placeholder="例如 [data-testid='result-banner']"
+                />
+                <p
+                  v-if="getStepError(index, 'selector')"
+                  class="mt-2 text-xs text-rose-600"
+                >
+                  {{ getStepError(index, 'selector') }}
+                </p>
+              </div>
+
+              <div>
+                <label class="mb-2 block text-sm font-medium text-slate-700">期望文本</label>
+                <el-input
+                  v-model="step.expectedText"
+                  placeholder="请输入 OCR 期望结果"
+                />
+                <p
+                  v-if="getStepError(index, 'expectedText')"
+                  class="mt-2 text-xs text-rose-600"
+                >
+                  {{ getStepError(index, 'expectedText') }}
+                </p>
+              </div>
+
+              <div>
+                <label class="mb-2 block text-sm font-medium text-slate-700">匹配模式</label>
+                <el-select
+                  v-model="step.matchMode"
+                  class="!w-full"
+                >
+                  <el-option
+                    v-for="option in OCR_MATCH_MODE_OPTIONS"
+                    :key="option.value"
+                    :label="option.label"
+                    :value="option.value"
+                  />
+                </el-select>
+                <p
+                  v-if="getStepError(index, 'matchMode')"
+                  class="mt-2 text-xs text-rose-600"
+                >
+                  {{ getStepError(index, 'matchMode') }}
+                </p>
+              </div>
+
+              <div class="col-span-2">
+                <label class="mb-2 block text-sm font-medium text-slate-700">匹配选项</label>
+                <div class="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700">
+                  <el-checkbox v-model="step.caseSensitive">
+                    OCR 结果区分大小写
+                  </el-checkbox>
+                </div>
+              </div>
+            </template>
+
+            <template v-if="step.type === 'component_call'">
+              <div class="col-span-2">
+                <label class="mb-2 block text-sm font-medium text-slate-700">组件选择</label>
+                <el-select
+                  v-model="step.componentId"
+                  class="!w-full"
+                  clearable
+                  placeholder="请选择组件"
+                >
+                  <el-option
+                    v-for="item in components"
+                    :key="item.id"
+                    :label="formatComponentOptionLabel(item)"
+                    :value="item.id"
+                  />
+                </el-select>
+                <p
+                  v-if="getStepError(index, 'componentId')"
+                  class="mt-2 text-xs text-rose-600"
+                >
+                  {{ getStepError(index, 'componentId') }}
+                </p>
+              </div>
+            </template>
+
             <div>
               <label class="mb-2 block text-sm font-medium text-slate-700">超时时间(ms)</label>
               <el-input-number
@@ -688,7 +1254,14 @@ onMounted(async () => {
                 :min="1"
                 class="!w-full"
               />
+              <p
+                v-if="getStepError(index, 'timeoutMs')"
+                class="mt-2 text-xs text-rose-600"
+              >
+                {{ getStepError(index, 'timeoutMs') }}
+              </p>
             </div>
+
             <div>
               <label class="mb-2 block text-sm font-medium text-slate-700">重试次数</label>
               <el-input-number
@@ -696,14 +1269,40 @@ onMounted(async () => {
                 :min="0"
                 class="!w-full"
               />
+              <p
+                v-if="getStepError(index, 'retryTimes')"
+                class="mt-2 text-xs text-rose-600"
+              >
+                {{ getStepError(index, 'retryTimes') }}
+              </p>
             </div>
+
             <div class="col-span-2">
-              <label class="mb-2 block text-sm font-medium text-slate-700">payload_json</label>
-              <el-input
-                v-model="step.payloadText"
-                :rows="5"
-                type="textarea"
-              />
+              <details
+                :open="shouldOpenAdvancedPayload(index)"
+                class="rounded-2xl border border-slate-200 bg-white"
+              >
+                <summary class="cursor-pointer list-none px-4 py-3 text-sm font-medium text-slate-700">
+                  高级 payload 配置
+                </summary>
+                <div class="border-t border-slate-200 px-4 py-4">
+                  <p class="m-0 text-sm leading-6 text-slate-500">
+                    这里填写额外 payload JSON。已提供的结构化字段会在保存时自动覆盖同名键。
+                  </p>
+                  <el-input
+                    v-model="step.extraPayloadJson"
+                    :rows="5"
+                    class="!mt-3"
+                    type="textarea"
+                  />
+                  <p
+                    v-if="getStepError(index, 'extraPayloadJson')"
+                    class="mt-2 text-xs text-rose-600"
+                  >
+                    {{ getStepError(index, 'extraPayloadJson') }}
+                  </p>
+                </div>
+              </details>
             </div>
           </div>
         </div>

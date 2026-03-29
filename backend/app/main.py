@@ -138,7 +138,7 @@ DEMO_ACCEPTANCE_HTML = """<!DOCTYPE html>
         <button class="primary" type="button" data-testid="cta-open-form">Open Demo Form</button>
         <button class="secondary" type="button" data-testid="cta-reset">Reset</button>
       </div>
-      <section class="form-card" data-testid="demo-form" hidden>
+      <section class="form-card" data-testid="demo-form">
         <label for="name-input">Operator Name</label>
         <input id="name-input" data-testid="name-input" type="text" autocomplete="off" />
         <div class="actions">
@@ -153,6 +153,7 @@ DEMO_ACCEPTANCE_HTML = """<!DOCTYPE html>
       const resultBanner = document.querySelector("[data-testid='result-banner']");
       document.querySelector("[data-testid='cta-open-form']").addEventListener("click", () => {
         form.hidden = false;
+        form.scrollIntoView({ block: "center", behavior: "instant" });
         nameInput.focus();
         resultBanner.textContent = "Form opened";
       });
@@ -161,8 +162,9 @@ DEMO_ACCEPTANCE_HTML = """<!DOCTYPE html>
         resultBanner.textContent = `Hello, ${value}`;
       });
       document.querySelector("[data-testid='cta-reset']").addEventListener("click", () => {
-        form.hidden = true;
+        form.hidden = false;
         nameInput.value = "";
+        nameInput.focus();
         resultBanner.textContent = "Ready for execution";
       });
     </script>
