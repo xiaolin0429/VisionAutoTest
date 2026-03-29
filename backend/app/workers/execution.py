@@ -2,11 +2,36 @@ from __future__ import annotations
 
 from sqlalchemy import select
 
+from app.core.config import get_settings
 from app.db.session import SessionLocal
-from app.models import DeviceProfile, EnvironmentProfile, MediaObject, ReportArtifact, RunReport, StepResult, TestCaseRun, TestRun, User, utc_now
+from app.models import (
+    BaselineRevision,
+    DeviceProfile,
+    EnvironmentProfile,
+    MediaObject,
+    ReportArtifact,
+    RunReport,
+    StepResult,
+    Template,
+    TemplateMaskRegion,
+    TestCaseRun,
+    TestRun,
+    User,
+    utc_now,
+)
 from app.services import assets as asset_service
-from app.services.execution import build_execution_steps, create_report_artifact, finalize_cancelled_test_run, finalize_completed_test_run, finalize_errored_test_run, get_report_by_test_run
+from app.services.execution import (
+    build_execution_steps,
+    create_report_artifact,
+    finalize_cancelled_test_run,
+    finalize_completed_test_run,
+    finalize_errored_test_run,
+    get_report_by_test_run,
+)
 from app.workers.browser import build_browser_execution_adapter
+from app.workers.vision import MaskRegionRatio, TemplateAssertionContext
+
+settings = get_settings()
 
 
 def process_test_run(test_run_id: int) -> None:
@@ -59,6 +84,7 @@ def process_test_run(test_run_id: int) -> None:
                     workspace_id=test_run.workspace_id,
                     test_case_id=case_run.test_case_id,
                 )
+                template_contexts = _build_template_contexts(db, workspace_id=test_run.workspace_id, steps=steps)
 
                 for _ in steps:
                     db.refresh(test_run)
@@ -72,6 +98,7 @@ def process_test_run(test_run_id: int) -> None:
                     case_run_id=case_run.id,
                     device_profile=device_profile,
                     steps=steps,
+                    template_contexts=template_contexts,
                 )
 
                 persisted_step_results: list[StepResult] = []
@@ -86,9 +113,36 @@ def process_test_run(test_run_id: int) -> None:
                         started_at=step_result.started_at,
                         finished_at=step_result.finished_at,
                         duration_ms=step_result.duration_ms,
+                        expected_media_object_id=step_result.expected_media_object_id,
                     )
                     db.add(persisted)
                     db.flush()
+                    if step_result.actual_artifact is not None:
+                        actual_media = asset_service.create_media_object_from_bytes(
+                            db,
+                            user=triggered_user,
+                            workspace_id=test_run.workspace_id,
+                            file_bytes=step_result.actual_artifact.content_bytes,
+                            file_name=step_result.actual_artifact.file_name,
+                            mime_type=step_result.actual_artifact.content_type,
+                            usage="artifact",
+                            remark=f"case-run-{case_run.id}-step-{step_result.step_no}-{step_result.actual_artifact.artifact_type}",
+                        )
+                        persisted.actual_media_object_id = actual_media.id
+                        captured_media.append(actual_media)
+                    if step_result.diff_artifact is not None:
+                        diff_media = asset_service.create_media_object_from_bytes(
+                            db,
+                            user=triggered_user,
+                            workspace_id=test_run.workspace_id,
+                            file_bytes=step_result.diff_artifact.content_bytes,
+                            file_name=step_result.diff_artifact.file_name,
+                            mime_type=step_result.diff_artifact.content_type,
+                            usage="artifact",
+                            remark=f"case-run-{case_run.id}-step-{step_result.step_no}-{step_result.diff_artifact.artifact_type}",
+                        )
+                        persisted.diff_media_object_id = diff_media.id
+                        captured_media.append(diff_media)
                     persisted_step_results.append(persisted)
 
                 if execution_result.artifact is not None:
@@ -103,7 +157,7 @@ def process_test_run(test_run_id: int) -> None:
                         remark=f"case-run-{case_run.id}-screenshot",
                     )
                     captured_media.append(media)
-                    if persisted_step_results:
+                    if persisted_step_results and persisted_step_results[-1].actual_media_object_id is None:
                         persisted_step_results[-1].actual_media_object_id = media.id
 
                 case_run.status = execution_result.status
@@ -172,3 +226,47 @@ def _persist_report_artifacts(db, test_run_id: int, media_objects: list[MediaObj
             continue
         create_report_artifact(db, report=report, media=media)
         existing_media_ids.add(media.id)
+
+
+def _build_template_contexts(db, *, workspace_id: int, steps) -> dict[int, TemplateAssertionContext]:
+    template_ids = {
+        step.template_id
+        for step in steps
+        if step.template_id is not None and step.step_type in {"template_assert", "ocr_assert"}
+    }
+    contexts: dict[int, TemplateAssertionContext] = {}
+    for template_id in template_ids:
+        template = db.get(Template, template_id)
+        if template is None or template.workspace_id != workspace_id or template.is_deleted:
+            continue
+        if template.current_baseline_revision_id is None:
+            continue
+        baseline = db.get(BaselineRevision, template.current_baseline_revision_id)
+        if baseline is None:
+            continue
+        media = db.get(MediaObject, baseline.media_object_id)
+        if media is None:
+            continue
+        mask_regions = db.scalars(
+            select(TemplateMaskRegion)
+            .where(TemplateMaskRegion.template_id == template.id)
+            .order_by(TemplateMaskRegion.sort_order.asc())
+        ).all()
+        contexts[template_id] = TemplateAssertionContext(
+            template_id=template.id,
+            template_name=template.template_name,
+            match_strategy=template.match_strategy,
+            threshold_value=float(template.threshold_value),
+            baseline_media_object_id=media.id,
+            baseline_file_path=settings.local_storage_path / media.object_key,
+            mask_regions=[
+                MaskRegionRatio(
+                    x_ratio=float(region.x_ratio),
+                    y_ratio=float(region.y_ratio),
+                    width_ratio=float(region.width_ratio),
+                    height_ratio=float(region.height_ratio),
+                )
+                for region in mask_regions
+            ],
+        )
+    return contexts

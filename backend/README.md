@@ -72,8 +72,22 @@ uvicorn app.main:app --reload
 执行链路补充说明：
 
 - 当前 MVP 首批真实浏览器执行支持 `wait`、`click`、`input`
+- 当前后端已扩展 `template_assert`、`ocr_assert` 执行链路；前端步骤编辑与联调仍可按后续节奏接入
 - 用例执行完成后会产出真实截图，并写入 `media-objects` 与 `report-artifacts`
-- 当前尚未接入 `OpenCV` / `OCR` 的视觉断言闭环，模板比对与 OCR 断言留待下一阶段实现
+- 本地运行视觉断言前请确认已安装 OpenCV / PaddleOCR 相关依赖
+
+视觉断言本地依赖补充说明：
+
+```bash
+cd backend
+source .venv/bin/activate
+pip install -e ".[dev]"
+playwright install chromium
+```
+
+- `template_assert` 依赖 `opencv-python-headless`
+- `ocr_assert` 依赖 `paddleocr` 及其 CPU 运行依赖
+- 若本地未安装上述依赖，仅在执行对应步骤时会返回运行时错误，普通 `wait/click/input` 链路不受影响
 
 初始化时会自动创建一个默认管理员：
 
