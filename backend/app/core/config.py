@@ -20,6 +20,7 @@ class Settings(BaseSettings):
     database_auto_create: bool = False
     database_auto_migrate: bool = False
     local_storage_path: Path = Path(".data/media")
+    demo_target_base_url: str = "http://127.0.0.1:8000/demo/acceptance-target"
     playwright_headless: bool = True
     playwright_navigation_timeout_ms: int = 15000
     access_token_ttl_seconds: int = 7200

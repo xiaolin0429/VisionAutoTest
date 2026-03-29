@@ -103,9 +103,11 @@ npm run dev
 - 前端开发服务器默认代理 `/api` 与 `/healthz` 到 `http://127.0.0.1:8000`
 - 后端本地联调默认使用 PostgreSQL 开发库 `AutoTestDev`
 - 首次联调前请先复制 `backend/.env.example` 为 `backend/.env` 并填入本地数据库账号、密码与管理员初始密码
-- 首次联调前请先执行 `cd backend && python -m app.db.bootstrap`
+- 首次联调前请先执行 `cd backend && .venv/bin/python -m app.db.bootstrap`
+- `bootstrap` 在开发环境会默认幂等初始化一套最小验收数据，演示环境默认指向后端内置页 `http://127.0.0.1:8000/demo/acceptance-target`
 - 登录默认账号：`admin`，初始密码以本地 `backend/.env` 中的 `VAT_DEFAULT_ADMIN_PASSWORD` 为准
 - 当前主链路以 `test-runs -> case-runs -> step-results` 聚合执行详情，不再依赖旧 mock 的报告 ID
+- 后端自动化测试请单独使用 `backend/.env.test.local` 中的 `VAT_TEST_DATABASE_URL`，禁止复用开发库 `AutoTestDev`
 
 ## 工程原则
 

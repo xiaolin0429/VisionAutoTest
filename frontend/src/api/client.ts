@@ -5,6 +5,7 @@ import axios, {
 } from 'axios'
 import {
   AUTH_SESSION_STORAGE_KEY,
+  AUTH_USER_STORAGE_KEY,
   WORKSPACE_STORAGE_KEY
 } from '@/constants/storage'
 import type { ApiEnvelope, PaginatedEnvelope } from '@/types/backend'
@@ -34,6 +35,12 @@ const http = axios.create({
   timeout: 10000
 })
 
+export function clearPersistedAuthState() {
+  localStorage.removeItem(AUTH_SESSION_STORAGE_KEY)
+  localStorage.removeItem(AUTH_USER_STORAGE_KEY)
+  localStorage.removeItem(WORKSPACE_STORAGE_KEY)
+}
+
 function readStoredJson<T>(key: string): T | null {
   const raw = localStorage.getItem(key)
   if (!raw) {
@@ -46,6 +53,23 @@ function readStoredJson<T>(key: string): T | null {
     localStorage.removeItem(key)
     return null
   }
+}
+
+function shouldSkipUnauthorizedRedirect(requestUrl: string) {
+  return requestUrl.endsWith('/sessions') || requestUrl.endsWith('/sessions/current')
+}
+
+function redirectToLogin() {
+  if (window.location.pathname === '/login') {
+    return
+  }
+
+  const redirectTarget = `${window.location.pathname}${window.location.search}${window.location.hash}`
+  const searchParams = new URLSearchParams({
+    redirect: redirectTarget
+  })
+
+  window.location.replace(`/login?${searchParams.toString()}`)
 }
 
 http.interceptors.request.use((config) => {
@@ -68,6 +92,15 @@ http.interceptors.request.use((config) => {
 http.interceptors.response.use(
   (response) => response,
   (error: AxiosError<ApiErrorEnvelope>) => {
+    const requestUrl = String(error.config?.url ?? '')
+    const shouldInvalidateSession =
+      error.response?.status === 401 && !shouldSkipUnauthorizedRedirect(requestUrl)
+
+    if (shouldInvalidateSession) {
+      clearPersistedAuthState()
+      redirectToLogin()
+    }
+
     const errorPayload = error.response?.data?.error
     if (errorPayload?.code && errorPayload?.message) {
       throw new ApiError(
@@ -96,6 +129,14 @@ export async function requestVoid(config: AxiosRequestConfig): Promise<void> {
     ...config,
     responseType: 'text'
   })
+}
+
+export async function requestBlob(config: AxiosRequestConfig): Promise<Blob> {
+  const response = await http.request<Blob>({
+    ...config,
+    responseType: 'blob'
+  })
+  return response.data
 }
 
 export async function requestPage<T>(

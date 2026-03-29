@@ -10,3 +10,6 @@ frontend/dist
 .env.*
 !.env.example
 !.env.sample
+.lingma/
+.codex/environments/environment.toml
+./output/playwright

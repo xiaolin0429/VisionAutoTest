@@ -116,8 +116,13 @@
   - `wait`：`payload_json.ms`
   - `click`：`payload_json.selector`
   - `input`：`payload_json.selector`、`payload_json.text`
+  - `template_assert`：`template_id`、可选 `payload_json.threshold`
+  - `ocr_assert`：`payload_json.selector`、`payload_json.expected_text`、可选 `payload_json.match_mode`、`payload_json.case_sensitive`
 - `component_call` 为编排步骤，不直接映射浏览器动作；执行时会按组件步骤明细展开成真实执行序列。
 - 当前组件展开只支持一层复用，不支持组件内部继续嵌套组件调用。
+- `template_assert` 仅允许引用当前工作空间下存在已生效基准版本、且 `match_strategy=template` 的模板。
+- `ocr_assert` 默认直接对页面元素截图做 OCR 断言；若显式传入 `template_id`，则该模板必须属于当前工作空间且 `match_strategy=ocr`。
+- 断言不通过记为 `failed`，依赖缺失、载荷非法、OCR/视觉引擎异常记为 `error`。
 
 ## 5. 推荐错误码
 
@@ -127,5 +132,6 @@
 | `TEST_CASE_NOT_FOUND` | 用例不存在 |
 | `TEST_SUITE_NOT_FOUND` | 套件不存在 |
 | `STEP_SEQUENCE_INVALID` | 步骤顺序非法 |
+| `STEP_CONFIGURATION_INVALID` | 步骤配置与执行要求不兼容 |
 | `SUITE_CASE_SEQUENCE_INVALID` | 套件用例顺序非法 |
 | `PUBLISHED_VERSION_REQUIRED` | 执行引用了未发布对象 |

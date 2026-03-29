@@ -13,7 +13,8 @@ import {
   getTemplateDetail,
   listTemplates,
   updateMaskRegion,
-  updateTemplate
+  updateTemplate,
+  type ListTemplatesParams
 } from '@/api/modules/templates'
 import { formatDateTime } from '@/utils/format'
 import type {
@@ -70,12 +71,18 @@ const baselineFileInputRef = ref<HTMLInputElement | null>(null)
 const createSourceFile = ref<File | null>(null)
 const baselineFile = ref<File | null>(null)
 
+const listFilters = reactive({
+  keyword: '',
+  status: '',
+  templateType: ''
+})
+
 const createForm = reactive({
   templateCode: '',
   templateName: '',
   templateType: 'page',
   matchStrategy: 'template',
-  thresholdValue: 0.95,
+  thresholdValue: 0.95 as number | null,
   status: 'draft'
 })
 
@@ -83,7 +90,7 @@ const editForm = reactive({
   templateName: '',
   templateType: 'page',
   matchStrategy: 'template',
-  thresholdValue: 0.95,
+  thresholdValue: 0.95 as number | null,
   status: 'draft'
 })
 
@@ -205,24 +212,183 @@ function resetBaselineForm() {
   }
 }
 
-async function loadTemplates() {
+function trimText(value: string) {
+  return value.trim()
+}
+
+function isThresholdValueValid(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 1
+}
+
+function buildTemplateFilters(): ListTemplatesParams {
+  return {
+    keyword: trimText(listFilters.keyword) || undefined,
+    status: listFilters.status || undefined,
+    templateType: listFilters.templateType || undefined
+  }
+}
+
+const activeMaskRegions = computed(() => {
+  if (editorMode.value === 'edit') {
+    return draftMaskRegions.value.map(stripDraftRegion)
+  }
+
+  return currentTemplate.value?.maskRegions ?? []
+})
+
+const selectedDraftMask = computed(() => {
+  return draftMaskRegions.value.find((item) => item.id === selectedMaskId.value) ?? null
+})
+
+const selectedMask = computed(() => {
+  return activeMaskRegions.value.find((item) => item.id === selectedMaskId.value) ?? null
+})
+
+const hasUnsavedChanges = computed(() => {
+  if (!currentTemplate.value || editorMode.value !== 'edit') {
+    return false
+  }
+
+  return (
+    serializeRegions(currentTemplate.value.maskRegions) !==
+    serializeRegions(draftMaskRegions.value.map(stripDraftRegion))
+  )
+})
+
+const hasPendingMaskDraft = computed(() => {
+  return editorMode.value === 'edit' && hasUnsavedChanges.value
+})
+
+const selectedMaskName = computed({
+  get: () => selectedDraftMask.value?.name ?? '',
+  set: (value: string) => {
+    if (editorMode.value !== 'edit' || !selectedDraftMask.value) {
+      return
+    }
+
+    replaceDraftMaskRegions(
+      draftMaskRegions.value.map((item) => {
+        if (item.id !== selectedDraftMask.value?.id) {
+          return item
+        }
+
+        return {
+          ...item,
+          name: value
+        }
+      })
+    )
+  }
+})
+
+const createCodeError = computed(() => {
+  return trimText(createForm.templateCode) ? '' : '请输入模板编码。'
+})
+
+const createNameError = computed(() => {
+  return trimText(createForm.templateName) ? '' : '请输入模板名称。'
+})
+
+const createThresholdError = computed(() => {
+  return isThresholdValueValid(createForm.thresholdValue) ? '' : '请输入 0 ~ 1 的匹配阈值。'
+})
+
+const createFileError = computed(() => {
+  return createSourceFile.value ? '' : '请先选择原始模板文件。'
+})
+
+const editNameError = computed(() => {
+  return trimText(editForm.templateName) ? '' : '请输入模板名称。'
+})
+
+const editThresholdError = computed(() => {
+  return isThresholdValueValid(editForm.thresholdValue) ? '' : '请输入 0 ~ 1 的匹配阈值。'
+})
+
+const baselineActionLabel = computed(() => {
+  return baselineForm.isCurrent ? '上传并设为当前版本' : '上传基准版本'
+})
+
+const baselineSubmitSuccessMessage = computed(() => {
+  return baselineForm.isCurrent ? '基准版本已新增并设为当前版本。' : '基准版本已新增。'
+})
+
+const canSubmitCreate = computed(() => {
+  return Boolean(
+    !createCodeError.value &&
+      !createNameError.value &&
+      !createThresholdError.value &&
+      !createFileError.value &&
+      createForm.templateType &&
+      createForm.matchStrategy &&
+      createForm.status
+  )
+})
+
+const canSubmitEdit = computed(() => {
+  return Boolean(
+    currentTemplate.value &&
+      !editNameError.value &&
+      !editThresholdError.value &&
+      editForm.templateType &&
+      editForm.matchStrategy &&
+      editForm.status
+  )
+})
+
+const canSubmitBaseline = computed(() => {
+  return Boolean(currentTemplate.value && baselineFile.value)
+})
+
+const baselineRevisions = computed<BaselineRevision[]>(() => {
+  return currentTemplate.value?.baselineRevisions ?? []
+})
+
+const hasActiveFilters = computed(() => {
+  const filters = buildTemplateFilters()
+  return Boolean(filters.keyword || filters.status || filters.templateType)
+})
+
+const listEmptyDescription = computed(() => {
+  return hasActiveFilters.value ? '当前筛选条件下暂无模板' : '当前工作空间暂无模板'
+})
+
+function blockMaskDraftInterruption(actionLabel: string) {
+  if (!hasPendingMaskDraft.value) {
+    return false
+  }
+
+  ElMessage.warning(`当前 Mask 草稿尚未保存，请先保存或取消后再${actionLabel}。`)
+  return true
+}
+
+async function loadTemplates(options: { preferredTemplateId?: number | null } = {}) {
   listLoading.value = true
   listError.value = ''
 
   try {
-    const items = await listTemplates()
+    const items = await listTemplates(buildTemplateFilters())
     templates.value = items
 
     if (items.length === 0) {
       selectedTemplateId.value = null
       currentTemplate.value = null
       resetEditorState(null)
-      return
+      return items
     }
 
-    if (!items.some((item) => item.id === selectedTemplateId.value)) {
-      selectedTemplateId.value = items[0].id
+    const preferredTemplateId = options.preferredTemplateId ?? null
+    const nextSelectedTemplateId = items.some((item) => item.id === preferredTemplateId)
+      ? preferredTemplateId
+      : items.some((item) => item.id === selectedTemplateId.value)
+        ? selectedTemplateId.value
+        : items[0].id
+
+    if (nextSelectedTemplateId !== selectedTemplateId.value) {
+      selectedTemplateId.value = nextSelectedTemplateId
     }
+
+    return items
   } catch (error) {
     listError.value = error instanceof Error ? error.message : '模板列表加载失败，请稍后重试。'
     if (templates.value.length === 0) {
@@ -231,6 +397,7 @@ async function loadTemplates() {
       currentTemplate.value = null
       resetEditorState(null)
     }
+    return []
   } finally {
     listLoading.value = false
   }
@@ -261,81 +428,11 @@ async function reloadCurrentTemplate() {
   await loadTemplateDetail(selectedTemplateId.value)
 }
 
-const activeMaskRegions = computed(() => {
-  if (editorMode.value === 'edit') {
-    return draftMaskRegions.value.map(stripDraftRegion)
-  }
-
-  return currentTemplate.value?.maskRegions ?? []
-})
-
-const selectedDraftMask = computed(() => {
-  return draftMaskRegions.value.find((item) => item.id === selectedMaskId.value) ?? null
-})
-
-const selectedMask = computed(() => {
-  return activeMaskRegions.value.find((item) => item.id === selectedMaskId.value) ?? null
-})
-
-const hasUnsavedChanges = computed(() => {
-  if (!currentTemplate.value || editorMode.value !== 'edit') {
-    return false
-  }
-
-  return (
-    serializeRegions(currentTemplate.value.maskRegions) !==
-    serializeRegions(draftMaskRegions.value.map(stripDraftRegion))
-  )
-})
-
-const selectedMaskName = computed({
-  get: () => selectedDraftMask.value?.name ?? '',
-  set: (value: string) => {
-    if (editorMode.value !== 'edit' || !selectedDraftMask.value) {
-      return
-    }
-
-    replaceDraftMaskRegions(
-      draftMaskRegions.value.map((item) => {
-        if (item.id !== selectedDraftMask.value?.id) {
-          return item
-        }
-
-        return {
-          ...item,
-          name: value
-        }
-      })
-    )
-  }
-})
-
-const canSubmitCreate = computed(() => {
-  return Boolean(
-    createForm.templateCode.trim() &&
-      createForm.templateName.trim() &&
-      createForm.templateType &&
-      createForm.matchStrategy &&
-      createForm.status &&
-      createSourceFile.value
-  )
-})
-
-const canSubmitEdit = computed(() => {
-  return Boolean(
-    currentTemplate.value &&
-      editForm.templateName.trim() &&
-      editForm.templateType &&
-      editForm.matchStrategy &&
-      editForm.status
-  )
-})
-
-const canSubmitBaseline = computed(() => {
-  return Boolean(currentTemplate.value && baselineFile.value)
-})
-
 function openCreateDialog() {
+  if (blockMaskDraftInterruption('新建模板')) {
+    return
+  }
+
   resetCreateForm()
   createDialogVisible.value = true
 }
@@ -350,6 +447,10 @@ function openEditDialog() {
     return
   }
 
+  if (blockMaskDraftInterruption('编辑模板')) {
+    return
+  }
+
   resetEditForm()
   editDialogVisible.value = true
 }
@@ -361,6 +462,10 @@ function closeEditDialog() {
 
 function openBaselineDialog() {
   if (!currentTemplate.value) {
+    return
+  }
+
+  if (blockMaskDraftInterruption('新增基准版本')) {
     return
   }
 
@@ -456,12 +561,54 @@ function handleMaskRowClick(row: MaskRegion) {
   selectedMaskId.value = row.id
 }
 
+function handleSelectTemplate(templateId: number) {
+  if (templateId === selectedTemplateId.value) {
+    return
+  }
+
+  if (blockMaskDraftInterruption('切换模板')) {
+    return
+  }
+
+  selectedTemplateId.value = templateId
+}
+
+async function handleSearchTemplates() {
+  if (blockMaskDraftInterruption('查询模板列表')) {
+    return
+  }
+
+  await loadTemplates()
+}
+
+async function handleResetFilters() {
+  if (blockMaskDraftInterruption('重置筛选条件')) {
+    return
+  }
+
+  listFilters.keyword = ''
+  listFilters.status = ''
+  listFilters.templateType = ''
+  await loadTemplates()
+}
+
 function formatRatioValue(value: number) {
   return value.toFixed(4)
 }
 
 async function handleCreateTemplate() {
-  if (!canSubmitCreate.value || !createSourceFile.value) {
+  const validationMessage =
+    createCodeError.value ||
+    createNameError.value ||
+    createThresholdError.value ||
+    createFileError.value
+
+  if (validationMessage) {
+    ElMessage.warning(validationMessage)
+    return
+  }
+
+  if (!createSourceFile.value || !isThresholdValueValid(createForm.thresholdValue)) {
     ElMessage.warning('请先补齐模板表单与原始文件。')
     return
   }
@@ -476,17 +623,19 @@ async function handleCreateTemplate() {
     }
 
     const template = await createTemplate({
-      code: createForm.templateCode.trim(),
-      name: createForm.templateName.trim(),
+      code: trimText(createForm.templateCode),
+      name: trimText(createForm.templateName),
       templateType: createForm.templateType,
       matchStrategy: createForm.matchStrategy,
-      thresholdValue: Number(createForm.thresholdValue),
+      thresholdValue: createForm.thresholdValue,
       status: createForm.status,
       originalMediaObjectId: mediaObject.id
     })
 
-    await loadTemplates()
-    selectedTemplateId.value = template.id
+    const items = await loadTemplates({ preferredTemplateId: template.id })
+    if (items.some((item) => item.id === template.id)) {
+      selectedTemplateId.value = template.id
+    }
     closeCreateDialog()
     ElMessage.success('模板已创建。')
   } catch (error) {
@@ -498,7 +647,13 @@ async function handleCreateTemplate() {
 }
 
 async function handleEditTemplate() {
-  if (!currentTemplate.value || !selectedTemplateId.value || !canSubmitEdit.value) {
+  const validationMessage = editNameError.value || editThresholdError.value
+  if (validationMessage) {
+    ElMessage.warning(validationMessage)
+    return
+  }
+
+  if (!currentTemplate.value || !selectedTemplateId.value || !isThresholdValueValid(editForm.thresholdValue)) {
     ElMessage.warning('请先补齐模板基础信息。')
     return
   }
@@ -507,14 +662,14 @@ async function handleEditTemplate() {
 
   try {
     await updateTemplate(selectedTemplateId.value, {
-      name: editForm.templateName.trim(),
+      name: trimText(editForm.templateName),
       templateType: editForm.templateType,
       matchStrategy: editForm.matchStrategy,
-      thresholdValue: Number(editForm.thresholdValue),
+      thresholdValue: editForm.thresholdValue,
       status: editForm.status
     })
 
-    await loadTemplates()
+    await loadTemplates({ preferredTemplateId: selectedTemplateId.value })
     await reloadCurrentTemplate()
     closeEditDialog()
     ElMessage.success('模板基础信息已更新。')
@@ -538,7 +693,7 @@ async function handleCreateBaselineRevision() {
     const mediaObject = await createMediaObject(
       baselineFile.value,
       'baseline',
-      baselineForm.remark.trim() || undefined
+      trimText(baselineForm.remark) || undefined
     )
     mediaObjectNameCache.value = {
       ...mediaObjectNameCache.value,
@@ -548,14 +703,14 @@ async function handleCreateBaselineRevision() {
     await createBaselineRevision(selectedTemplateId.value, {
       mediaObjectId: mediaObject.id,
       sourceType: 'manual',
-      remark: baselineForm.remark.trim() || undefined,
-      isCurrent: true
+      remark: trimText(baselineForm.remark) || undefined,
+      isCurrent: baselineForm.isCurrent
     })
 
-    await loadTemplates()
+    await loadTemplates({ preferredTemplateId: selectedTemplateId.value })
     await reloadCurrentTemplate()
     closeBaselineDialog()
-    ElMessage.success('基准版本已新增并设为当前版本。')
+    ElMessage.success(baselineSubmitSuccessMessage.value)
   } catch (error) {
     const message = error instanceof Error ? error.message : '新增基准版本失败，请稍后重试。'
     ElMessage.error(message)
@@ -633,6 +788,10 @@ async function handleSaveMaskRegions() {
 }
 
 function retryList() {
+  if (blockMaskDraftInterruption('重新加载模板列表')) {
+    return
+  }
+
   void loadTemplates()
 }
 
@@ -660,10 +819,6 @@ watch(
 onMounted(async () => {
   await loadTemplates()
 })
-
-const baselineRevisions = computed<BaselineRevision[]>(() => {
-  return currentTemplate.value?.baselineRevisions ?? []
-})
 </script>
 
 <template>
@@ -680,6 +835,49 @@ const baselineRevisions = computed<BaselineRevision[]>(() => {
           新建模板
         </el-button>
       </template>
+
+      <div class="mb-4 space-y-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+        <div class="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_140px_140px]">
+          <el-input
+            v-model="listFilters.keyword"
+            clearable
+            placeholder="按模板编码或名称筛选"
+            @keyup.enter="handleSearchTemplates"
+          />
+          <el-select
+            v-model="listFilters.status"
+            clearable
+            placeholder="全部状态"
+          >
+            <el-option
+              v-for="item in templateStatusOptions"
+              :key="item.value"
+              :label="item.label"
+              :value="item.value"
+            />
+          </el-select>
+          <el-select
+            v-model="listFilters.templateType"
+            clearable
+            placeholder="全部类型"
+          >
+            <el-option
+              v-for="item in templateTypeOptions"
+              :key="item.value"
+              :label="item.label"
+              :value="item.value"
+            />
+          </el-select>
+        </div>
+        <div class="flex justify-end gap-3">
+          <el-button plain @click="handleResetFilters">
+            重置
+          </el-button>
+          <el-button color="#2563eb" @click="handleSearchTemplates">
+            查询
+          </el-button>
+        </div>
+      </div>
 
       <div
         v-if="listError"
@@ -708,7 +906,7 @@ const baselineRevisions = computed<BaselineRevision[]>(() => {
 
       <el-empty
         v-else-if="templates.length === 0"
-        description="当前工作空间暂无模板"
+        :description="listEmptyDescription"
       >
         <el-button
           color="#2563eb"
@@ -732,7 +930,7 @@ const baselineRevisions = computed<BaselineRevision[]>(() => {
               : 'border-slate-200 bg-slate-50 hover:border-slate-300'
           ]"
           type="button"
-          @click="selectedTemplateId = template.id"
+          @click="handleSelectTemplate(template.id)"
         >
           <div class="flex items-start justify-between gap-3">
             <div>
@@ -941,10 +1139,9 @@ const baselineRevisions = computed<BaselineRevision[]>(() => {
                 min-width="120"
               >
                 <template #default="{ row }">
-                  <el-checkbox
-                    :model-value="row.isCurrent"
-                    disabled
-                  />
+                  <el-tag :type="row.isCurrent ? 'success' : 'info'" round>
+                    {{ row.isCurrent ? '当前版本' : '历史版本' }}
+                  </el-tag>
                 </template>
               </el-table-column>
               <el-table-column
@@ -991,6 +1188,12 @@ const baselineRevisions = computed<BaselineRevision[]>(() => {
 
               <div class="space-y-4">
                 <div class="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                  <p
+                    v-if="hasPendingMaskDraft"
+                    class="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700"
+                  >
+                    当前 Mask 草稿尚未保存，切换模板、查询列表或打开其他管理操作前，请先保存或取消。
+                  </p>
                   <p class="m-0 text-sm font-medium text-slate-700">
                     当前模式
                   </p>
@@ -1139,13 +1342,13 @@ const baselineRevisions = computed<BaselineRevision[]>(() => {
         label-position="top"
         @submit.prevent
       >
-        <el-form-item label="模板编码">
+        <el-form-item :error="createCodeError" label="模板编码" required>
           <el-input
             v-model="createForm.templateCode"
             placeholder="请输入模板编码"
           />
         </el-form-item>
-        <el-form-item label="模板名称">
+        <el-form-item :error="createNameError" label="模板名称" required>
           <el-input
             v-model="createForm.templateName"
             placeholder="请输入模板名称"
@@ -1180,7 +1383,7 @@ const baselineRevisions = computed<BaselineRevision[]>(() => {
           </el-form-item>
         </div>
         <div class="grid grid-cols-2 gap-4">
-          <el-form-item label="匹配阈值">
+          <el-form-item :error="createThresholdError" label="匹配阈值" required>
             <el-input-number
               v-model="createForm.thresholdValue"
               :max="1"
@@ -1204,7 +1407,7 @@ const baselineRevisions = computed<BaselineRevision[]>(() => {
             </el-select>
           </el-form-item>
         </div>
-        <el-form-item label="原始文件">
+        <el-form-item :error="createFileError" label="原始文件" required>
           <input
             ref="createFileInputRef"
             accept="image/*"
@@ -1246,7 +1449,7 @@ const baselineRevisions = computed<BaselineRevision[]>(() => {
         label-position="top"
         @submit.prevent
       >
-        <el-form-item label="模板名称">
+        <el-form-item :error="editNameError" label="模板名称" required>
           <el-input
             v-model="editForm.templateName"
             placeholder="请输入模板名称"
@@ -1281,7 +1484,7 @@ const baselineRevisions = computed<BaselineRevision[]>(() => {
           </el-form-item>
         </div>
         <div class="grid grid-cols-2 gap-4">
-          <el-form-item label="匹配阈值">
+          <el-form-item :error="editThresholdError" label="匹配阈值" required>
             <el-input-number
               v-model="editForm.thresholdValue"
               :max="1"
@@ -1354,10 +1557,7 @@ const baselineRevisions = computed<BaselineRevision[]>(() => {
           />
         </el-form-item>
         <el-form-item label="设为当前版本">
-          <el-checkbox
-            v-model="baselineForm.isCurrent"
-            disabled
-          >
+          <el-checkbox v-model="baselineForm.isCurrent">
             上传后立即设为当前版本
           </el-checkbox>
         </el-form-item>
@@ -1374,7 +1574,7 @@ const baselineRevisions = computed<BaselineRevision[]>(() => {
             color="#2563eb"
             @click="handleCreateBaselineRevision"
           >
-            上传并设为当前版本
+            {{ baselineActionLabel }}
           </el-button>
         </div>
       </template>

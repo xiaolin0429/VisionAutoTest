@@ -29,6 +29,7 @@ export interface SessionPayload {
   accessToken: string
   refreshToken: string
   expiresIn: number
+  issuedAt: number
   user: User
 }
 
@@ -57,6 +58,44 @@ export interface EnvironmentProfile {
   updatedAt: string
 }
 
+export interface EnvironmentProfileCreatePayload {
+  name: string
+  baseUrl: string
+  description?: string
+  status: string
+}
+
+export interface EnvironmentProfileUpdatePayload {
+  name?: string
+  baseUrl?: string
+  description?: string
+  status?: string
+}
+
+export interface EnvironmentVariable {
+  id: number
+  environmentProfileId: number
+  key: string
+  isSecret: boolean
+  description: string
+  displayValue: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface EnvironmentVariableCreatePayload {
+  key: string
+  value: string
+  isSecret: boolean
+  description?: string
+}
+
+export interface EnvironmentVariableUpdatePayload {
+  value?: string
+  isSecret?: boolean
+  description?: string
+}
+
 export interface DeviceProfile {
   id: number
   workspaceId: number
@@ -69,6 +108,26 @@ export interface DeviceProfile {
   isDefault: boolean
   createdAt: string
   updatedAt: string
+}
+
+export interface DeviceProfileCreatePayload {
+  name: string
+  platform: string
+  width: number
+  height: number
+  pixelRatio: number
+  userAgent?: string
+  isDefault: boolean
+}
+
+export interface DeviceProfileUpdatePayload {
+  name?: string
+  platform?: string
+  width?: number
+  height?: number
+  pixelRatio?: number
+  userAgent?: string
+  isDefault?: boolean
 }
 
 export interface Component {
@@ -202,6 +261,17 @@ export interface Step {
   retryTimes: number
 }
 
+export interface StepWritePayload {
+  stepNo: number
+  type: string
+  name: string
+  templateId: number | null
+  componentId: number | null
+  payloadJson: Record<string, unknown>
+  timeoutMs: number
+  retryTimes: number
+}
+
 export interface TestCase {
   id: number
   code: string
@@ -213,6 +283,21 @@ export interface TestCase {
   updatedAt: string
   componentCount: number
   steps: Step[]
+}
+
+export interface TestCaseCreatePayload {
+  code: string
+  name: string
+  status: string
+  priority: string
+  description?: string
+}
+
+export interface TestCaseUpdatePayload {
+  name?: string
+  status?: string
+  priority?: string
+  description?: string
 }
 
 export interface SuiteCase {
@@ -233,6 +318,24 @@ export interface TestSuite {
   createdAt: string
   updatedAt: string
   cases: SuiteCase[]
+}
+
+export interface TestSuiteCreatePayload {
+  code: string
+  name: string
+  status: string
+  description?: string
+}
+
+export interface TestSuiteUpdatePayload {
+  name?: string
+  status?: string
+  description?: string
+}
+
+export interface SuiteCaseWritePayload {
+  testCaseId: number
+  sortOrder: number
 }
 
 export type TestRunStatus =
@@ -286,6 +389,24 @@ export interface StepResult {
   actualMediaObjectId: number | null
   diffMediaObjectId: number | null
   artifactLabel?: string
+}
+
+export interface ReportArtifact {
+  id: number
+  reportId: number
+  artifactType: string
+  mediaObjectId: number | null
+  artifactUrl: string | null
+  createdAt: string
+}
+
+export interface RunReport {
+  id: number
+  testRunId: number
+  status: string
+  summaryJson: Record<string, unknown>
+  generatedAt: string
+  createdAt: string
 }
 
 export interface CaseRun {

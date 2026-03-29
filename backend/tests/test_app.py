@@ -11,6 +11,9 @@ from fastapi.testclient import TestClient
 
 TEST_ADMIN_USERNAME = "admin"
 TEST_ADMIN_PASSWORD = "test-admin-password"
+TINY_PNG_BYTES = base64.b64decode(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9s2GoswAAAAASUVORK5CYII="
+)
 
 
 def _require_test_database_url() -> str:
@@ -55,8 +58,8 @@ def _install_fake_browser_adapter(monkeypatch) -> None:
     class FakeBrowserAdapter:
         supported_step_types = {"wait", "click", "input"}
 
-        def execute_case(self, *, base_url: str, case_run_id: int, device_profile, steps):
-            _ = (base_url, case_run_id, device_profile)
+        def execute_case(self, *, base_url: str, case_run_id: int, device_profile, steps, template_contexts):
+            _ = (base_url, case_run_id, device_profile, template_contexts)
             step_results: list[BrowserStepResult] = []
             for step in steps:
                 started_at = datetime.now(timezone.utc)
@@ -81,9 +84,7 @@ def _install_fake_browser_adapter(monkeypatch) -> None:
                         artifact=BrowserArtifact(
                             file_name=f"case-run-{case_run_id}.png",
                             content_type="image/png",
-                            content_bytes=base64.b64decode(
-                                "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9s2GoswAAAAASUVORK5CYII="
-                            ),
+                            content_bytes=TINY_PNG_BYTES,
                         ),
                     )
 
@@ -105,13 +106,151 @@ def _install_fake_browser_adapter(monkeypatch) -> None:
                 artifact=BrowserArtifact(
                     file_name=f"case-run-{case_run_id}.png",
                     content_type="image/png",
-                    content_bytes=base64.b64decode(
-                        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9s2GoswAAAAASUVORK5CYII="
-                    ),
+                    content_bytes=TINY_PNG_BYTES,
                 ),
             )
 
     monkeypatch.setattr("app.workers.execution.build_browser_execution_adapter", lambda: FakeBrowserAdapter())
+
+
+def _install_visual_browser_adapter(monkeypatch, *, template_status: str = "passed", ocr_status: str = "passed") -> None:
+    from app.workers.browser import BrowserArtifact, BrowserStepResult, CaseExecutionResult
+    from app.workers.vision import VisionArtifact
+
+    class FakeVisualBrowserAdapter:
+        def execute_case(self, *, base_url: str, case_run_id: int, device_profile, steps, template_contexts):
+            _ = (base_url, case_run_id, device_profile)
+            step_results: list[BrowserStepResult] = []
+            failure_reason_code: str | None = None
+            failure_summary: str | None = None
+            case_status = "passed"
+
+            for step in steps:
+                started_at = datetime.now(timezone.utc)
+                finished_at = datetime.now(timezone.utc)
+                status = "passed"
+                error_message = None
+                score_value = 1.0
+                expected_media_object_id = None
+                actual_artifact = None
+                diff_artifact = None
+
+                if step.step_type == "template_assert":
+                    template_context = template_contexts[step.template_id]
+                    expected_media_object_id = template_context.baseline_media_object_id
+                    actual_artifact = VisionArtifact(
+                        file_name=f"case-run-{case_run_id}-step-{step.step_no}-actual.png",
+                        content_type="image/png",
+                        content_bytes=TINY_PNG_BYTES,
+                        artifact_type="actual_screenshot",
+                    )
+                    status = template_status
+                    score_value = 0.98 if status == "passed" else 0.21
+                    if status == "failed":
+                        error_message = "Template assertion failed."
+                        diff_artifact = VisionArtifact(
+                            file_name=f"case-run-{case_run_id}-step-{step.step_no}-diff.png",
+                            content_type="image/png",
+                            content_bytes=TINY_PNG_BYTES,
+                            artifact_type="diff_screenshot",
+                        )
+                        failure_reason_code = "TEMPLATE_ASSERTION_FAILED"
+                        failure_summary = error_message
+                        case_status = "failed"
+                    elif status == "error":
+                        error_message = "Template engine error."
+                        failure_reason_code = "STEP_EXECUTION_ERROR"
+                        failure_summary = error_message
+                        case_status = "error"
+                elif step.step_type == "ocr_assert":
+                    actual_artifact = VisionArtifact(
+                        file_name=f"case-run-{case_run_id}-step-{step.step_no}-ocr.png",
+                        content_type="image/png",
+                        content_bytes=TINY_PNG_BYTES,
+                        artifact_type="ocr_screenshot",
+                    )
+                    status = ocr_status
+                    score_value = 1.0 if status == "passed" else 0.0
+                    if status == "failed":
+                        error_message = "OCR assertion failed."
+                        failure_reason_code = "OCR_ASSERTION_FAILED"
+                        failure_summary = error_message
+                        case_status = "failed"
+                    elif status == "error":
+                        error_message = "OCR engine error."
+                        failure_reason_code = "STEP_EXECUTION_ERROR"
+                        failure_summary = error_message
+                        case_status = "error"
+
+                step_results.append(
+                    BrowserStepResult(
+                        step_no=step.step_no,
+                        step_type=step.step_type,
+                        status=status,
+                        started_at=started_at,
+                        finished_at=finished_at,
+                        duration_ms=1,
+                        error_message=error_message,
+                        score_value=score_value,
+                        expected_media_object_id=expected_media_object_id,
+                        actual_artifact=actual_artifact,
+                        diff_artifact=diff_artifact,
+                    )
+                )
+
+                if status in {"failed", "error"}:
+                    break
+
+            return CaseExecutionResult(
+                status=case_status,
+                step_results=step_results,
+                failure_reason_code=failure_reason_code,
+                failure_summary=failure_summary,
+                artifact=BrowserArtifact(
+                    file_name=f"case-run-{case_run_id}.png",
+                    content_type="image/png",
+                    content_bytes=TINY_PNG_BYTES,
+                ),
+            )
+
+    monkeypatch.setattr("app.workers.execution.build_browser_execution_adapter", lambda: FakeVisualBrowserAdapter())
+
+
+def _create_media_object(client: TestClient, *, headers: dict[str, str], usage: str = "baseline") -> int:
+    response = client.post(
+        "/api/v1/media-objects",
+        headers=headers,
+        data={"usage": usage},
+        files={"file": ("baseline.png", TINY_PNG_BYTES, "image/png")},
+    )
+    assert response.status_code == 201
+    return response.json()["data"]["id"]
+
+
+def _create_template(
+    client: TestClient,
+    *,
+    headers: dict[str, str],
+    media_object_id: int,
+    template_code: str,
+    template_name: str,
+    match_strategy: str = "template",
+) -> int:
+    response = client.post(
+        "/api/v1/templates",
+        headers=headers,
+        json={
+            "template_code": template_code,
+            "template_name": template_name,
+            "template_type": "page",
+            "match_strategy": match_strategy,
+            "threshold_value": 0.95,
+            "status": "draft",
+            "original_media_object_id": media_object_id,
+        },
+    )
+    assert response.status_code == 201
+    return response.json()["data"]["id"]
 
 
 def test_healthz():
@@ -122,6 +261,114 @@ def test_healthz():
         response = client.get("/healthz")
         assert response.status_code == 200
         assert response.json()["data"]["status"] == "ok"
+
+
+def test_demo_acceptance_target_page_is_served():
+    _reset_local_data()
+    from app.main import app
+
+    with TestClient(app) as client:
+        response = client.get("/demo/acceptance-target")
+        assert response.status_code == 200
+        assert "VisionAutoTest Demo Target" in response.text
+        assert "data-testid=\"cta-open-form\"" in response.text
+        assert "data-testid=\"submit-button\"" in response.text
+
+
+def test_bootstrap_seeds_demo_acceptance_bundle(monkeypatch):
+    _reset_local_data()
+    from app.db.bootstrap import (
+        DEMO_CASE_CODE,
+        DEMO_CASE_STEPS,
+        DEMO_DEVICE_PROFILE_NAME,
+        DEMO_ENV_PROFILE_NAME,
+        DEMO_SUITE_CODE,
+        DEMO_TEMPLATE_CODE,
+        DEMO_WORKSPACE_CODE,
+        seed_default_admin,
+        seed_demo_acceptance_data,
+    )
+    from app.db.session import SessionLocal
+    from app.main import app
+    from app.models import BaselineRevision, DeviceProfile, EnvironmentProfile, Template, TestCase, TestCaseStep, TestSuite, Workspace, WorkspaceMember
+
+    _install_fake_browser_adapter(monkeypatch)
+    seed_default_admin()
+    seed_demo_acceptance_data(force=True)
+    seed_demo_acceptance_data(force=True)
+
+    with SessionLocal() as db:
+        workspace = db.query(Workspace).filter(Workspace.workspace_code == DEMO_WORKSPACE_CODE, Workspace.is_deleted.is_(False)).one()
+        environment = db.query(EnvironmentProfile).filter(
+            EnvironmentProfile.workspace_id == workspace.id,
+            EnvironmentProfile.profile_name == DEMO_ENV_PROFILE_NAME,
+            EnvironmentProfile.is_deleted.is_(False),
+        ).one()
+        device = db.query(DeviceProfile).filter(
+            DeviceProfile.workspace_id == workspace.id,
+            DeviceProfile.profile_name == DEMO_DEVICE_PROFILE_NAME,
+            DeviceProfile.is_deleted.is_(False),
+        ).one()
+        template = db.query(Template).filter(
+            Template.workspace_id == workspace.id,
+            Template.template_code == DEMO_TEMPLATE_CODE,
+            Template.is_deleted.is_(False),
+        ).one()
+        baseline = db.query(BaselineRevision).filter(BaselineRevision.id == template.current_baseline_revision_id).one()
+        test_case = db.query(TestCase).filter(
+            TestCase.workspace_id == workspace.id,
+            TestCase.case_code == DEMO_CASE_CODE,
+            TestCase.is_deleted.is_(False),
+        ).one()
+        suite = db.query(TestSuite).filter(
+            TestSuite.workspace_id == workspace.id,
+            TestSuite.suite_code == DEMO_SUITE_CODE,
+            TestSuite.is_deleted.is_(False),
+        ).one()
+        member = db.query(WorkspaceMember).filter(
+            WorkspaceMember.workspace_id == workspace.id,
+            WorkspaceMember.user_id == workspace.owner_user_id,
+        ).one()
+        steps = db.query(TestCaseStep).filter(TestCaseStep.test_case_id == test_case.id).order_by(TestCaseStep.step_no.asc()).all()
+
+        assert environment.base_url.endswith("/demo/acceptance-target")
+        assert device.is_default is True
+        assert template.current_baseline_revision_id is not None
+        assert baseline.media_object_id is not None
+        assert test_case.status == "published"
+        assert suite.status == "active"
+        assert member.workspace_role == "workspace_admin"
+        assert len(steps) == len(DEMO_CASE_STEPS)
+
+        workspace_id = workspace.id
+        environment_profile_id = environment.id
+        test_suite_id = suite.id
+
+    with TestClient(app) as client:
+        login_resp = client.post("/api/v1/sessions", json={"username": TEST_ADMIN_USERNAME, "password": TEST_ADMIN_PASSWORD})
+        assert login_resp.status_code == 201
+        token = login_resp.json()["data"]["access_token"]
+        headers = {
+            "Authorization": f"Bearer {token}",
+            "X-Workspace-Id": str(workspace_id),
+            "Idempotency-Key": "seeded-demo-run",
+        }
+
+        run_resp = client.post(
+            "/api/v1/test-runs",
+            json={
+                "test_suite_id": test_suite_id,
+                "environment_profile_id": environment_profile_id,
+                "trigger_source": "manual",
+            },
+            headers=headers,
+        )
+        assert run_resp.status_code == 201
+        test_run_id = run_resp.json()["data"]["id"]
+
+        detail_resp = client.get(f"/api/v1/test-runs/{test_run_id}", headers={"Authorization": f"Bearer {token}"})
+        assert detail_resp.status_code == 200
+        assert detail_resp.json()["data"]["status"] == "passed"
 
 
 def test_mvp_backend_smoke_flow(monkeypatch):
@@ -473,11 +720,9 @@ def test_cancelling_during_finalization_does_not_end_as_passed(monkeypatch):
             assert report.summary_status == "cancelled"
 
 
-def test_unsupported_step_marks_test_run_error(monkeypatch):
+def test_invalid_template_assert_step_is_rejected_during_step_save():
     _reset_local_data()
     from app.main import app
-
-    _install_fake_browser_adapter(monkeypatch)
 
     with TestClient(app) as client:
         login_resp = client.post("/api/v1/sessions", json={"username": TEST_ADMIN_USERNAME, "password": TEST_ADMIN_PASSWORD})
@@ -492,13 +737,6 @@ def test_unsupported_step_marks_test_run_error(monkeypatch):
         workspace_id = workspace_resp.json()["data"]["id"]
         workspace_headers = headers | {"X-Workspace-Id": str(workspace_id)}
 
-        env_resp = client.post(
-            "/api/v1/environment-profiles",
-            json={"profile_name": "dev", "base_url": "https://example.com"},
-            headers=workspace_headers,
-        )
-        environment_profile_id = env_resp.json()["data"]["id"]
-
         case_resp = client.post(
             "/api/v1/test-cases",
             json={"case_code": "unsupported_case", "case_name": "Unsupported Case", "status": "published"},
@@ -506,46 +744,46 @@ def test_unsupported_step_marks_test_run_error(monkeypatch):
         )
         test_case_id = case_resp.json()["data"]["id"]
 
-        client.put(
+        response = client.put(
             f"/api/v1/test-cases/{test_case_id}/steps",
             json=[{"step_no": 1, "step_type": "template_assert", "step_name": "Unsupported", "payload_json": {}}],
             headers=workspace_headers,
         )
+        assert response.status_code == 422
+        assert response.json()["error"]["code"] == "STEP_SEQUENCE_INVALID"
 
-        suite_resp = client.post(
-            "/api/v1/test-suites",
-            json={"suite_code": "suite_unsupported", "suite_name": "Unsupported Suite", "status": "active"},
+
+def test_invalid_ocr_assert_step_is_rejected_during_step_save():
+    _reset_local_data()
+    from app.main import app
+
+    with TestClient(app) as client:
+        login_resp = client.post("/api/v1/sessions", json={"username": TEST_ADMIN_USERNAME, "password": TEST_ADMIN_PASSWORD})
+        token = login_resp.json()["data"]["access_token"]
+        headers = {"Authorization": f"Bearer {token}"}
+
+        workspace_resp = client.post(
+            "/api/v1/workspaces",
+            json={"workspace_code": "invalid_ocr_ws", "name": "Invalid OCR WS"},
+            headers=headers,
+        )
+        workspace_id = workspace_resp.json()["data"]["id"]
+        workspace_headers = headers | {"X-Workspace-Id": str(workspace_id)}
+
+        case_resp = client.post(
+            "/api/v1/test-cases",
+            json={"case_code": "invalid_ocr_case", "case_name": "Invalid OCR Case", "status": "published"},
             headers=workspace_headers,
         )
-        test_suite_id = suite_resp.json()["data"]["id"]
+        test_case_id = case_resp.json()["data"]["id"]
 
-        client.put(
-            f"/api/v1/test-suites/{test_suite_id}/cases",
-            json=[{"test_case_id": test_case_id, "sort_order": 1}],
+        response = client.put(
+            f"/api/v1/test-cases/{test_case_id}/steps",
+            json=[{"step_no": 1, "step_type": "ocr_assert", "step_name": "Invalid OCR", "payload_json": {"selector": "#main"}}],
             headers=workspace_headers,
         )
-
-        run_resp = client.post(
-            "/api/v1/test-runs",
-            json={
-                "test_suite_id": test_suite_id,
-                "environment_profile_id": environment_profile_id,
-                "trigger_source": "manual",
-            },
-            headers=workspace_headers | {"Idempotency-Key": "run-unsupported"},
-        )
-        assert run_resp.status_code == 201
-        test_run_id = run_resp.json()["data"]["id"]
-
-        detail_resp = client.get(f"/api/v1/test-runs/{test_run_id}", headers=workspace_headers)
-        assert detail_resp.status_code == 200
-        assert detail_resp.json()["data"]["status"] == "error"
-
-        case_runs_resp = client.get(f"/api/v1/test-runs/{test_run_id}/case-runs", headers=workspace_headers)
-        case_run_id = case_runs_resp.json()["data"][0]["id"]
-        step_results_resp = client.get(f"/api/v1/case-runs/{case_run_id}/step-results", headers=workspace_headers)
-        assert step_results_resp.status_code == 200
-        assert step_results_resp.json()["data"][0]["status"] == "error"
+        assert response.status_code == 422
+        assert response.json()["error"]["code"] == "STEP_SEQUENCE_INVALID"
 
 
 def test_adapter_initialization_failure_marks_test_run_error(monkeypatch):
@@ -733,6 +971,366 @@ def test_component_call_steps_are_expanded_and_executed(monkeypatch):
         assert [item["step_no"] for item in step_results] == [1, 2, 3, 4]
         assert [item["step_type"] for item in step_results] == ["wait", "wait", "click", "input"]
         assert all(item["status"] == "passed" for item in step_results)
+
+
+def test_template_assert_requires_matching_template_strategy_before_execution():
+    _reset_local_data()
+    from app.main import app
+
+    with TestClient(app) as client:
+        login_resp = client.post("/api/v1/sessions", json={"username": TEST_ADMIN_USERNAME, "password": TEST_ADMIN_PASSWORD})
+        token = login_resp.json()["data"]["access_token"]
+        headers = {"Authorization": f"Bearer {token}"}
+
+        workspace_resp = client.post(
+            "/api/v1/workspaces",
+            json={"workspace_code": "template_strategy_ws", "name": "Template Strategy WS"},
+            headers=headers,
+        )
+        workspace_id = workspace_resp.json()["data"]["id"]
+        workspace_headers = headers | {"X-Workspace-Id": str(workspace_id)}
+
+        env_resp = client.post(
+            "/api/v1/environment-profiles",
+            json={"profile_name": "dev", "base_url": "https://example.com"},
+            headers=workspace_headers,
+        )
+        environment_profile_id = env_resp.json()["data"]["id"]
+
+        media_object_id = _create_media_object(client, headers=workspace_headers)
+        template_id = _create_template(
+            client,
+            headers=workspace_headers,
+            media_object_id=media_object_id,
+            template_code="tpl_ocr_only",
+            template_name="OCR Template",
+            match_strategy="ocr",
+        )
+
+        case_resp = client.post(
+            "/api/v1/test-cases",
+            json={"case_code": "case_template_strategy", "case_name": "Template Strategy Case", "status": "published"},
+            headers=workspace_headers,
+        )
+        test_case_id = case_resp.json()["data"]["id"]
+
+        case_steps_resp = client.put(
+            f"/api/v1/test-cases/{test_case_id}/steps",
+            json=[
+                {
+                    "step_no": 1,
+                    "step_type": "template_assert",
+                    "step_name": "Template Assert",
+                    "template_id": template_id,
+                    "payload_json": {},
+                }
+            ],
+            headers=workspace_headers,
+        )
+        assert case_steps_resp.status_code == 200
+
+        suite_resp = client.post(
+            "/api/v1/test-suites",
+            json={"suite_code": "suite_template_strategy", "suite_name": "Template Strategy Suite", "status": "active"},
+            headers=workspace_headers,
+        )
+        test_suite_id = suite_resp.json()["data"]["id"]
+
+        client.put(
+            f"/api/v1/test-suites/{test_suite_id}/cases",
+            json=[{"test_case_id": test_case_id, "sort_order": 1}],
+            headers=workspace_headers,
+        )
+
+        run_resp = client.post(
+            "/api/v1/test-runs",
+            json={
+                "test_suite_id": test_suite_id,
+                "environment_profile_id": environment_profile_id,
+                "trigger_source": "manual",
+            },
+            headers=workspace_headers | {"Idempotency-Key": "run-template-strategy"},
+        )
+        assert run_resp.status_code == 422
+        assert run_resp.json()["error"]["code"] == "STEP_CONFIGURATION_INVALID"
+
+
+def test_template_assert_success_persists_expected_and_actual_media(monkeypatch):
+    _reset_local_data()
+    from app.main import app
+
+    _install_visual_browser_adapter(monkeypatch, template_status="passed")
+
+    with TestClient(app) as client:
+        login_resp = client.post("/api/v1/sessions", json={"username": TEST_ADMIN_USERNAME, "password": TEST_ADMIN_PASSWORD})
+        token = login_resp.json()["data"]["access_token"]
+        headers = {"Authorization": f"Bearer {token}"}
+
+        workspace_resp = client.post(
+            "/api/v1/workspaces",
+            json={"workspace_code": "template_pass_ws", "name": "Template Pass WS"},
+            headers=headers,
+        )
+        workspace_id = workspace_resp.json()["data"]["id"]
+        workspace_headers = headers | {"X-Workspace-Id": str(workspace_id)}
+
+        env_resp = client.post(
+            "/api/v1/environment-profiles",
+            json={"profile_name": "dev", "base_url": "https://example.com"},
+            headers=workspace_headers,
+        )
+        environment_profile_id = env_resp.json()["data"]["id"]
+
+        media_object_id = _create_media_object(client, headers=workspace_headers)
+        template_id = _create_template(
+            client,
+            headers=workspace_headers,
+            media_object_id=media_object_id,
+            template_code="tpl_pass",
+            template_name="Pass Template",
+        )
+
+        case_resp = client.post(
+            "/api/v1/test-cases",
+            json={"case_code": "case_template_pass", "case_name": "Template Pass Case", "status": "published"},
+            headers=workspace_headers,
+        )
+        test_case_id = case_resp.json()["data"]["id"]
+
+        client.put(
+            f"/api/v1/test-cases/{test_case_id}/steps",
+            json=[
+                {
+                    "step_no": 1,
+                    "step_type": "template_assert",
+                    "step_name": "Template Pass",
+                    "template_id": template_id,
+                    "payload_json": {},
+                }
+            ],
+            headers=workspace_headers,
+        )
+
+        suite_resp = client.post(
+            "/api/v1/test-suites",
+            json={"suite_code": "suite_template_pass", "suite_name": "Template Pass Suite", "status": "active"},
+            headers=workspace_headers,
+        )
+        test_suite_id = suite_resp.json()["data"]["id"]
+
+        client.put(
+            f"/api/v1/test-suites/{test_suite_id}/cases",
+            json=[{"test_case_id": test_case_id, "sort_order": 1}],
+            headers=workspace_headers,
+        )
+
+        run_resp = client.post(
+            "/api/v1/test-runs",
+            json={
+                "test_suite_id": test_suite_id,
+                "environment_profile_id": environment_profile_id,
+                "trigger_source": "manual",
+            },
+            headers=workspace_headers | {"Idempotency-Key": "run-template-pass"},
+        )
+        assert run_resp.status_code == 201
+        test_run_id = run_resp.json()["data"]["id"]
+
+        detail_resp = client.get(f"/api/v1/test-runs/{test_run_id}", headers=workspace_headers)
+        assert detail_resp.status_code == 200
+        assert detail_resp.json()["data"]["status"] == "passed"
+
+        case_runs_resp = client.get(f"/api/v1/test-runs/{test_run_id}/case-runs", headers=workspace_headers)
+        case_run_id = case_runs_resp.json()["data"][0]["id"]
+        step_results_resp = client.get(f"/api/v1/case-runs/{case_run_id}/step-results", headers=workspace_headers)
+        step_result = step_results_resp.json()["data"][0]
+        assert step_result["status"] == "passed"
+        assert step_result["expected_media_object_id"] is not None
+        assert step_result["actual_media_object_id"] is not None
+        assert step_result["diff_media_object_id"] is None
+
+
+def test_template_assert_failure_marks_run_failed_and_persists_diff_media(monkeypatch):
+    _reset_local_data()
+    from app.main import app
+
+    _install_visual_browser_adapter(monkeypatch, template_status="failed")
+
+    with TestClient(app) as client:
+        login_resp = client.post("/api/v1/sessions", json={"username": TEST_ADMIN_USERNAME, "password": TEST_ADMIN_PASSWORD})
+        token = login_resp.json()["data"]["access_token"]
+        headers = {"Authorization": f"Bearer {token}"}
+
+        workspace_resp = client.post(
+            "/api/v1/workspaces",
+            json={"workspace_code": "template_fail_ws", "name": "Template Fail WS"},
+            headers=headers,
+        )
+        workspace_id = workspace_resp.json()["data"]["id"]
+        workspace_headers = headers | {"X-Workspace-Id": str(workspace_id)}
+
+        env_resp = client.post(
+            "/api/v1/environment-profiles",
+            json={"profile_name": "dev", "base_url": "https://example.com"},
+            headers=workspace_headers,
+        )
+        environment_profile_id = env_resp.json()["data"]["id"]
+
+        media_object_id = _create_media_object(client, headers=workspace_headers)
+        template_id = _create_template(
+            client,
+            headers=workspace_headers,
+            media_object_id=media_object_id,
+            template_code="tpl_fail",
+            template_name="Fail Template",
+        )
+
+        case_resp = client.post(
+            "/api/v1/test-cases",
+            json={"case_code": "case_template_fail", "case_name": "Template Fail Case", "status": "published"},
+            headers=workspace_headers,
+        )
+        test_case_id = case_resp.json()["data"]["id"]
+
+        client.put(
+            f"/api/v1/test-cases/{test_case_id}/steps",
+            json=[
+                {
+                    "step_no": 1,
+                    "step_type": "template_assert",
+                    "step_name": "Template Fail",
+                    "template_id": template_id,
+                    "payload_json": {},
+                }
+            ],
+            headers=workspace_headers,
+        )
+
+        suite_resp = client.post(
+            "/api/v1/test-suites",
+            json={"suite_code": "suite_template_fail", "suite_name": "Template Fail Suite", "status": "active"},
+            headers=workspace_headers,
+        )
+        test_suite_id = suite_resp.json()["data"]["id"]
+
+        client.put(
+            f"/api/v1/test-suites/{test_suite_id}/cases",
+            json=[{"test_case_id": test_case_id, "sort_order": 1}],
+            headers=workspace_headers,
+        )
+
+        run_resp = client.post(
+            "/api/v1/test-runs",
+            json={
+                "test_suite_id": test_suite_id,
+                "environment_profile_id": environment_profile_id,
+                "trigger_source": "manual",
+            },
+            headers=workspace_headers | {"Idempotency-Key": "run-template-fail"},
+        )
+        assert run_resp.status_code == 201
+        test_run_id = run_resp.json()["data"]["id"]
+
+        detail_resp = client.get(f"/api/v1/test-runs/{test_run_id}", headers=workspace_headers)
+        assert detail_resp.status_code == 200
+        assert detail_resp.json()["data"]["status"] == "failed"
+
+        case_runs_resp = client.get(f"/api/v1/test-runs/{test_run_id}/case-runs", headers=workspace_headers)
+        assert case_runs_resp.json()["data"][0]["status"] == "failed"
+        case_run_id = case_runs_resp.json()["data"][0]["id"]
+
+        step_results_resp = client.get(f"/api/v1/case-runs/{case_run_id}/step-results", headers=workspace_headers)
+        step_result = step_results_resp.json()["data"][0]
+        assert step_result["status"] == "failed"
+        assert step_result["expected_media_object_id"] is not None
+        assert step_result["actual_media_object_id"] is not None
+        assert step_result["diff_media_object_id"] is not None
+
+
+def test_ocr_assert_failure_marks_run_failed(monkeypatch):
+    _reset_local_data()
+    from app.main import app
+
+    _install_visual_browser_adapter(monkeypatch, ocr_status="failed")
+
+    with TestClient(app) as client:
+        login_resp = client.post("/api/v1/sessions", json={"username": TEST_ADMIN_USERNAME, "password": TEST_ADMIN_PASSWORD})
+        token = login_resp.json()["data"]["access_token"]
+        headers = {"Authorization": f"Bearer {token}"}
+
+        workspace_resp = client.post(
+            "/api/v1/workspaces",
+            json={"workspace_code": "ocr_fail_ws", "name": "OCR Fail WS"},
+            headers=headers,
+        )
+        workspace_id = workspace_resp.json()["data"]["id"]
+        workspace_headers = headers | {"X-Workspace-Id": str(workspace_id)}
+
+        env_resp = client.post(
+            "/api/v1/environment-profiles",
+            json={"profile_name": "dev", "base_url": "https://example.com"},
+            headers=workspace_headers,
+        )
+        environment_profile_id = env_resp.json()["data"]["id"]
+
+        case_resp = client.post(
+            "/api/v1/test-cases",
+            json={"case_code": "case_ocr_fail", "case_name": "OCR Fail Case", "status": "published"},
+            headers=workspace_headers,
+        )
+        test_case_id = case_resp.json()["data"]["id"]
+
+        client.put(
+            f"/api/v1/test-cases/{test_case_id}/steps",
+            json=[
+                {
+                    "step_no": 1,
+                    "step_type": "ocr_assert",
+                    "step_name": "OCR Fail",
+                    "payload_json": {"selector": "#main", "expected_text": "expected text"},
+                }
+            ],
+            headers=workspace_headers,
+        )
+
+        suite_resp = client.post(
+            "/api/v1/test-suites",
+            json={"suite_code": "suite_ocr_fail", "suite_name": "OCR Fail Suite", "status": "active"},
+            headers=workspace_headers,
+        )
+        test_suite_id = suite_resp.json()["data"]["id"]
+
+        client.put(
+            f"/api/v1/test-suites/{test_suite_id}/cases",
+            json=[{"test_case_id": test_case_id, "sort_order": 1}],
+            headers=workspace_headers,
+        )
+
+        run_resp = client.post(
+            "/api/v1/test-runs",
+            json={
+                "test_suite_id": test_suite_id,
+                "environment_profile_id": environment_profile_id,
+                "trigger_source": "manual",
+            },
+            headers=workspace_headers | {"Idempotency-Key": "run-ocr-fail"},
+        )
+        assert run_resp.status_code == 201
+        test_run_id = run_resp.json()["data"]["id"]
+
+        detail_resp = client.get(f"/api/v1/test-runs/{test_run_id}", headers=workspace_headers)
+        assert detail_resp.status_code == 200
+        assert detail_resp.json()["data"]["status"] == "failed"
+
+        case_runs_resp = client.get(f"/api/v1/test-runs/{test_run_id}/case-runs", headers=workspace_headers)
+        assert case_runs_resp.json()["data"][0]["status"] == "failed"
+        case_run_id = case_runs_resp.json()["data"][0]["id"]
+
+        step_results_resp = client.get(f"/api/v1/case-runs/{case_run_id}/step-results", headers=workspace_headers)
+        step_result = step_results_resp.json()["data"][0]
+        assert step_result["status"] == "failed"
+        assert step_result["actual_media_object_id"] is not None
+        assert step_result["diff_media_object_id"] is None
 
 
 def test_non_active_suite_cannot_create_test_run():

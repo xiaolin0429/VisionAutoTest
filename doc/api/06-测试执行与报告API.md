@@ -101,10 +101,13 @@
 - `test-runs` 一经创建即生成独立资源，不使用同步阻塞返回最终结果。
 - 空套件不允许创建执行批次；套件至少需要包含 1 个可执行用例。
 - `component_call` 步骤在执行时会展开为组件内部的真实执行步骤；`step-results` 返回展开后的线性步骤结果。
+- 步骤执行结果中的 `failed` 表示断言不通过；`error` 表示依赖缺失、载荷非法或运行时异常。
 - 用例执行实例和步骤结果为执行流水，不允许逻辑删除。
 - 报告为执行结果快照，应与执行批次一一对应。
 - 大文件证据链通过 `artifact_url` 或对象存储键返回，不直接内联在响应中。
 - MVP 首批浏览器执行闭环会产出真实截图证据；执行截图通过 `step-results.actual_media_object_id` 和 `report_artifacts` 关联。
+- `template_assert` 会在 `step-results` 中写入 `expected_media_object_id / actual_media_object_id / diff_media_object_id`，用于定位基准图、实际截图和差异图。
+- `ocr_assert` 会在 `step-results` 中写入 `actual_media_object_id`，用于回溯 OCR 截图证据。
 
 ## 6. 推荐错误码
 
@@ -118,3 +121,5 @@
 | `TEST_SUITE_EMPTY` | 套件未包含任何可执行用例 |
 | `TEST_SUITE_NOT_ACTIVE` | 套件未处于可执行状态 |
 | `PUBLISHED_VERSION_REQUIRED` | 套件内引用了未发布的用例或组件 |
+| `STEP_CONFIGURATION_INVALID` | 步骤配置与模板策略不兼容 |
+| `BASELINE_REVISION_REQUIRED` | 模板缺少可执行的当前基准版本 |

@@ -96,18 +96,32 @@ async function handleSubmit() {
           @submit.prevent="handleSubmit"
         >
           <div>
-            <label class="mb-2 block text-sm font-medium text-slate-700">用户名</label>
+            <label
+              class="mb-2 block text-sm font-medium text-slate-700"
+              for="login-username"
+            >
+              用户名
+            </label>
             <el-input
+              id="login-username"
               v-model="form.username"
+              autocomplete="username"
               size="large"
               placeholder="请输入用户名"
             />
           </div>
 
           <div>
-            <label class="mb-2 block text-sm font-medium text-slate-700">密码</label>
+            <label
+              class="mb-2 block text-sm font-medium text-slate-700"
+              for="login-password"
+            >
+              密码
+            </label>
             <el-input
+              id="login-password"
               v-model="form.password"
+              autocomplete="current-password"
               show-password
               size="large"
               type="password"

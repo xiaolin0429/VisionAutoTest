@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.core.http import ApiError
 from app.models import (
+    BaselineRevision,
     Component,
     ComponentStep,
     DeviceProfile,
@@ -16,6 +17,7 @@ from app.models import (
     RunReport,
     StepResult,
     SuiteCase,
+    Template,
     TestCase,
     TestCaseRun,
     TestCaseStep,
@@ -262,6 +264,8 @@ def finalize_completed_test_run(
     now = utc_now()
     if passed_count == 0 and failed_count == 0 and error_count > 0:
         final_status = "error"
+    elif failed_count > 0 and error_count == 0 and passed_count == 0:
+        final_status = "failed"
     elif failed_count == 0 and error_count == 0:
         final_status = "passed"
     else:
@@ -405,6 +409,12 @@ def get_report_by_test_run(db: Session, test_run_id: int) -> RunReport | None:
     return db.scalar(select(RunReport).where(RunReport.test_run_id == test_run_id))
 
 
+def list_report_artifacts(db: Session, report_id: int):
+    return db.scalars(
+        select(ReportArtifact).where(ReportArtifact.report_id == report_id).order_by(ReportArtifact.id.asc())
+    ).all()
+
+
 def create_report_artifact(
     db: Session,
     *,
@@ -439,6 +449,7 @@ def _validate_case_execution_readiness(db: Session, *, workspace_id: int, test_c
         select(TestCaseStep).where(TestCaseStep.test_case_id == test_case_id).order_by(TestCaseStep.step_no.asc())
     ).all()
     for case_step in case_steps:
+        _validate_visual_step_readiness(db, workspace_id=workspace_id, step=case_step)
         if case_step.component_id is None:
             continue
         component = _get_component_in_workspace(db, workspace_id=workspace_id, component_id=case_step.component_id)
@@ -448,6 +459,11 @@ def _validate_case_execution_readiness(db: Session, *, workspace_id: int, test_c
                 message="Component must be published before execution.",
                 status_code=422,
             )
+        component_steps = db.scalars(
+            select(ComponentStep).where(ComponentStep.component_id == component.id).order_by(ComponentStep.step_no.asc())
+        ).all()
+        for component_step in component_steps:
+            _validate_visual_step_readiness(db, workspace_id=workspace_id, step=component_step)
 
 
 def _get_component_in_workspace(db: Session, *, workspace_id: int, component_id: int | None) -> Component:
@@ -457,3 +473,56 @@ def _get_component_in_workspace(db: Session, *, workspace_id: int, component_id:
     if component is None or component.workspace_id != workspace_id or component.is_deleted:
         raise ApiError(code="COMPONENT_NOT_FOUND", message="Component not found.", status_code=404)
     return component
+
+
+def _validate_visual_step_readiness(db: Session, *, workspace_id: int, step) -> None:
+    if step.step_type not in {"template_assert", "ocr_assert"}:
+        return
+
+    if step.step_type == "template_assert" and step.template_id is None:
+        raise ApiError(
+            code="STEP_CONFIGURATION_INVALID",
+            message="template_assert step requires template_id.",
+            status_code=422,
+        )
+
+    if step.step_type == "ocr_assert":
+        payload = step.payload_json or {}
+        selector = payload.get("selector")
+        expected_text = payload.get("expected_text")
+        if not isinstance(selector, str) or not selector.strip() or not isinstance(expected_text, str) or not expected_text.strip():
+            raise ApiError(
+                code="STEP_CONFIGURATION_INVALID",
+                message="ocr_assert step requires selector and expected_text.",
+                status_code=422,
+            )
+
+    if step.template_id is None:
+        return
+
+    template = db.get(Template, step.template_id)
+    if template is None or template.workspace_id != workspace_id or template.is_deleted:
+        raise ApiError(code="TEMPLATE_NOT_FOUND", message="Template not found.", status_code=404)
+
+    if template.current_baseline_revision_id is None:
+        raise ApiError(
+            code="BASELINE_REVISION_REQUIRED",
+            message="Template must have a current baseline revision before execution.",
+            status_code=422,
+        )
+
+    baseline = db.get(BaselineRevision, template.current_baseline_revision_id)
+    if baseline is None or baseline.template_id != template.id:
+        raise ApiError(
+            code="BASELINE_REVISION_REQUIRED",
+            message="Template current baseline revision is invalid.",
+            status_code=422,
+        )
+
+    expected_strategy = "template" if step.step_type == "template_assert" else "ocr"
+    if template.match_strategy != expected_strategy:
+        raise ApiError(
+            code="STEP_CONFIGURATION_INVALID",
+            message=f"{step.step_type} step requires template match_strategy `{expected_strategy}`.",
+            status_code=422,
+        )

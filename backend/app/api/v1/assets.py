@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, get_workspace_header
 from app.api.utils import dump_model, dump_list
+from app.core.config import get_settings
 from app.core.http import no_content_response, paginated_response, success_response
 from app.db.session import get_db
 from app.schemas.contracts import (
@@ -23,6 +25,7 @@ from app.services import assets
 from app.services.helpers import page_bounds, require_workspace_id
 
 router = APIRouter(tags=["assets"])
+settings = get_settings()
 
 
 @router.post("/media-objects", status_code=201)
@@ -52,6 +55,14 @@ def get_media_object(media_object_id: int, request: Request, db: Session = Depen
     media = assets.get_media_object(db, media_object_id)
     assets.require_workspace_access(db, current_user, media.workspace_id)
     return success_response(request, dump_model(MediaObjectRead, media))
+
+
+@router.get("/media-objects/{media_object_id}/content")
+def get_media_object_content(media_object_id: int, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+    media = assets.get_media_object(db, media_object_id)
+    assets.require_workspace_access(db, current_user, media.workspace_id)
+    file_path = settings.local_storage_path / media.object_key
+    return FileResponse(file_path, media_type=media.mime_type, filename=media.file_name)
 
 
 @router.get("/media-objects")
@@ -216,4 +227,3 @@ def delete_mask_region(mask_region_id: int, db: Session = Depends(get_db), curre
     region = assets.get_mask_region(db, mask_region_id)
     assets.delete_mask_region(db, user=current_user, region=region)
     return no_content_response()
-

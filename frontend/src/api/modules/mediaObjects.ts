@@ -1,4 +1,4 @@
-import { requestData } from '@/api/client'
+import { requestBlob, requestData } from '@/api/client'
 import type { MediaObjectReadDTO } from '@/types/backend'
 import type { MediaObject } from '@/types/models'
 
@@ -40,4 +40,20 @@ export async function createMediaObject(
   })
 
   return mapMediaObject(response)
+}
+
+export async function getMediaObject(mediaObjectId: number): Promise<MediaObject> {
+  const response = await requestData<MediaObjectReadDTO>({
+    method: 'get',
+    url: `/media-objects/${mediaObjectId}`
+  })
+
+  return mapMediaObject(response)
+}
+
+export async function getMediaObjectContent(mediaObjectId: number): Promise<Blob> {
+  return requestBlob({
+    method: 'get',
+    url: `/media-objects/${mediaObjectId}/content`
+  })
 }

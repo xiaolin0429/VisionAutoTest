@@ -15,6 +15,12 @@ import type {
   BaselineRevisionCreatePayload
 } from '@/types/models'
 
+export interface ListTemplatesParams {
+  keyword?: string
+  status?: string
+  templateType?: string
+}
+
 function mapMaskRegion(item: MaskRegionReadDTO): MaskRegion {
   return {
     id: item.id,
@@ -85,13 +91,17 @@ function mapTemplateSummary(item: TemplateReadDTO): Template {
   }
 }
 
-export async function listTemplates(): Promise<Template[]> {
+export async function listTemplates(params: ListTemplatesParams = {}): Promise<Template[]> {
+  const keyword = params.keyword?.trim()
   const response = await requestPage<TemplateReadDTO>({
     method: 'get',
     url: '/templates',
     params: {
       page: 1,
-      page_size: 100
+      page_size: 100,
+      keyword: keyword || undefined,
+      status: params.status || undefined,
+      template_type: params.templateType || undefined
     }
   })
 

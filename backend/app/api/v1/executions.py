@@ -7,7 +7,15 @@ from app.api.deps import get_current_user, get_workspace_header
 from app.api.utils import dump_model, dump_list
 from app.core.http import paginated_response, success_response
 from app.db.session import get_db
-from app.schemas.contracts import RunReportRead, StepResultRead, TestCaseRunRead, TestRunCreate, TestRunRead, TestRunUpdate
+from app.schemas.contracts import (
+    ReportArtifactRead,
+    RunReportRead,
+    StepResultRead,
+    TestCaseRunRead,
+    TestRunCreate,
+    TestRunRead,
+    TestRunUpdate,
+)
 from app.services import execution
 from app.services.helpers import page_bounds, require_workspace_id
 from app.workers.execution import process_test_run
@@ -69,6 +77,18 @@ def get_test_run(test_run_id: int, request: Request, db: Session = Depends(get_d
     return success_response(request, dump_model(TestRunRead, test_run))
 
 
+@router.get("/test-runs/{test_run_id}/report")
+def get_test_run_report(test_run_id: int, request: Request, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+    test_run = execution.get_test_run(db, test_run_id)
+    execution.require_workspace_access(db, current_user, test_run.workspace_id)
+    report = execution.get_report_by_test_run(db, test_run_id)
+    if report is None:
+        from app.core.http import ApiError
+
+        raise ApiError(code="REPORT_NOT_FOUND", message="Report not found.", status_code=404)
+    return success_response(request, dump_model(RunReportRead, report))
+
+
 @router.patch("/test-runs/{test_run_id}")
 def patch_test_run(test_run_id: int, payload: TestRunUpdate, request: Request, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
     test_run = execution.get_test_run(db, test_run_id)
@@ -107,3 +127,11 @@ def get_report(report_id: int, request: Request, db: Session = Depends(get_db), 
     execution.require_workspace_access(db, current_user, test_run.workspace_id)
     return success_response(request, dump_model(RunReportRead, report))
 
+
+@router.get("/reports/{report_id}/artifacts")
+def list_report_artifacts(report_id: int, request: Request, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+    report = execution.get_report(db, report_id)
+    test_run = execution.get_test_run(db, report.test_run_id)
+    execution.require_workspace_access(db, current_user, test_run.workspace_id)
+    items = execution.list_report_artifacts(db, report_id)
+    return success_response(request, dump_list(ReportArtifactRead, items))

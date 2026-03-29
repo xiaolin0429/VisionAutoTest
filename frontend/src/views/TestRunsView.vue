@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import MetricCard from '@/components/MetricCard.vue'
 import SectionCard from '@/components/SectionCard.vue'
@@ -11,6 +11,9 @@ import type { TestRun } from '@/types/models'
 const router = useRouter()
 const loading = ref(false)
 const testRuns = ref<TestRun[]>([])
+let pollTimer: number | null = null
+
+const ACTIVE_RUN_STATUSES = new Set(['queued', 'running', 'cancelling'])
 
 const metrics = computed(() => {
   const total = testRuns.value.length
@@ -27,7 +30,7 @@ const metrics = computed(() => {
     {
       label: '执行中',
       value: running,
-      hint: '后续可接入轮询或 SSE 实时刷新状态。'
+      hint: '运行中批次会自动轮询刷新状态。'
     },
     {
       label: '已通过',
@@ -42,13 +45,49 @@ const metrics = computed(() => {
   ]
 })
 
-onMounted(async () => {
-  loading.value = true
+function clearPollTimer() {
+  if (pollTimer === null) {
+    return
+  }
+
+  window.clearTimeout(pollTimer)
+  pollTimer = null
+}
+
+function scheduleTestRunsRefresh() {
+  clearPollTimer()
+  pollTimer = window.setTimeout(() => {
+    void loadTestRuns({ silent: true })
+  }, 3000)
+}
+
+async function loadTestRuns(options: { silent?: boolean } = {}) {
+  if (!options.silent || testRuns.value.length === 0) {
+    loading.value = true
+  }
+
   try {
     testRuns.value = await listTestRuns()
+
+    if (testRuns.value.some((item) => ACTIVE_RUN_STATUSES.has(item.status))) {
+      scheduleTestRunsRefresh()
+      return
+    }
+
+    clearPollTimer()
   } finally {
-    loading.value = false
+    if (!options.silent || testRuns.value.length === 0) {
+      loading.value = false
+    }
   }
+}
+
+onMounted(async () => {
+  await loadTestRuns()
+})
+
+onBeforeUnmount(() => {
+  clearPollTimer()
 })
 
 function openRunDetail(testRunId: number) {
