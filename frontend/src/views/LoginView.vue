@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { computed, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
+import { consumeAuthNotice } from '@/auth/sessionRuntime'
 import { createSession } from '@/api/modules/auth'
 import { useAuthStore } from '@/stores/auth'
 import { useWorkspaceStore } from '@/stores/workspace'
@@ -43,6 +44,13 @@ async function handleSubmit() {
     loading.value = false
   }
 }
+
+onMounted(() => {
+  const notice = consumeAuthNotice()
+  if (notice) {
+    ElMessage.warning(notice)
+  }
+})
 </script>
 
 <template>

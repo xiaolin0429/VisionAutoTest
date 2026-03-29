@@ -24,6 +24,7 @@ from app.models import (
 )
 from app.services import assets as asset_service
 from app.services.execution import (
+    _normalize_failure_payload,
     build_report_summary,
     build_execution_steps,
     create_report_artifact,
@@ -197,8 +198,17 @@ def process_test_run(test_run_id: int) -> None:
                 case_run.status = execution_result.status
                 case_run.finished_at = utc_now()
                 case_run.duration_ms = max(1, int((case_run.finished_at - case_started_at).total_seconds() * 1000))
-                case_run.failure_reason_code = execution_result.failure_reason_code
-                case_run.failure_summary = execution_result.failure_summary
+                if execution_result.status in {"failed", "error"}:
+                    failure_code, failure_summary = _normalize_failure_payload(
+                        status=execution_result.status,
+                        failure_code=execution_result.failure_reason_code,
+                        failure_summary=execution_result.failure_summary,
+                    )
+                    case_run.failure_reason_code = failure_code
+                    case_run.failure_summary = failure_summary
+                else:
+                    case_run.failure_reason_code = None
+                    case_run.failure_summary = None
 
                 if execution_result.status == "passed":
                     passed_count += 1

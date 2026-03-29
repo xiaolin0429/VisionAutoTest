@@ -31,6 +31,24 @@ export interface SessionResponseDTO {
   }
 }
 
+export interface SessionRefreshResponseDTO {
+  access_token: string
+  refresh_token: string
+  token_type: string
+  expires_in: number
+}
+
+export interface CurrentSessionReadDTO {
+  session_id: string
+  status: string
+  expires_at: string
+  user: {
+    id: number
+    username: string
+    display_name: string
+  }
+}
+
 export interface WorkspaceReadDTO {
   id: number
   workspace_code: string

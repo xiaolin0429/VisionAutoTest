@@ -6,6 +6,7 @@ from typing import Any
 from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.core.http import ApiError
 from app.models import (
     BaselineRevision,
@@ -33,6 +34,7 @@ FINAL_TEST_RUN_STATUSES = {"queued", "running", "cancelling", "cancelled", "pass
 FINAL_CASE_RUN_STATUSES = {"pending", "running", "passed", "failed", "error", "cancelled"}
 FINAL_STEP_RESULT_STATUSES = {"passed", "failed", "error"}
 EXECUTABLE_TEMPLATE_STATUS = "published"
+settings = get_settings()
 
 
 @dataclass(slots=True)
@@ -253,6 +255,8 @@ def update_test_run_status(db: Session, *, user: User, test_run: TestRun, status
 
 def finalize_cancelled_test_run(db: Session, test_run: TestRun) -> TestRun:
     now = utc_now()
+    cancellation_code = "TEST_RUN_CANCELLED"
+    cancellation_summary = "Test run was cancelled."
     case_runs = db.scalars(
         select(TestCaseRun).where(TestCaseRun.test_run_id == test_run.id).order_by(TestCaseRun.sort_order.asc())
     ).all()
@@ -275,6 +279,8 @@ def finalize_cancelled_test_run(db: Session, test_run: TestRun) -> TestRun:
             case_run.finished_at = case_run.finished_at or now
             if case_run.started_at is not None and case_run.duration_ms is None:
                 case_run.duration_ms = max(1, int((case_run.finished_at - case_run.started_at).total_seconds() * 1000))
+            case_run.failure_reason_code = case_run.failure_reason_code or cancellation_code
+            case_run.failure_summary = case_run.failure_summary or cancellation_summary
         cancelled_count += 1
 
     test_run.status = "cancelled"
@@ -293,8 +299,8 @@ def finalize_cancelled_test_run(db: Session, test_run: TestRun) -> TestRun:
         cancelled_count=cancelled_count,
         started_at=test_run.started_at,
         finished_at=test_run.finished_at,
-        failure_code=None,
-        failure_summary=None,
+        failure_code=cancellation_code,
+        failure_summary=cancellation_summary,
     )
     if report is None:
         db.add(
@@ -332,6 +338,10 @@ def finalize_completed_test_run(
         final_status = "passed"
     else:
         final_status = "partial_failed"
+    case_runs = db.scalars(
+        select(TestCaseRun).where(TestCaseRun.test_run_id == test_run.id).order_by(TestCaseRun.sort_order.asc())
+    ).all()
+    failure_code, failure_summary = _resolve_run_failure(case_runs=case_runs, final_status=final_status)
     update_result = db.execute(
         update(TestRun)
         .where(TestRun.id == test_run.id, TestRun.status == "running")
@@ -362,8 +372,8 @@ def finalize_completed_test_run(
         cancelled_count=0,
         started_at=test_run.started_at,
         finished_at=now,
-        failure_code=None,
-        failure_summary=None,
+        failure_code=failure_code,
+        failure_summary=failure_summary,
     )
     if report is None:
         db.add(
@@ -504,7 +514,7 @@ def create_report_artifact(
         media_object_id=media.id,
         case_run_id=case_run_id,
         step_result_id=step_result_id,
-        artifact_url=media.object_key,
+        artifact_url=_media_content_url(media.id),
     )
     db.add(artifact)
     db.commit()
@@ -527,6 +537,53 @@ def refresh_report_artifact_summary(db: Session, report: RunReport) -> None:
     report.summary_json = summary_json
     db.commit()
     db.refresh(report)
+
+
+def _resolve_run_failure(*, case_runs: list[TestCaseRun], final_status: str) -> tuple[str | None, str | None]:
+    if final_status == "passed":
+        return None, None
+    if final_status == "cancelled":
+        return "TEST_RUN_CANCELLED", "Test run was cancelled."
+    for case_run in case_runs:
+        if case_run.status not in {"failed", "error", "cancelled"}:
+            continue
+        return _normalize_failure_payload(
+            status=case_run.status,
+            failure_code=case_run.failure_reason_code,
+            failure_summary=case_run.failure_summary,
+        )
+    if final_status == "partial_failed":
+        return "TEST_RUN_PARTIAL_FAILED", "Test run completed with failed or errored cases."
+    if final_status == "failed":
+        return "TEST_RUN_FAILED", "Test run completed with failed cases."
+    if final_status == "error":
+        return "TEST_RUN_EXECUTION_ERROR", "Test run completed with execution errors."
+    return None, None
+
+
+def _normalize_failure_payload(
+    *,
+    status: str,
+    failure_code: str | None,
+    failure_summary: str | None,
+) -> tuple[str, str]:
+    if failure_code and failure_summary:
+        return failure_code, failure_summary
+    default_code = {
+        "failed": "ASSERTION_FAILED",
+        "error": "STEP_EXECUTION_ERROR",
+        "cancelled": "TEST_RUN_CANCELLED",
+    }.get(status, "TEST_RUN_EXECUTION_ERROR")
+    default_summary = {
+        "failed": "Execution finished with assertion failure.",
+        "error": "Execution finished with runtime error.",
+        "cancelled": "Test run was cancelled.",
+    }.get(status, "Execution failed.")
+    return failure_code or default_code, failure_summary or default_summary
+
+
+def _media_content_url(media_object_id: int) -> str:
+    return f"{settings.api_v1_prefix}/media-objects/{media_object_id}/content"
 
 
 def _validate_case_execution_readiness(db: Session, *, workspace_id: int, test_case_id: int) -> None:

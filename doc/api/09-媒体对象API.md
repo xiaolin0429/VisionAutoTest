@@ -30,7 +30,12 @@
 - 方法：`GET`
 - 路径：`/api/v1/media-objects/{media_object_id}`
 
-### 3.3 查询媒体对象列表
+### 3.3 查询媒体对象内容
+
+- 方法：`GET`
+- 路径：`/api/v1/media-objects/{media_object_id}/content`
+
+### 3.4 查询媒体对象列表
 
 - 方法：`GET`
 - 路径：`/api/v1/media-objects`
@@ -42,7 +47,7 @@
 - `page`
 - `page_size`
 
-### 3.4 更新媒体对象状态
+### 3.5 更新媒体对象状态
 
 - 方法：`PATCH`
 - 路径：`/api/v1/media-objects/{media_object_id}`
@@ -58,7 +63,7 @@
 - `active -> deleted`
 - `archived -> active`
 
-### 3.5 查询媒体对象引用关系
+### 3.6 查询媒体对象引用关系
 
 - 方法：`GET`
 - 路径：`/api/v1/media-objects/{media_object_id}/references`
@@ -68,7 +73,8 @@
 - 媒体对象内容一经创建不可原地修改；如文件内容发生变化，必须创建新的媒体对象。
 - 逻辑删除前必须校验引用关系；若仍被模板、基准版本、报告证据链引用，不允许删除。
 - `usage` 仅用于归类和检索，不作为权限控制依据。
-- 访问原始文件时，应优先返回短时有效下载地址或对象键，而不是直接内联大文件。
+- 当前稳定访问入口为 `/api/v1/media-objects/{media_object_id}/content`，其他业务资源返回的 `artifact_url` 应指向该路径或其未来等价替代。
+- 后续即使底层切换到对象存储，对前端暴露的媒体访问模型也应保持稳定，不要求前端感知底层对象键。
 
 ## 5. 推荐错误码
 

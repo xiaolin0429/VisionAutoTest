@@ -1,6 +1,11 @@
 import { createRouter, createWebHistory } from 'vue-router'
-import { ApiError } from '@/api/client'
+import { ApiError, clearPersistedAuthState } from '@/api/client'
 import AppShell from '@/layouts/AppShell.vue'
+import {
+  queueAuthNotice,
+  resetClientSessionState,
+  resolveSessionLifecycleMessage
+} from '@/auth/sessionRuntime'
 import { pinia } from '@/stores/pinia'
 import { useAuthStore } from '@/stores/auth'
 import { useWorkspaceStore } from '@/stores/workspace'
@@ -136,6 +141,43 @@ const router = createRouter({
   ]
 })
 
+function createLoginRedirect(fullPath: string) {
+  return {
+    path: '/login',
+    query: {
+      redirect: fullPath
+    }
+  }
+}
+
+async function ensureRouteSession(fullPath: string) {
+  const authStore = useAuthStore(pinia)
+
+  try {
+    await authStore.bootstrapStoredSession()
+    return null
+  } catch (error) {
+    if (error instanceof ApiError) {
+      const isLifecycleError = [
+        'REFRESH_TOKEN_EXPIRED',
+        'REFRESH_TOKEN_REVOKED',
+        'REFRESH_TOKEN_INVALID',
+        'TOKEN_REVOKED',
+        'SESSION_NOT_FOUND'
+      ].includes(error.code)
+
+      if (isLifecycleError) {
+        resetClientSessionState()
+        clearPersistedAuthState()
+        queueAuthNotice(resolveSessionLifecycleMessage(error))
+        return createLoginRedirect(fullPath)
+      }
+    }
+
+    throw error
+  }
+}
+
 router.beforeEach(async (to) => {
   const authStore = useAuthStore(pinia)
   const workspaceStore = useWorkspaceStore(pinia)
@@ -143,7 +185,14 @@ router.beforeEach(async (to) => {
   const requiresWorkspace = to.meta.requiresWorkspace !== false
 
   if (to.path === '/login') {
-    if (!authStore.isAuthenticated) {
+    if (!authStore.hasSession) {
+      return true
+    }
+
+    const sessionRedirect = await ensureRouteSession(
+      typeof to.query.redirect === 'string' ? to.query.redirect : '/dashboard'
+    )
+    if (sessionRedirect) {
       return true
     }
 
@@ -159,8 +208,9 @@ router.beforeEach(async (to) => {
           throw error
         }
 
-        authStore.clearSession()
-        workspaceStore.reset()
+        resetClientSessionState()
+        clearPersistedAuthState()
+        queueAuthNotice('当前会话已失效，需要重新登录。')
         return true
       }
     }
@@ -168,16 +218,18 @@ router.beforeEach(async (to) => {
     return workspaceStore.hasWorkspace ? '/dashboard' : '/workspace-empty'
   }
 
-  if (!isPublicRoute && !authStore.isAuthenticated) {
-    return {
-      path: '/login',
-      query: {
-        redirect: to.fullPath
-      }
+  if (!isPublicRoute && !authStore.hasSession) {
+    return createLoginRedirect(to.fullPath)
+  }
+
+  if (!isPublicRoute && authStore.hasSession) {
+    const sessionRedirect = await ensureRouteSession(to.fullPath)
+    if (sessionRedirect) {
+      return sessionRedirect
     }
   }
 
-  if (!isPublicRoute && authStore.isAuthenticated && workspaceStore.workspaces.length === 0) {
+  if (!isPublicRoute && authStore.hasSession && workspaceStore.workspaces.length === 0) {
     try {
       await workspaceStore.bootstrap()
     } catch (error) {
@@ -189,22 +241,18 @@ router.beforeEach(async (to) => {
         throw error
       }
 
-      authStore.clearSession()
-      workspaceStore.reset()
-      return {
-        path: '/login',
-        query: {
-          redirect: to.fullPath
-        }
-      }
+      resetClientSessionState()
+      clearPersistedAuthState()
+      queueAuthNotice('当前会话已失效，需要重新登录。')
+      return createLoginRedirect(to.fullPath)
     }
   }
 
-  if (authStore.isAuthenticated && !workspaceStore.hasWorkspace && requiresWorkspace) {
+  if (authStore.hasSession && !workspaceStore.hasWorkspace && requiresWorkspace) {
     return '/workspace-empty'
   }
 
-  if (authStore.isAuthenticated && workspaceStore.hasWorkspace && to.path === '/workspace-empty') {
+  if (authStore.hasSession && workspaceStore.hasWorkspace && to.path === '/workspace-empty') {
     return '/dashboard'
   }
 

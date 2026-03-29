@@ -1,39 +1,29 @@
-import axios, {
-  AxiosHeaders,
-  type AxiosError,
-  type AxiosRequestConfig
-} from 'axios'
+import axios, { AxiosHeaders, type AxiosRequestConfig } from 'axios'
 import {
   AUTH_SESSION_STORAGE_KEY,
   AUTH_USER_STORAGE_KEY,
   WORKSPACE_STORAGE_KEY
 } from '@/constants/storage'
 import type { ApiEnvelope, PaginatedEnvelope } from '@/types/backend'
+import { pinia } from '@/stores/pinia'
+import { useAuthStore } from '@/stores/auth'
+import {
+  redirectToLogin as redirectToLoginPage,
+  resetClientSessionState,
+  resolveSessionLifecycleMessage
+} from '@/auth/sessionRuntime'
+import { API_BASE_URL, ApiError, toApiError } from '@/api/shared'
 
-interface ApiErrorEnvelope {
-  error?: {
-    code?: string
-    message?: string
-    details?: Array<Record<string, unknown>>
-  }
-}
-
-export class ApiError extends Error {
-  constructor(
-    public readonly code: string,
-    message: string,
-    public readonly statusCode?: number,
-    public readonly details?: Array<Record<string, unknown>>
-  ) {
-    super(message)
-    this.name = 'ApiError'
-  }
+interface RetriableAxiosRequestConfig extends AxiosRequestConfig {
+  _vatRetried?: boolean
 }
 
 const http = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL ?? '/api/v1',
+  baseURL: API_BASE_URL,
   timeout: 10000
 })
+
+export { ApiError }
 
 export function clearPersistedAuthState() {
   localStorage.removeItem(AUTH_SESSION_STORAGE_KEY)
@@ -41,46 +31,32 @@ export function clearPersistedAuthState() {
   localStorage.removeItem(WORKSPACE_STORAGE_KEY)
 }
 
-function readStoredJson<T>(key: string): T | null {
-  const raw = localStorage.getItem(key)
-  if (!raw) {
-    return null
-  }
-
-  try {
-    return JSON.parse(raw) as T
-  } catch {
-    localStorage.removeItem(key)
-    return null
-  }
+function shouldSkipAutoRefresh(requestUrl: string) {
+  return (
+    requestUrl.endsWith('/sessions') ||
+    requestUrl.endsWith('/sessions/current') ||
+    requestUrl.endsWith('/session-refreshes')
+  )
 }
 
-function shouldSkipUnauthorizedRedirect(requestUrl: string) {
-  return requestUrl.endsWith('/sessions') || requestUrl.endsWith('/sessions/current')
-}
-
-function redirectToLogin() {
-  if (window.location.pathname === '/login') {
-    return
-  }
-
+function redirectToLoginWithNotice(message?: string) {
   const redirectTarget = `${window.location.pathname}${window.location.search}${window.location.hash}`
-  const searchParams = new URLSearchParams({
-    redirect: redirectTarget
+  redirectToLoginPage({
+    redirectPath: redirectTarget,
+    message
   })
-
-  window.location.replace(`/login?${searchParams.toString()}`)
 }
 
 http.interceptors.request.use((config) => {
-  const storedSession = readStoredJson<{ accessToken?: string; tokenType?: string }>(
-    AUTH_SESSION_STORAGE_KEY
-  )
+  const authStore = useAuthStore(pinia)
   const storedWorkspaceId = localStorage.getItem(WORKSPACE_STORAGE_KEY)
   const headers = AxiosHeaders.from(config.headers)
 
-  if (storedSession?.accessToken) {
-    headers.set('Authorization', `${storedSession.tokenType ?? 'Bearer'} ${storedSession.accessToken}`)
+  if (authStore.session?.accessToken) {
+    headers.set(
+      'Authorization',
+      `${authStore.session.tokenType ?? 'Bearer'} ${authStore.session.accessToken}`
+    )
   }
 
   if (storedWorkspaceId && !headers.get('X-Workspace-Id')) {
@@ -93,31 +69,53 @@ http.interceptors.request.use((config) => {
 
 http.interceptors.response.use(
   (response) => response,
-  (error: AxiosError<ApiErrorEnvelope>) => {
+  async (error) => {
     const requestUrl = String(error.config?.url ?? '')
-    const shouldInvalidateSession =
-      error.response?.status === 401 && !shouldSkipUnauthorizedRedirect(requestUrl)
+    const requestConfig = error.config as RetriableAxiosRequestConfig | undefined
+    const authStore = useAuthStore(pinia)
+    const apiError = toApiError(error)
+    const shouldAttemptRefresh =
+      apiError.statusCode === 401 &&
+      authStore.hasSession &&
+      requestConfig !== undefined &&
+      !requestConfig._vatRetried &&
+      !shouldSkipAutoRefresh(requestUrl)
 
-    if (shouldInvalidateSession) {
-      clearPersistedAuthState()
-      redirectToLogin()
+    if (shouldAttemptRefresh) {
+      try {
+        await authStore.ensureSessionAvailable({ forceRefresh: true })
+        if (!authStore.session?.accessToken) {
+          throw new ApiError('SESSION_NOT_FOUND', '当前会话不存在。')
+        }
+
+        requestConfig._vatRetried = true
+        const retryHeaders = AxiosHeaders.from(
+          requestConfig.headers ? (requestConfig.headers as AxiosHeaders) : {}
+        )
+        retryHeaders.set(
+          'Authorization',
+          `${authStore.session.tokenType ?? 'Bearer'} ${authStore.session.accessToken}`
+        )
+        requestConfig.headers = retryHeaders
+
+        return http.request(requestConfig)
+      } catch (refreshError) {
+        const normalizedRefreshError = toApiError(refreshError)
+        if (
+          ['REFRESH_TOKEN_EXPIRED', 'REFRESH_TOKEN_REVOKED', 'REFRESH_TOKEN_INVALID', 'TOKEN_REVOKED', 'SESSION_NOT_FOUND'].includes(
+            normalizedRefreshError.code
+          )
+        ) {
+          resetClientSessionState()
+          clearPersistedAuthState()
+          redirectToLoginWithNotice(resolveSessionLifecycleMessage(normalizedRefreshError))
+        }
+
+        throw normalizedRefreshError
+      }
     }
 
-    const errorPayload = error.response?.data?.error
-    if (errorPayload?.code && errorPayload?.message) {
-      throw new ApiError(
-        errorPayload.code,
-        errorPayload.message,
-        error.response?.status,
-        errorPayload.details
-      )
-    }
-
-    throw new ApiError(
-      'HTTP_ERROR',
-      error.message || '网络请求失败，请稍后重试。',
-      error.response?.status
-    )
+    throw apiError
   }
 )
 
