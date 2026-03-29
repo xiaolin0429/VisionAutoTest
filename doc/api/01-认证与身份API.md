@@ -37,6 +37,7 @@
     "session_id": "ses_01HV8Q2P8KQ6E2R4N4Z8A5P6JG",
     "access_token": "jwt_token",
     "refresh_token": "refresh_token",
+    "token_type": "Bearer",
     "expires_in": 7200,
     "user": {
       "id": 10001,
@@ -67,6 +68,7 @@
   "data": {
     "access_token": "new_jwt_token",
     "refresh_token": "new_refresh_token",
+    "token_type": "Bearer",
     "expires_in": 7200
   }
 }
@@ -118,6 +120,8 @@
 ## 4. 业务规则
 
 - `username` 全局唯一，不允许复用。
+- `access_token` 为 JWT，必须通过 `Authorization: Bearer <token>` 传递。
+- JWT 当前最少包含 `sub/sid/jti/iat/exp/iss` 六个声明；`iam_sessions` 作为服务端会话锚点。
 - `access_token` 应短期有效，`refresh_token` 应支持轮换续期。
 - 删除当前会话后，服务端应立即吊销当前访问令牌及其活跃刷新令牌。
 - `users/current` 仅返回当前操作者可见的基础身份信息，不返回敏感字段。

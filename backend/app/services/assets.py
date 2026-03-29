@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings
 from app.core.http import ApiError
+from app.core.storage import get_storage_backend
 from app.core.security import generate_token
 from app.models import (
     BaselineRevision,
@@ -22,6 +23,9 @@ from app.models import (
 from app.services.helpers import count_total, require_workspace_access
 
 settings = get_settings()
+storage_backend = get_storage_backend()
+SUPPORTED_TEMPLATE_MATCH_STRATEGIES = {"template", "ocr"}
+SUPPORTED_TEMPLATE_STATUSES = {"draft", "published", "archived"}
 
 
 class _SystemUser:
@@ -91,19 +95,18 @@ def create_media_object_from_bytes(
     if existing is not None:
         return existing
 
-    workspace_dir = settings.local_storage_path / str(workspace_id)
-    workspace_dir.mkdir(parents=True, exist_ok=True)
     safe_name = Path(file_name or "upload.bin").name
-    object_key = f"{workspace_id}/{generate_token('obj')}_{safe_name}"
-    disk_path = settings.local_storage_path / object_key
-    disk_path.parent.mkdir(parents=True, exist_ok=True)
-    disk_path.write_bytes(file_bytes)
+    stored_object = storage_backend.store_bytes(
+        namespace=str(workspace_id),
+        file_name=safe_name,
+        content_bytes=file_bytes,
+    )
 
     media = MediaObject(
         workspace_id=workspace_id,
         storage_type="local",
         bucket_name=None,
-        object_key=object_key,
+        object_key=stored_object.object_key,
         file_name=safe_name,
         mime_type=mime_type,
         file_size=len(file_bytes),
@@ -199,6 +202,7 @@ def create_template(
     original_media_object_id: int,
 ) -> Template:
     require_workspace_access(db, user, workspace_id)
+    _validate_template_contract(match_strategy=match_strategy, status=status)
     existing = db.scalar(
         select(Template).where(
             Template.workspace_id == workspace_id,
@@ -249,6 +253,9 @@ def get_template(db: Session, template_id: int) -> Template:
 
 def update_template(db: Session, *, user: User, template: Template, payload: dict) -> Template:
     require_workspace_access(db, user, template.workspace_id)
+    next_match_strategy = payload.get("match_strategy", template.match_strategy)
+    next_status = payload.get("status", template.status)
+    _validate_template_contract(match_strategy=next_match_strategy, status=next_status)
     for key, value in payload.items():
         if value is not None:
             setattr(template, key, value)
@@ -382,3 +389,18 @@ def delete_mask_region(db: Session, *, user: User, region: TemplateMaskRegion) -
     require_workspace_access(db, user, template.workspace_id)
     db.delete(region)
     db.commit()
+
+
+def _validate_template_contract(*, match_strategy: str, status: str) -> None:
+    if match_strategy not in SUPPORTED_TEMPLATE_MATCH_STRATEGIES:
+        raise ApiError(
+            code="TEMPLATE_MATCH_STRATEGY_UNSUPPORTED",
+            message="Template match_strategy currently only supports `template` or `ocr`.",
+            status_code=422,
+        )
+    if status not in SUPPORTED_TEMPLATE_STATUSES:
+        raise ApiError(
+            code="TEMPLATE_STATUS_INVALID",
+            message="Template status must be `draft`, `published`, or `archived`.",
+            status_code=422,
+        )

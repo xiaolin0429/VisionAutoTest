@@ -28,6 +28,7 @@ export interface SessionPayload {
   sessionId: string
   accessToken: string
   refreshToken: string
+  tokenType: string
   expiresIn: number
   issuedAt: number
   user: User
@@ -247,11 +248,21 @@ export interface Template {
   maskRegions: MaskRegion[]
 }
 
+export type StepType =
+  | 'wait'
+  | 'click'
+  | 'input'
+  | 'template_assert'
+  | 'ocr_assert'
+  | 'component_call'
+
+export type OcrAssertMatchMode = 'exact' | 'contains'
+
 export interface Step {
   id: number
   stepNo: number
   name: string
-  type: string
+  type: StepType
   templateId: number | null
   componentId: number | null
   target: string
@@ -263,7 +274,7 @@ export interface Step {
 
 export interface StepWritePayload {
   stepNo: number
-  type: string
+  type: StepType
   name: string
   templateId: number | null
   componentId: number | null
@@ -396,15 +407,55 @@ export interface ReportArtifact {
   reportId: number
   artifactType: string
   mediaObjectId: number | null
+  caseRunId: number | null
+  stepResultId: number | null
   artifactUrl: string | null
   createdAt: string
+}
+
+export interface ReportSummaryCounts {
+  total: number
+  passed: number
+  failed: number
+  error: number
+  cancelled: number
+}
+
+export interface ReportSummaryFailure {
+  code: string | null
+  summary: string | null
+}
+
+export interface ReportSummaryTiming {
+  startedAt: string | null
+  finishedAt: string | null
+  durationMs: number | null
+}
+
+export interface ReportSummaryArtifacts {
+  total: number
+  byType: Record<string, number>
+}
+
+export interface ReportSummary {
+  status: string
+  counts: ReportSummaryCounts
+  failure: ReportSummaryFailure | null
+  timing: ReportSummaryTiming
+  artifacts: ReportSummaryArtifacts
+  totalCaseCount: number
+  passedCaseCount: number
+  failedCaseCount: number
+  errorCaseCount: number
+  cancelledCaseCount: number
+  message: string | null
 }
 
 export interface RunReport {
   id: number
   testRunId: number
   status: string
-  summaryJson: Record<string, unknown>
+  summary: ReportSummary
   generatedAt: string
   createdAt: string
 }

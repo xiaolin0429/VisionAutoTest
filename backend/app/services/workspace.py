@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-import base64
-
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.core.http import ApiError
+from app.core.security import decrypt_sensitive_value, encrypt_sensitive_value
 from app.models import (
     DeviceProfile,
     EnvironmentProfile,
@@ -23,16 +22,6 @@ from app.services.helpers import (
     require_workspace_admin,
     validate_ordered_sequence,
 )
-
-
-def _encode_value(value: str) -> str:
-    return base64.b64encode(value.encode("utf-8")).decode("utf-8")
-
-
-def _decode_value(value: str) -> str:
-    return base64.b64decode(value.encode("utf-8")).decode("utf-8")
-
-
 def _workspace_member_row(db: Session, *, workspace_id: int, user_id: int) -> WorkspaceMember | None:
     return db.scalar(
         select(WorkspaceMember).where(
@@ -296,7 +285,7 @@ def create_environment_variable(
     variable = EnvironmentVariable(
         environment_profile_id=profile.id,
         var_key=var_key,
-        var_value_ciphertext=_encode_value(value),
+        var_value_ciphertext=encrypt_sensitive_value(value),
         is_secret=is_secret,
         description=description,
     )
@@ -325,7 +314,7 @@ def update_environment_variable(
     profile = get_environment_profile(db, variable.environment_profile_id)
     require_workspace_access(db, user, profile.workspace_id)
     if value is not None:
-        variable.var_value_ciphertext = _encode_value(value)
+        variable.var_value_ciphertext = encrypt_sensitive_value(value)
     if is_secret is not None:
         variable.is_secret = is_secret
     if description is not None:
@@ -343,7 +332,7 @@ def delete_environment_variable(db: Session, *, user: User, variable: Environmen
 
 
 def environment_variable_view(variable: EnvironmentVariable) -> dict:
-    display_value = "******" if variable.is_secret else _decode_value(variable.var_value_ciphertext)
+    display_value = "******" if variable.is_secret else decrypt_sensitive_value(variable.var_value_ciphertext)
     payload = {
         "id": variable.id,
         "environment_profile_id": variable.environment_profile_id,
@@ -455,4 +444,3 @@ def _clear_default_device_profile(db: Session, workspace_id: int, exclude_id: in
         if exclude_id is not None and profile.id == exclude_id:
             continue
         profile.is_default = False
-

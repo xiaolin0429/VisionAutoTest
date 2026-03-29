@@ -24,7 +24,7 @@ class BrowserArtifact:
     file_name: str
     content_type: str
     content_bytes: bytes
-    artifact_type: str = "screenshot"
+    artifact_type: str = "run_screenshot"
 
 
 @dataclass(slots=True)
@@ -129,6 +129,10 @@ class PlaywrightBrowserExecutionAdapter:
                     except UnsupportedStepError as exc:
                         outcome = StepExecutionOutcome(status="error", error_message=self._format_error(exc))
                         failure_reason_code = "STEP_NOT_SUPPORTED"
+                        failure_summary = outcome.error_message
+                    except ValueError as exc:
+                        outcome = StepExecutionOutcome(status="error", error_message=self._format_error(exc))
+                        failure_reason_code = "STEP_CONFIGURATION_INVALID"
                         failure_summary = outcome.error_message
                     except playwright_timeout_error as exc:
                         outcome = StepExecutionOutcome(status="error", error_message=self._format_error(exc))
@@ -279,7 +283,7 @@ class PlaywrightBrowserExecutionAdapter:
         template_contexts: dict[int, TemplateAssertionContext],
     ) -> StepExecutionOutcome:
         if step.template_id is None or step.template_id not in template_contexts:
-            raise RuntimeError("Template assertion context is missing.")
+            raise ValueError("Template assertion context is missing.")
         payload = step.payload_json or {}
         threshold_override = payload.get("threshold")
         if threshold_override is not None:

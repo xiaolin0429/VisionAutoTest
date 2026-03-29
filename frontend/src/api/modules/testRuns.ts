@@ -3,6 +3,7 @@ import type {
   DeviceProfileReadDTO,
   EnvironmentProfileReadDTO,
   ReportArtifactReadDTO,
+  ReportSummaryDTO,
   RunReportReadDTO,
   StepResultReadDTO,
   TestCaseReadDTO,
@@ -10,7 +11,13 @@ import type {
   TestRunReadDTO,
   TestSuiteReadDTO
 } from '@/types/backend'
-import type { ReportArtifact, RunDetail, RunReport, TestRun } from '@/types/models'
+import type {
+  ReportArtifact,
+  ReportSummary,
+  RunDetail,
+  RunReport,
+  TestRun
+} from '@/types/models'
 
 function createLookupMap<T extends { id: number }>(items: T[]) {
   return new Map(items.map((item) => [item.id, item]))
@@ -217,12 +224,46 @@ export async function getRunDetail(testRunId: number): Promise<RunDetail> {
   }
 }
 
+function mapReportSummary(item: ReportSummaryDTO): ReportSummary {
+  return {
+    status: item.status,
+    counts: {
+      total: item.counts.total,
+      passed: item.counts.passed,
+      failed: item.counts.failed,
+      error: item.counts.error,
+      cancelled: item.counts.cancelled
+    },
+    failure: item.failure
+      ? {
+          code: item.failure.code,
+          summary: item.failure.summary
+        }
+      : null,
+    timing: {
+      startedAt: item.timing.started_at,
+      finishedAt: item.timing.finished_at,
+      durationMs: item.timing.duration_ms
+    },
+    artifacts: {
+      total: item.artifacts.total,
+      byType: item.artifacts.by_type
+    },
+    totalCaseCount: item.total_case_count,
+    passedCaseCount: item.passed_case_count,
+    failedCaseCount: item.failed_case_count,
+    errorCaseCount: item.error_case_count,
+    cancelledCaseCount: item.cancelled_case_count,
+    message: item.message
+  }
+}
+
 function mapRunReport(item: RunReportReadDTO): RunReport {
   return {
     id: item.id,
     testRunId: item.test_run_id,
     status: item.summary_status,
-    summaryJson: item.summary_json,
+    summary: mapReportSummary(item.summary_json),
     generatedAt: item.generated_at,
     createdAt: item.created_at
   }
@@ -234,6 +275,8 @@ function mapReportArtifact(item: ReportArtifactReadDTO): ReportArtifact {
     reportId: item.report_id,
     artifactType: item.artifact_type,
     mediaObjectId: item.media_object_id,
+    caseRunId: item.case_run_id,
+    stepResultId: item.step_result_id,
     artifactUrl: item.artifact_url,
     createdAt: item.created_at
   }

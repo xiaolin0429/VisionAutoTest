@@ -45,6 +45,10 @@ def _reset_local_data() -> None:
     os.environ["VAT_LOCAL_STORAGE_PATH"] = str(temp_dir / "media")
     os.environ["VAT_DEFAULT_ADMIN_USERNAME"] = TEST_ADMIN_USERNAME
     os.environ["VAT_DEFAULT_ADMIN_PASSWORD"] = TEST_ADMIN_PASSWORD
+    os.environ["VAT_JWT_SECRET_KEY"] = "test-jwt-secret-key-visionautotest-2026"
+    os.environ["VAT_JWT_ALGORITHM"] = "HS256"
+    os.environ["VAT_JWT_ISSUER"] = "visionautotest-backend-test"
+    os.environ["VAT_DATA_ENCRYPTION_KEY"] = "test-data-encryption-key-visionautotest-2026"
 
     from app.db.migrations import reset_database_schema, upgrade_database
 
@@ -216,6 +220,14 @@ def _install_visual_browser_adapter(monkeypatch, *, template_status: str = "pass
     monkeypatch.setattr("app.workers.execution.build_browser_execution_adapter", lambda: FakeVisualBrowserAdapter())
 
 
+def _install_noop_dispatcher(monkeypatch) -> None:
+    class NoopDispatcher:
+        def dispatch_test_run(self, test_run_id: int) -> None:
+            _ = test_run_id
+
+    monkeypatch.setattr("app.api.v1.executions.get_test_run_dispatcher", lambda _background_tasks: NoopDispatcher())
+
+
 def _create_media_object(client: TestClient, *, headers: dict[str, str], usage: str = "baseline") -> int:
     response = client.post(
         "/api/v1/media-objects",
@@ -235,6 +247,7 @@ def _create_template(
     template_code: str,
     template_name: str,
     match_strategy: str = "template",
+    status: str = "published",
 ) -> int:
     response = client.post(
         "/api/v1/templates",
@@ -245,7 +258,7 @@ def _create_template(
             "template_type": "page",
             "match_strategy": match_strategy,
             "threshold_value": 0.95,
-            "status": "draft",
+            "status": status,
             "original_media_object_id": media_object_id,
         },
     )
@@ -273,6 +286,47 @@ def test_demo_acceptance_target_page_is_served():
         assert "VisionAutoTest Demo Target" in response.text
         assert "data-testid=\"cta-open-form\"" in response.text
         assert "data-testid=\"submit-button\"" in response.text
+        assert "data-testid=\"name-input\"" in response.text
+        assert "data-testid=\"demo-form\" hidden" not in response.text
+
+
+def test_session_login_returns_jwt_token_shape():
+    _reset_local_data()
+    from app.main import app
+
+    with TestClient(app) as client:
+        response = client.post("/api/v1/sessions", json={"username": TEST_ADMIN_USERNAME, "password": TEST_ADMIN_PASSWORD})
+        assert response.status_code == 201
+        payload = response.json()["data"]
+        assert payload["token_type"] == "Bearer"
+        assert payload["access_token"].count(".") == 2
+        assert payload["session_id"].startswith("ses_")
+
+
+def test_demo_acceptance_target_is_compatible_with_real_playwright_adapter():
+    _reset_local_data()
+    from pathlib import Path
+
+    import pytest
+
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError:  # pragma: no cover
+        pytest.skip("Playwright is not installed in the current environment.")
+
+    from app.main import DEMO_ACCEPTANCE_HTML
+
+    temp_html = Path("/tmp/vat_demo_acceptance_target.html")
+    temp_html.write_text(DEMO_ACCEPTANCE_HTML, encoding="utf-8")
+
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(headless=True)
+        page = browser.new_page(viewport={"width": 1440, "height": 960})
+        page.goto(temp_html.as_uri(), wait_until="load", timeout=15000)
+        page.locator("[data-testid='name-input']").fill("VisionAutoTest", timeout=15000)
+        page.locator("[data-testid='submit-button']").click(timeout=15000)
+        assert page.locator("[data-testid='result-banner']").text_content() == "Hello, VisionAutoTest"
+        browser.close()
 
 
 def test_bootstrap_seeds_demo_acceptance_bundle(monkeypatch):
@@ -466,9 +520,14 @@ def test_mvp_backend_smoke_flow(monkeypatch):
             report_resp = client.get(f"/api/v1/reports/{report.id}", headers=workspace_headers)
             assert report_resp.status_code == 200
             assert report_resp.json()["data"]["summary_status"] == "passed"
+            assert report_resp.json()["data"]["summary_json"]["status"] == "passed"
+            assert report_resp.json()["data"]["summary_json"]["counts"]["passed"] == 1
             assert step_result.actual_media_object_id is not None
             assert media.usage == "artifact"
             assert artifact.media_object_id == media.id
+            assert artifact.artifact_type == "run_screenshot"
+            assert artifact.case_run_id == case_runs[0]["id"]
+            assert artifact.step_result_id is None
 
 
 def test_empty_suite_cannot_create_test_run():
@@ -522,7 +581,7 @@ def test_cancelling_test_run_transitions_to_cancelled(monkeypatch):
     from app.models import RunReport, TestRun
     from app.workers.execution import process_test_run as real_process_test_run
 
-    monkeypatch.setattr("app.api.v1.executions.process_test_run", lambda _run_id: None)
+    _install_noop_dispatcher(monkeypatch)
     _install_fake_browser_adapter(monkeypatch)
 
     with TestClient(app) as client:
@@ -620,7 +679,7 @@ def test_cancelling_during_finalization_does_not_end_as_passed(monkeypatch):
     from app.workers.execution import process_test_run as real_process_test_run
     from sqlalchemy import select
 
-    monkeypatch.setattr("app.api.v1.executions.process_test_run", lambda _run_id: None)
+    _install_noop_dispatcher(monkeypatch)
     _install_fake_browser_adapter(monkeypatch)
 
     with TestClient(app) as client:
@@ -750,7 +809,7 @@ def test_invalid_template_assert_step_is_rejected_during_step_save():
             headers=workspace_headers,
         )
         assert response.status_code == 422
-        assert response.json()["error"]["code"] == "STEP_SEQUENCE_INVALID"
+        assert response.json()["error"]["code"] == "STEP_CONFIGURATION_INVALID"
 
 
 def test_invalid_ocr_assert_step_is_rejected_during_step_save():
@@ -783,8 +842,82 @@ def test_invalid_ocr_assert_step_is_rejected_during_step_save():
             headers=workspace_headers,
         )
         assert response.status_code == 422
-        assert response.json()["error"]["code"] == "STEP_SEQUENCE_INVALID"
+        assert response.json()["error"]["code"] == "STEP_CONFIGURATION_INVALID"
 
+
+def test_template_create_rejects_unsupported_match_strategy():
+    _reset_local_data()
+    from app.main import app
+
+    with TestClient(app) as client:
+        login_resp = client.post("/api/v1/sessions", json={"username": TEST_ADMIN_USERNAME, "password": TEST_ADMIN_PASSWORD})
+        token = login_resp.json()["data"]["access_token"]
+        headers = {"Authorization": f"Bearer {token}"}
+
+        workspace_resp = client.post(
+            "/api/v1/workspaces",
+            json={"workspace_code": "unsupported_strategy_ws", "name": "Unsupported Strategy WS"},
+            headers=headers,
+        )
+        workspace_id = workspace_resp.json()["data"]["id"]
+        workspace_headers = headers | {"X-Workspace-Id": str(workspace_id)}
+
+        media_object_id = _create_media_object(client, headers=workspace_headers)
+        response = client.post(
+            "/api/v1/templates",
+            headers=workspace_headers,
+            json={
+                "template_code": "tpl_orb",
+                "template_name": "ORB Template",
+                "template_type": "page",
+                "match_strategy": "orb",
+                "threshold_value": 0.95,
+                "status": "draft",
+                "original_media_object_id": media_object_id,
+            },
+        )
+        assert response.status_code == 422
+        assert response.json()["error"]["code"] == "TEMPLATE_MATCH_STRATEGY_UNSUPPORTED"
+
+
+def test_environment_secret_values_are_encrypted_at_rest():
+    _reset_local_data()
+    from app.db.session import SessionLocal
+    from app.main import app
+    from app.models import EnvironmentVariable
+
+    with TestClient(app) as client:
+        login_resp = client.post("/api/v1/sessions", json={"username": TEST_ADMIN_USERNAME, "password": TEST_ADMIN_PASSWORD})
+        token = login_resp.json()["data"]["access_token"]
+        headers = {"Authorization": f"Bearer {token}"}
+
+        workspace_resp = client.post(
+            "/api/v1/workspaces",
+            json={"workspace_code": "env_secret_ws", "name": "Env Secret WS"},
+            headers=headers,
+        )
+        workspace_id = workspace_resp.json()["data"]["id"]
+        workspace_headers = headers | {"X-Workspace-Id": str(workspace_id)}
+
+        env_resp = client.post(
+            "/api/v1/environment-profiles",
+            json={"profile_name": "secret-env", "base_url": "https://example.com"},
+            headers=workspace_headers,
+        )
+        environment_profile_id = env_resp.json()["data"]["id"]
+
+        create_resp = client.post(
+            f"/api/v1/environment-profiles/{environment_profile_id}/variables",
+            headers=workspace_headers,
+            json={"var_key": "API_TOKEN", "value": "plain-secret-value", "is_secret": True},
+        )
+        assert create_resp.status_code == 201
+        assert create_resp.json()["data"]["display_value"] == "******"
+
+        with SessionLocal() as db:
+            variable = db.query(EnvironmentVariable).filter(EnvironmentVariable.environment_profile_id == environment_profile_id).one()
+            assert variable.var_value_ciphertext != "plain-secret-value"
+            assert "plain-secret-value" not in variable.var_value_ciphertext
 
 def test_adapter_initialization_failure_marks_test_run_error(monkeypatch):
     _reset_local_data()
@@ -866,6 +999,7 @@ def test_adapter_initialization_failure_marks_test_run_error(monkeypatch):
             report = db.query(RunReport).filter(RunReport.test_run_id == test_run_id).one()
             assert report.summary_status == "error"
             assert "adapter init failed" in report.summary_json["message"]
+            assert report.summary_json["failure"]["code"] == "TEST_RUN_EXECUTION_ERROR"
 
 
 def test_component_call_steps_are_expanded_and_executed(monkeypatch):
@@ -1027,32 +1161,8 @@ def test_template_assert_requires_matching_template_strategy_before_execution():
             ],
             headers=workspace_headers,
         )
-        assert case_steps_resp.status_code == 200
-
-        suite_resp = client.post(
-            "/api/v1/test-suites",
-            json={"suite_code": "suite_template_strategy", "suite_name": "Template Strategy Suite", "status": "active"},
-            headers=workspace_headers,
-        )
-        test_suite_id = suite_resp.json()["data"]["id"]
-
-        client.put(
-            f"/api/v1/test-suites/{test_suite_id}/cases",
-            json=[{"test_case_id": test_case_id, "sort_order": 1}],
-            headers=workspace_headers,
-        )
-
-        run_resp = client.post(
-            "/api/v1/test-runs",
-            json={
-                "test_suite_id": test_suite_id,
-                "environment_profile_id": environment_profile_id,
-                "trigger_source": "manual",
-            },
-            headers=workspace_headers | {"Idempotency-Key": "run-template-strategy"},
-        )
-        assert run_resp.status_code == 422
-        assert run_resp.json()["error"]["code"] == "STEP_CONFIGURATION_INVALID"
+        assert case_steps_resp.status_code == 422
+        assert case_steps_resp.json()["error"]["code"] == "STEP_CONFIGURATION_INVALID"
 
 
 def test_template_assert_success_persists_expected_and_actual_media(monkeypatch):
@@ -1148,6 +1258,10 @@ def test_template_assert_success_persists_expected_and_actual_media(monkeypatch)
         assert step_result["expected_media_object_id"] is not None
         assert step_result["actual_media_object_id"] is not None
         assert step_result["diff_media_object_id"] is None
+        report_resp = client.get(f"/api/v1/test-runs/{test_run_id}/report", headers=workspace_headers)
+        artifacts_resp = client.get(f"/api/v1/reports/{report_resp.json()['data']['id']}/artifacts", headers=workspace_headers)
+        assert artifacts_resp.status_code == 200
+        assert {item["artifact_type"] for item in artifacts_resp.json()["data"]} == {"run_screenshot", "step_actual"}
 
 
 def test_template_assert_failure_marks_run_failed_and_persists_diff_media(monkeypatch):
@@ -1245,6 +1359,10 @@ def test_template_assert_failure_marks_run_failed_and_persists_diff_media(monkey
         assert step_result["expected_media_object_id"] is not None
         assert step_result["actual_media_object_id"] is not None
         assert step_result["diff_media_object_id"] is not None
+        report_resp = client.get(f"/api/v1/test-runs/{test_run_id}/report", headers=workspace_headers)
+        artifacts_resp = client.get(f"/api/v1/reports/{report_resp.json()['data']['id']}/artifacts", headers=workspace_headers)
+        assert artifacts_resp.status_code == 200
+        assert {item["artifact_type"] for item in artifacts_resp.json()["data"]} == {"run_screenshot", "step_actual", "step_diff"}
 
 
 def test_ocr_assert_failure_marks_run_failed(monkeypatch):
@@ -1331,6 +1449,10 @@ def test_ocr_assert_failure_marks_run_failed(monkeypatch):
         assert step_result["status"] == "failed"
         assert step_result["actual_media_object_id"] is not None
         assert step_result["diff_media_object_id"] is None
+        report_resp = client.get(f"/api/v1/test-runs/{test_run_id}/report", headers=workspace_headers)
+        artifacts_resp = client.get(f"/api/v1/reports/{report_resp.json()['data']['id']}/artifacts", headers=workspace_headers)
+        assert artifacts_resp.status_code == 200
+        assert {item["artifact_type"] for item in artifacts_resp.json()["data"]} == {"run_screenshot", "step_ocr"}
 
 
 def test_non_active_suite_cannot_create_test_run():

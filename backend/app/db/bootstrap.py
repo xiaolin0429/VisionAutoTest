@@ -45,23 +45,17 @@ DEMO_CASE_STEPS = [
     {"step_no": 1, "step_type": "wait", "step_name": "Wait Demo Page", "payload_json": {"ms": 200}},
     {
         "step_no": 2,
-        "step_type": "click",
-        "step_name": "Open Demo Form",
-        "payload_json": {"selector": "[data-testid='cta-open-form']"},
-    },
-    {
-        "step_no": 3,
         "step_type": "input",
         "step_name": "Fill Operator Name",
         "payload_json": {"selector": "[data-testid='name-input']", "text": "VisionAutoTest"},
     },
     {
-        "step_no": 4,
+        "step_no": 3,
         "step_type": "click",
         "step_name": "Submit Demo Form",
         "payload_json": {"selector": "[data-testid='submit-button']"},
     },
-    {"step_no": 5, "step_type": "wait", "step_name": "Wait Result Banner", "payload_json": {"ms": 150}},
+    {"step_no": 4, "step_type": "wait", "step_name": "Wait Result Banner", "payload_json": {"ms": 150}},
 ]
 
 

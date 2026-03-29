@@ -73,12 +73,14 @@ function redirectToLogin() {
 }
 
 http.interceptors.request.use((config) => {
-  const storedSession = readStoredJson<{ accessToken?: string }>(AUTH_SESSION_STORAGE_KEY)
+  const storedSession = readStoredJson<{ accessToken?: string; tokenType?: string }>(
+    AUTH_SESSION_STORAGE_KEY
+  )
   const storedWorkspaceId = localStorage.getItem(WORKSPACE_STORAGE_KEY)
   const headers = AxiosHeaders.from(config.headers)
 
   if (storedSession?.accessToken) {
-    headers.set('Authorization', `Bearer ${storedSession.accessToken}`)
+    headers.set('Authorization', `${storedSession.tokenType ?? 'Bearer'} ${storedSession.accessToken}`)
   }
 
   if (storedWorkspaceId && !headers.get('X-Workspace-Id')) {

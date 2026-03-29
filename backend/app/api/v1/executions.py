@@ -18,7 +18,7 @@ from app.schemas.contracts import (
 )
 from app.services import execution
 from app.services.helpers import page_bounds, require_workspace_id
-from app.workers.execution import process_test_run
+from app.workers.dispatcher import get_test_run_dispatcher
 
 router = APIRouter(tags=["executions"])
 
@@ -43,7 +43,8 @@ def create_test_run(
         trigger_source=payload.trigger_source,
         idempotency_key=request.headers.get("Idempotency-Key"),
     )
-    background_tasks.add_task(process_test_run, test_run.id)
+    dispatcher = get_test_run_dispatcher(background_tasks)
+    dispatcher.dispatch_test_run(test_run.id)
     return success_response(request, dump_model(TestRunRead, test_run), status_code=201)
 
 

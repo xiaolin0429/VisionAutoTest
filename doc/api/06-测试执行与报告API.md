@@ -73,6 +73,11 @@
 - 方法：`GET`
 - 路径：`/api/v1/reports/{report_id}`
 
+### 3.9 查询报告产物
+
+- 方法：`GET`
+- 路径：`/api/v1/reports/{report_id}/artifacts`
+
 ## 4. 状态枚举建议
 
 ### 4.1 test-run 状态
@@ -102,12 +107,26 @@
 - 空套件不允许创建执行批次；套件至少需要包含 1 个可执行用例。
 - `component_call` 步骤在执行时会展开为组件内部的真实执行步骤；`step-results` 返回展开后的线性步骤结果。
 - 步骤执行结果中的 `failed` 表示断言不通过；`error` 表示依赖缺失、载荷非法或运行时异常。
+- `wait/click/input/component_call` 不产出 `failed`，仅可能为 `passed` 或 `error`。
 - 用例执行实例和步骤结果为执行流水，不允许逻辑删除。
 - 报告为执行结果快照，应与执行批次一一对应。
 - 大文件证据链通过 `artifact_url` 或对象存储键返回，不直接内联在响应中。
 - MVP 首批浏览器执行闭环会产出真实截图证据；执行截图通过 `step-results.actual_media_object_id` 和 `report_artifacts` 关联。
 - `template_assert` 会在 `step-results` 中写入 `expected_media_object_id / actual_media_object_id / diff_media_object_id`，用于定位基准图、实际截图和差异图。
 - `ocr_assert` 会在 `step-results` 中写入 `actual_media_object_id`，用于回溯 OCR 截图证据。
+- `report.summary_status` 必须与 `test-run.status` 保持一致；报告摘要中的结构化状态不得与执行终态冲突。
+- 报告摘要 `summary_json` 当前固定包含：
+  - `status`
+  - `counts.total/passed/failed/error/cancelled`
+  - `failure.code/summary`
+  - `timing.started_at/finished_at/duration_ms`
+  - `artifacts.total/by_type`
+- 当前报告产物类型收口为：
+  - `run_screenshot`
+  - `step_actual`
+  - `step_diff`
+  - `step_ocr`
+- `report_artifacts` 作为报告级索引，允许同时关联 `case_run_id` 与 `step_result_id`，前端不应再依赖文件名或备注推断证据来源。
 
 ## 6. 推荐错误码
 
@@ -123,3 +142,11 @@
 | `PUBLISHED_VERSION_REQUIRED` | 套件内引用了未发布的用例或组件 |
 | `STEP_CONFIGURATION_INVALID` | 步骤配置与模板策略不兼容 |
 | `BASELINE_REVISION_REQUIRED` | 模板缺少可执行的当前基准版本 |
+| `STEP_NOT_SUPPORTED` | 当前版本暂不支持该步骤类型 |
+| `STEP_EXECUTION_TIMEOUT` | 步骤执行超时 |
+| `STEP_EXECUTION_ERROR` | 步骤运行时异常 |
+| `BROWSER_EXECUTION_ERROR` | 浏览器初始化或运行环境异常 |
+| `SCREENSHOT_CAPTURE_FAILED` | 执行完成后截图证据生成失败 |
+| `TEMPLATE_ASSERTION_FAILED` | 模板断言失败 |
+| `OCR_ASSERTION_FAILED` | OCR 断言失败 |
+| `TEST_RUN_EXECUTION_ERROR` | 执行批次在流程级别发生异常 |

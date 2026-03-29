@@ -33,14 +33,11 @@ const templateTypeOptions = [
 
 const matchStrategyOptions = [
   { label: 'Template', value: 'template' },
-  { label: 'ORB', value: 'orb' },
-  { label: 'OCR', value: 'ocr' },
-  { label: 'Mixed', value: 'mixed' }
+  { label: 'OCR', value: 'ocr' }
 ] as const
 
 const templateStatusOptions = [
   { label: '草稿', value: 'draft' },
-  { label: '启用', value: 'active' },
   { label: '已发布', value: 'published' },
   { label: '归档', value: 'archived' }
 ] as const
@@ -1382,6 +1379,9 @@ onMounted(async () => {
             </el-select>
           </el-form-item>
         </div>
+        <p class="mb-4 -mt-2 text-xs leading-5 text-slate-400">
+          当前联调版本仅支持 `template` 与 `ocr` 两种匹配策略，且只有 `published` 模板可进入执行链路。
+        </p>
         <div class="grid grid-cols-2 gap-4">
           <el-form-item :error="createThresholdError" label="匹配阈值" required>
             <el-input-number
@@ -1483,6 +1483,9 @@ onMounted(async () => {
             </el-select>
           </el-form-item>
         </div>
+        <p class="mb-4 -mt-2 text-xs leading-5 text-slate-400">
+          当前联调版本仅支持 `template` 与 `ocr` 两种匹配策略，且只有 `published` 模板可进入执行链路。
+        </p>
         <div class="grid grid-cols-2 gap-4">
           <el-form-item :error="editThresholdError" label="匹配阈值" required>
             <el-input-number

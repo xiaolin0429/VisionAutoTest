@@ -8,6 +8,8 @@ from pydantic import BaseModel, ConfigDict, Field
 ComponentStatus = Literal["draft", "published", "archived"]
 TestCaseStatus = Literal["draft", "published", "archived"]
 TestSuiteStatus = Literal["draft", "active", "archived"]
+TemplateStatus = Literal["draft", "published", "archived"]
+TemplateMatchStrategy = Literal["template", "ocr"]
 
 
 class ORMModel(BaseModel):
@@ -205,9 +207,9 @@ class TemplateRead(ORMModel):
     template_code: str
     template_name: str
     template_type: str
-    match_strategy: str
+    match_strategy: TemplateMatchStrategy
     threshold_value: float
-    status: str
+    status: TemplateStatus
     current_baseline_revision_id: int | None = None
     created_at: datetime
     updated_at: datetime
@@ -439,14 +441,54 @@ class ReportArtifactRead(ORMModel):
     report_id: int
     artifact_type: str
     media_object_id: int | None = None
+    case_run_id: int | None = None
+    step_result_id: int | None = None
     artifact_url: str | None = None
     created_at: datetime
+
+
+class ReportSummaryCountsRead(BaseModel):
+    total: int
+    passed: int
+    failed: int
+    error: int
+    cancelled: int
+
+
+class ReportSummaryFailureRead(BaseModel):
+    code: str | None = None
+    summary: str | None = None
+
+
+class ReportSummaryTimingRead(BaseModel):
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+    duration_ms: int | None = None
+
+
+class ReportSummaryArtifactsRead(BaseModel):
+    total: int
+    by_type: dict[str, int]
+
+
+class ReportSummaryRead(BaseModel):
+    status: str
+    counts: ReportSummaryCountsRead
+    failure: ReportSummaryFailureRead | None = None
+    timing: ReportSummaryTimingRead
+    artifacts: ReportSummaryArtifactsRead
+    total_case_count: int
+    passed_case_count: int
+    failed_case_count: int
+    error_case_count: int
+    cancelled_case_count: int
+    message: str | None = None
 
 
 class RunReportRead(ORMModel):
     id: int
     test_run_id: int
     summary_status: str
-    summary_json: dict[str, Any]
+    summary_json: ReportSummaryRead
     generated_at: datetime
     created_at: datetime

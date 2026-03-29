@@ -16,6 +16,7 @@ export async function createSession(payload: {
     sessionId: response.session_id,
     accessToken: response.access_token,
     refreshToken: response.refresh_token,
+    tokenType: response.token_type,
     expiresIn: response.expires_in,
     issuedAt: Date.now(),
     user: {

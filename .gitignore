@@ -12,4 +12,4 @@ frontend/dist
 !.env.sample
 .lingma/
 .codex/environments/environment.toml
-./output/playwright
+./output

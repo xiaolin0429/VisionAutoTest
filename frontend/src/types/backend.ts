@@ -22,6 +22,7 @@ export interface SessionResponseDTO {
   session_id: string
   access_token: string
   refresh_token: string
+  token_type: string
   expires_in: number
   user: {
     id: number
@@ -254,7 +255,7 @@ export interface RunReportReadDTO {
   id: number
   test_run_id: number
   summary_status: string
-  summary_json: Record<string, unknown>
+  summary_json: ReportSummaryDTO
   generated_at: string
   created_at: string
 }
@@ -264,6 +265,46 @@ export interface ReportArtifactReadDTO {
   report_id: number
   artifact_type: string
   media_object_id: number | null
+  case_run_id: number | null
+  step_result_id: number | null
   artifact_url: string | null
   created_at: string
+}
+
+export interface ReportSummaryCountsDTO {
+  total: number
+  passed: number
+  failed: number
+  error: number
+  cancelled: number
+}
+
+export interface ReportSummaryFailureDTO {
+  code: string | null
+  summary: string | null
+}
+
+export interface ReportSummaryTimingDTO {
+  started_at: string | null
+  finished_at: string | null
+  duration_ms: number | null
+}
+
+export interface ReportSummaryArtifactsDTO {
+  total: number
+  by_type: Record<string, number>
+}
+
+export interface ReportSummaryDTO {
+  status: string
+  counts: ReportSummaryCountsDTO
+  failure: ReportSummaryFailureDTO | null
+  timing: ReportSummaryTimingDTO
+  artifacts: ReportSummaryArtifactsDTO
+  total_case_count: number
+  passed_case_count: number
+  failed_case_count: number
+  error_case_count: number
+  cancelled_case_count: number
+  message: string | null
 }

@@ -11,6 +11,7 @@ interface StoredSession {
   sessionId: string
   accessToken: string
   refreshToken: string
+  tokenType: string
   expiresIn: number
   issuedAt: number
 }
@@ -37,6 +38,7 @@ export const useAuthStore = defineStore('auth', () => {
       sessionId: payload.sessionId,
       accessToken: payload.accessToken,
       refreshToken: payload.refreshToken,
+      tokenType: payload.tokenType,
       expiresIn: payload.expiresIn,
       issuedAt: payload.issuedAt
     }

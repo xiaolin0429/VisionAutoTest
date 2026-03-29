@@ -8,6 +8,7 @@ from sqlalchemy import (
     Boolean,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     MetaData,
     Numeric,
@@ -404,10 +405,16 @@ class RunReport(Base, CreatedAtMixin):
 
 class ReportArtifact(Base, CreatedAtMixin):
     __tablename__ = "report_artifacts"
+    __table_args__ = (
+        Index("ix_report_artifacts_report_artifact_type", "report_id", "artifact_type"),
+        Index("ix_report_artifacts_report_case_run", "report_id", "case_run_id"),
+        Index("ix_report_artifacts_report_step_result", "report_id", "step_result_id"),
+    )
 
     id: Mapped[int] = mapped_column(PK_TYPE, primary_key=True)
     report_id: Mapped[int] = mapped_column(ForeignKey("report_run_reports.id"), nullable=False)
     artifact_type: Mapped[str] = mapped_column(String(32), nullable=False)
     media_object_id: Mapped[int | None] = mapped_column(ForeignKey("asset_media_objects.id"), nullable=True)
+    case_run_id: Mapped[int | None] = mapped_column(ForeignKey("exec_test_case_runs.id"), nullable=True)
+    step_result_id: Mapped[int | None] = mapped_column(ForeignKey("exec_step_results.id"), nullable=True)
     artifact_url: Mapped[str | None] = mapped_column(String(512), nullable=True)
-
