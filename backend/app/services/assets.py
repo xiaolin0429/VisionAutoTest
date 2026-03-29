@@ -15,9 +15,11 @@ from app.models import (
     BaselineRevision,
     MediaObject,
     ReportArtifact,
+    RunReport,
     StepResult,
     Template,
     TemplateMaskRegion,
+    TestCaseRun,
     User,
 )
 from app.services.helpers import count_total, require_workspace_access
@@ -26,6 +28,7 @@ settings = get_settings()
 storage_backend = get_storage_backend()
 SUPPORTED_TEMPLATE_MATCH_STRATEGIES = {"template", "ocr"}
 SUPPORTED_TEMPLATE_STATUSES = {"draft", "published", "archived"}
+SUPPORTED_BASELINE_SOURCE_TYPES = {"manual", "uploaded", "adopted_from_failure"}
 
 
 class _SystemUser:
@@ -279,6 +282,9 @@ def create_baseline_revision(
     template: Template,
     media_object_id: int,
     source_type: str,
+    source_report_id: int | None,
+    source_case_run_id: int | None,
+    source_step_result_id: int | None,
     remark: str | None,
     is_current: bool,
 ) -> BaselineRevision:
@@ -286,6 +292,15 @@ def create_baseline_revision(
     media = get_media_object(db, media_object_id)
     if media.workspace_id != template.workspace_id:
         raise ApiError(code="MEDIA_OBJECT_NOT_FOUND", message="Media object not found in workspace.", status_code=404)
+    normalized_source = _normalize_baseline_source(
+        db,
+        template=template,
+        media_object_id=media_object_id,
+        source_type=source_type,
+        source_report_id=source_report_id,
+        source_case_run_id=source_case_run_id,
+        source_step_result_id=source_step_result_id,
+    )
     max_revision = db.scalar(
         select(func.max(BaselineRevision.revision_no)).where(BaselineRevision.template_id == template.id)
     ) or 0
@@ -297,7 +312,10 @@ def create_baseline_revision(
         template_id=template.id,
         revision_no=int(max_revision) + 1,
         media_object_id=media_object_id,
-        source_type=source_type,
+        source_type=str(normalized_source["source_type"]),
+        source_report_id=normalized_source["source_report_id"],
+        source_case_run_id=normalized_source["source_case_run_id"],
+        source_step_result_id=normalized_source["source_step_result_id"],
         is_current=is_current,
         remark=remark,
         created_by=user.id,
@@ -404,3 +422,108 @@ def _validate_template_contract(*, match_strategy: str, status: str) -> None:
             message="Template status must be `draft`, `published`, or `archived`.",
             status_code=422,
         )
+
+
+def _normalize_baseline_source(
+    db: Session,
+    *,
+    template: Template,
+    media_object_id: int,
+    source_type: str,
+    source_report_id: int | None,
+    source_case_run_id: int | None,
+    source_step_result_id: int | None,
+) -> dict[str, int | str | None]:
+    if source_type not in SUPPORTED_BASELINE_SOURCE_TYPES:
+        raise ApiError(code="BASELINE_SOURCE_TYPE_INVALID", message="Baseline revision source type is invalid.", status_code=422)
+    if source_type != "adopted_from_failure":
+        if source_report_id is not None or source_case_run_id is not None or source_step_result_id is not None:
+            raise ApiError(
+                code="BASELINE_ADOPTION_INVALID",
+                message="Failure evidence source fields are only allowed for adopted_from_failure baselines.",
+                status_code=422,
+            )
+        return {
+            "source_type": source_type,
+            "source_report_id": None,
+            "source_case_run_id": None,
+            "source_step_result_id": None,
+        }
+    if source_step_result_id is None:
+        raise ApiError(
+            code="BASELINE_ADOPTION_INVALID",
+            message="Failure evidence adoption requires source_step_result_id.",
+            status_code=422,
+        )
+
+    step_result = db.get(StepResult, source_step_result_id)
+    if step_result is None:
+        raise ApiError(
+            code="BASELINE_ADOPTION_MISMATCH",
+            message="Failure evidence does not belong to the template baseline chain.",
+            status_code=422,
+        )
+    if step_result.status not in {"failed", "error"}:
+        raise ApiError(
+            code="BASELINE_ADOPTION_INVALID",
+            message="Failure evidence adoption requires a failed or errored step result.",
+            status_code=422,
+        )
+    if step_result.actual_media_object_id != media_object_id:
+        raise ApiError(
+            code="BASELINE_ADOPTION_INVALID",
+            message="Failure evidence adoption requires the step actual media object.",
+            status_code=422,
+        )
+    if step_result.expected_media_object_id is None:
+        raise ApiError(
+            code="BASELINE_ADOPTION_MISMATCH",
+            message="Failure evidence does not belong to the template baseline chain.",
+            status_code=422,
+        )
+
+    template_baseline = db.scalar(
+        select(BaselineRevision).where(
+            BaselineRevision.template_id == template.id,
+            BaselineRevision.media_object_id == step_result.expected_media_object_id,
+        )
+    )
+    if template_baseline is None:
+        raise ApiError(
+            code="BASELINE_ADOPTION_MISMATCH",
+            message="Failure evidence does not belong to the template baseline chain.",
+            status_code=422,
+        )
+
+    case_run = db.get(TestCaseRun, step_result.case_run_id)
+    if case_run is None:
+        raise ApiError(
+            code="BASELINE_ADOPTION_MISMATCH",
+            message="Failure evidence does not belong to the template baseline chain.",
+            status_code=422,
+        )
+    report = db.scalar(select(RunReport).where(RunReport.test_run_id == case_run.test_run_id))
+    if report is None:
+        raise ApiError(
+            code="BASELINE_ADOPTION_MISMATCH",
+            message="Failure evidence does not belong to the template baseline chain.",
+            status_code=422,
+        )
+    if source_case_run_id is not None and source_case_run_id != case_run.id:
+        raise ApiError(
+            code="BASELINE_ADOPTION_MISMATCH",
+            message="Failure evidence does not belong to the requested case run.",
+            status_code=422,
+        )
+    if source_report_id is not None and source_report_id != report.id:
+        raise ApiError(
+            code="BASELINE_ADOPTION_MISMATCH",
+            message="Failure evidence does not belong to the requested report.",
+            status_code=422,
+        )
+    return {
+        "source_type": source_type,
+        "source_report_id": report.id,
+        "source_case_run_id": case_run.id,
+        "source_step_result_id": step_result.id,
+    }

@@ -87,14 +87,34 @@ def create_session(db: Session, username: str, password: str, *, client_ip: str 
 def refresh_session(db: Session, refresh_token: str) -> dict:
     token_hash = hash_secret(refresh_token)
     token = db.scalar(select(RefreshToken).where(RefreshToken.token_hash == token_hash))
-    if token is None or token.status != "active" or _as_utc(token.expires_at) <= utc_now():
+    if token is None:
         raise ApiError(code="REFRESH_TOKEN_INVALID", message="Refresh token is invalid.", status_code=401)
 
+    now = utc_now()
     session = db.get(UserSession, token.session_id)
-    if session is None or session.status != "active":
+    if session is None:
+        raise ApiError(code="SESSION_NOT_FOUND", message="Session not found.", status_code=404)
+    if session.status == "revoked":
+        if token.status == "active":
+            token.status = "revoked"
+            token.revoked_at = now
+            db.commit()
+        raise ApiError(code="REFRESH_TOKEN_REVOKED", message="Refresh token is revoked.", status_code=401)
+
+    if token.status == "revoked":
+        raise ApiError(code="REFRESH_TOKEN_REVOKED", message="Refresh token is revoked.", status_code=401)
+    if token.status == "expired":
+        raise ApiError(code="REFRESH_TOKEN_EXPIRED", message="Refresh token is expired.", status_code=401)
+    if token.status != "active":
+        raise ApiError(code="REFRESH_TOKEN_INVALID", message="Refresh token is invalid.", status_code=401)
+    if _as_utc(token.expires_at) <= now:
+        token.status = "expired"
+        db.commit()
+        raise ApiError(code="REFRESH_TOKEN_EXPIRED", message="Refresh token is expired.", status_code=401)
+
+    if session.status != "active":
         raise ApiError(code="SESSION_NOT_FOUND", message="Session not found.", status_code=404)
 
-    now = utc_now()
     token.status = "used"
     token.consumed_at = now
 

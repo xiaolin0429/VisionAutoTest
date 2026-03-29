@@ -14,6 +14,9 @@ TEST_ADMIN_PASSWORD = "test-admin-password"
 TINY_PNG_BYTES = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9s2GoswAAAAASUVORK5CYII="
 )
+ACTUAL_ARTIFACT_BYTES = TINY_PNG_BYTES + b"-actual"
+DIFF_ARTIFACT_BYTES = TINY_PNG_BYTES + b"-diff"
+OCR_ARTIFACT_BYTES = TINY_PNG_BYTES + b"-ocr"
 
 
 def _require_test_database_url() -> str:
@@ -145,7 +148,7 @@ def _install_visual_browser_adapter(monkeypatch, *, template_status: str = "pass
                     actual_artifact = VisionArtifact(
                         file_name=f"case-run-{case_run_id}-step-{step.step_no}-actual.png",
                         content_type="image/png",
-                        content_bytes=TINY_PNG_BYTES,
+                        content_bytes=ACTUAL_ARTIFACT_BYTES,
                         artifact_type="actual_screenshot",
                     )
                     status = template_status
@@ -155,7 +158,7 @@ def _install_visual_browser_adapter(monkeypatch, *, template_status: str = "pass
                         diff_artifact = VisionArtifact(
                             file_name=f"case-run-{case_run_id}-step-{step.step_no}-diff.png",
                             content_type="image/png",
-                            content_bytes=TINY_PNG_BYTES,
+                            content_bytes=DIFF_ARTIFACT_BYTES,
                             artifact_type="diff_screenshot",
                         )
                         failure_reason_code = "TEMPLATE_ASSERTION_FAILED"
@@ -170,7 +173,7 @@ def _install_visual_browser_adapter(monkeypatch, *, template_status: str = "pass
                     actual_artifact = VisionArtifact(
                         file_name=f"case-run-{case_run_id}-step-{step.step_no}-ocr.png",
                         content_type="image/png",
-                        content_bytes=TINY_PNG_BYTES,
+                        content_bytes=OCR_ARTIFACT_BYTES,
                         artifact_type="ocr_screenshot",
                     )
                     status = ocr_status
@@ -301,6 +304,100 @@ def test_session_login_returns_jwt_token_shape():
         assert payload["token_type"] == "Bearer"
         assert payload["access_token"].count(".") == 2
         assert payload["session_id"].startswith("ses_")
+
+
+def test_refresh_token_expired_returns_specific_error_and_marks_status():
+    _reset_local_data()
+    from datetime import timedelta
+
+    from app.db.session import SessionLocal
+    from app.main import app
+    from app.models import RefreshToken
+
+    with TestClient(app) as client:
+        login_resp = client.post("/api/v1/sessions", json={"username": TEST_ADMIN_USERNAME, "password": TEST_ADMIN_PASSWORD})
+        assert login_resp.status_code == 201
+        refresh_token = login_resp.json()["data"]["refresh_token"]
+
+        with SessionLocal() as db:
+            token = db.query(RefreshToken).filter(RefreshToken.status == "active").one()
+            token.expires_at = token.expires_at - timedelta(days=8)
+            db.commit()
+
+        refresh_resp = client.post("/api/v1/session-refreshes", json={"refresh_token": refresh_token})
+        assert refresh_resp.status_code == 401
+        assert refresh_resp.json()["error"]["code"] == "REFRESH_TOKEN_EXPIRED"
+
+        with SessionLocal() as db:
+            token = db.query(RefreshToken).filter(RefreshToken.token_hash.is_not(None)).one()
+            assert token.status == "expired"
+
+
+def test_revoked_session_refresh_token_returns_revoked_error():
+    _reset_local_data()
+    from app.main import app
+
+    with TestClient(app) as client:
+        login_resp = client.post("/api/v1/sessions", json={"username": TEST_ADMIN_USERNAME, "password": TEST_ADMIN_PASSWORD})
+        assert login_resp.status_code == 201
+        payload = login_resp.json()["data"]
+        token = payload["access_token"]
+        refresh_token = payload["refresh_token"]
+        headers = {"Authorization": f"Bearer {token}"}
+
+        revoke_resp = client.delete("/api/v1/sessions/current", headers=headers)
+        assert revoke_resp.status_code == 204
+
+        refresh_resp = client.post("/api/v1/session-refreshes", json={"refresh_token": refresh_token})
+        assert refresh_resp.status_code == 401
+        assert refresh_resp.json()["error"]["code"] == "REFRESH_TOKEN_REVOKED"
+
+        current_user_resp = client.get("/api/v1/users/current", headers=headers)
+        assert current_user_resp.status_code == 401
+        assert current_user_resp.json()["error"]["code"] == "TOKEN_REVOKED"
+
+
+def test_used_refresh_token_returns_invalid_error():
+    _reset_local_data()
+    from app.main import app
+
+    with TestClient(app) as client:
+        login_resp = client.post("/api/v1/sessions", json={"username": TEST_ADMIN_USERNAME, "password": TEST_ADMIN_PASSWORD})
+        assert login_resp.status_code == 201
+        refresh_token = login_resp.json()["data"]["refresh_token"]
+
+        first_refresh_resp = client.post("/api/v1/session-refreshes", json={"refresh_token": refresh_token})
+        assert first_refresh_resp.status_code == 201
+
+        second_refresh_resp = client.post("/api/v1/session-refreshes", json={"refresh_token": refresh_token})
+        assert second_refresh_resp.status_code == 401
+        assert second_refresh_resp.json()["error"]["code"] == "REFRESH_TOKEN_INVALID"
+
+
+def test_logout_makes_stale_refresh_token_return_revoked_error():
+    _reset_local_data()
+    from app.main import app
+
+    with TestClient(app) as client:
+        login_resp = client.post("/api/v1/sessions", json={"username": TEST_ADMIN_USERNAME, "password": TEST_ADMIN_PASSWORD})
+        assert login_resp.status_code == 201
+        initial_payload = login_resp.json()["data"]
+        old_refresh_token = initial_payload["refresh_token"]
+
+        refresh_resp = client.post("/api/v1/session-refreshes", json={"refresh_token": old_refresh_token})
+        assert refresh_resp.status_code == 201
+        latest_payload = refresh_resp.json()["data"]
+        latest_access_token = latest_payload["access_token"]
+
+        revoke_resp = client.delete(
+            "/api/v1/sessions/current",
+            headers={"Authorization": f"Bearer {latest_access_token}"},
+        )
+        assert revoke_resp.status_code == 204
+
+        stale_refresh_resp = client.post("/api/v1/session-refreshes", json={"refresh_token": old_refresh_token})
+        assert stale_refresh_resp.status_code == 401
+        assert stale_refresh_resp.json()["error"]["code"] == "REFRESH_TOKEN_REVOKED"
 
 
 def test_demo_acceptance_target_is_compatible_with_real_playwright_adapter():
@@ -528,6 +625,7 @@ def test_mvp_backend_smoke_flow(monkeypatch):
             assert artifact.artifact_type == "run_screenshot"
             assert artifact.case_run_id == case_runs[0]["id"]
             assert artifact.step_result_id is None
+            assert artifact.artifact_url == f"/api/v1/media-objects/{media.id}/content"
 
 
 def test_empty_suite_cannot_create_test_run():
@@ -660,6 +758,8 @@ def test_cancelling_test_run_transitions_to_cancelled(monkeypatch):
         case_runs_resp = client.get(f"/api/v1/test-runs/{test_run_id}/case-runs", headers=workspace_headers)
         assert case_runs_resp.status_code == 200
         assert case_runs_resp.json()["data"][0]["status"] == "cancelled"
+        assert case_runs_resp.json()["data"][0]["failure_reason_code"] == "TEST_RUN_CANCELLED"
+        assert case_runs_resp.json()["data"][0]["failure_summary"] == "Test run was cancelled."
 
         with SessionLocal() as db:
             test_run = db.get(TestRun, test_run_id)
@@ -667,6 +767,8 @@ def test_cancelling_test_run_transitions_to_cancelled(monkeypatch):
             assert test_run.status == "cancelled"
             assert report.summary_status == "cancelled"
             assert report.summary_json["cancelled_case_count"] == 1
+            assert report.summary_json["failure"]["code"] == "TEST_RUN_CANCELLED"
+            assert report.summary_json["failure"]["summary"] == "Test run was cancelled."
 
 
 def test_cancelling_during_finalization_does_not_end_as_passed(monkeypatch):
@@ -1351,6 +1453,8 @@ def test_template_assert_failure_marks_run_failed_and_persists_diff_media(monkey
 
         case_runs_resp = client.get(f"/api/v1/test-runs/{test_run_id}/case-runs", headers=workspace_headers)
         assert case_runs_resp.json()["data"][0]["status"] == "failed"
+        assert case_runs_resp.json()["data"][0]["failure_reason_code"] == "TEMPLATE_ASSERTION_FAILED"
+        assert case_runs_resp.json()["data"][0]["failure_summary"] == "Template assertion failed."
         case_run_id = case_runs_resp.json()["data"][0]["id"]
 
         step_results_resp = client.get(f"/api/v1/case-runs/{case_run_id}/step-results", headers=workspace_headers)
@@ -1360,9 +1464,12 @@ def test_template_assert_failure_marks_run_failed_and_persists_diff_media(monkey
         assert step_result["actual_media_object_id"] is not None
         assert step_result["diff_media_object_id"] is not None
         report_resp = client.get(f"/api/v1/test-runs/{test_run_id}/report", headers=workspace_headers)
+        assert report_resp.json()["data"]["summary_json"]["failure"]["code"] == "TEMPLATE_ASSERTION_FAILED"
+        assert report_resp.json()["data"]["summary_json"]["failure"]["summary"] == "Template assertion failed."
         artifacts_resp = client.get(f"/api/v1/reports/{report_resp.json()['data']['id']}/artifacts", headers=workspace_headers)
         assert artifacts_resp.status_code == 200
         assert {item["artifact_type"] for item in artifacts_resp.json()["data"]} == {"run_screenshot", "step_actual", "step_diff"}
+        assert all(item["artifact_url"] == f"/api/v1/media-objects/{item['media_object_id']}/content" for item in artifacts_resp.json()["data"])
 
 
 def test_ocr_assert_failure_marks_run_failed(monkeypatch):
@@ -1450,9 +1557,551 @@ def test_ocr_assert_failure_marks_run_failed(monkeypatch):
         assert step_result["actual_media_object_id"] is not None
         assert step_result["diff_media_object_id"] is None
         report_resp = client.get(f"/api/v1/test-runs/{test_run_id}/report", headers=workspace_headers)
+        assert report_resp.json()["data"]["summary_json"]["failure"]["code"] == "OCR_ASSERTION_FAILED"
+        assert report_resp.json()["data"]["summary_json"]["failure"]["summary"] == "OCR assertion failed."
         artifacts_resp = client.get(f"/api/v1/reports/{report_resp.json()['data']['id']}/artifacts", headers=workspace_headers)
         assert artifacts_resp.status_code == 200
         assert {item["artifact_type"] for item in artifacts_resp.json()["data"]} == {"run_screenshot", "step_ocr"}
+        assert all(item["artifact_url"] == f"/api/v1/media-objects/{item['media_object_id']}/content" for item in artifacts_resp.json()["data"])
+
+
+def test_partial_failed_run_has_stable_report_failure_summary(monkeypatch):
+    _reset_local_data()
+    from app.main import app
+
+    _install_visual_browser_adapter(monkeypatch, template_status="failed")
+
+    with TestClient(app) as client:
+        login_resp = client.post("/api/v1/sessions", json={"username": TEST_ADMIN_USERNAME, "password": TEST_ADMIN_PASSWORD})
+        token = login_resp.json()["data"]["access_token"]
+        headers = {"Authorization": f"Bearer {token}"}
+
+        workspace_resp = client.post(
+            "/api/v1/workspaces",
+            json={"workspace_code": "partial_failed_ws", "name": "Partial Failed WS"},
+            headers=headers,
+        )
+        workspace_id = workspace_resp.json()["data"]["id"]
+        workspace_headers = headers | {"X-Workspace-Id": str(workspace_id)}
+
+        env_resp = client.post(
+            "/api/v1/environment-profiles",
+            json={"profile_name": "dev", "base_url": "https://example.com"},
+            headers=workspace_headers,
+        )
+        environment_profile_id = env_resp.json()["data"]["id"]
+
+        pass_case_resp = client.post(
+            "/api/v1/test-cases",
+            json={"case_code": "partial_pass_case", "case_name": "Partial Pass Case", "status": "published"},
+            headers=workspace_headers,
+        )
+        pass_case_id = pass_case_resp.json()["data"]["id"]
+        client.put(
+            f"/api/v1/test-cases/{pass_case_id}/steps",
+            json=[{"step_no": 1, "step_type": "wait", "step_name": "Pass Wait", "payload_json": {"ms": 100}}],
+            headers=workspace_headers,
+        )
+
+        media_object_id = _create_media_object(client, headers=workspace_headers)
+        template_id = _create_template(
+            client,
+            headers=workspace_headers,
+            media_object_id=media_object_id,
+            template_code="tpl_partial_fail",
+            template_name="Partial Fail Template",
+        )
+        fail_case_resp = client.post(
+            "/api/v1/test-cases",
+            json={"case_code": "partial_fail_case", "case_name": "Partial Fail Case", "status": "published"},
+            headers=workspace_headers,
+        )
+        fail_case_id = fail_case_resp.json()["data"]["id"]
+        client.put(
+            f"/api/v1/test-cases/{fail_case_id}/steps",
+            json=[
+                {
+                    "step_no": 1,
+                    "step_type": "template_assert",
+                    "step_name": "Fail Template",
+                    "template_id": template_id,
+                    "payload_json": {},
+                }
+            ],
+            headers=workspace_headers,
+        )
+
+        suite_resp = client.post(
+            "/api/v1/test-suites",
+            json={"suite_code": "suite_partial_fail", "suite_name": "Partial Fail Suite", "status": "active"},
+            headers=workspace_headers,
+        )
+        test_suite_id = suite_resp.json()["data"]["id"]
+        client.put(
+            f"/api/v1/test-suites/{test_suite_id}/cases",
+            json=[
+                {"test_case_id": pass_case_id, "sort_order": 1},
+                {"test_case_id": fail_case_id, "sort_order": 2},
+            ],
+            headers=workspace_headers,
+        )
+
+        run_resp = client.post(
+            "/api/v1/test-runs",
+            json={
+                "test_suite_id": test_suite_id,
+                "environment_profile_id": environment_profile_id,
+                "trigger_source": "manual",
+            },
+            headers=workspace_headers | {"Idempotency-Key": "run-partial-fail"},
+        )
+        assert run_resp.status_code == 201
+        test_run_id = run_resp.json()["data"]["id"]
+
+        report_resp = client.get(f"/api/v1/test-runs/{test_run_id}/report", headers=workspace_headers)
+        assert report_resp.status_code == 200
+        assert report_resp.json()["data"]["summary_status"] == "partial_failed"
+        assert report_resp.json()["data"]["summary_json"]["failure"]["code"] == "TEMPLATE_ASSERTION_FAILED"
+        assert report_resp.json()["data"]["summary_json"]["failure"]["summary"] == "Template assertion failed."
+
+
+def test_failure_evidence_can_be_adopted_as_new_baseline(monkeypatch):
+    _reset_local_data()
+    from app.db.session import SessionLocal
+    from app.main import app
+    from app.models import BaselineRevision, Template
+
+    _install_visual_browser_adapter(monkeypatch, template_status="failed")
+
+    with TestClient(app) as client:
+        login_resp = client.post("/api/v1/sessions", json={"username": TEST_ADMIN_USERNAME, "password": TEST_ADMIN_PASSWORD})
+        token = login_resp.json()["data"]["access_token"]
+        headers = {"Authorization": f"Bearer {token}"}
+
+        workspace_resp = client.post(
+            "/api/v1/workspaces",
+            json={"workspace_code": "baseline_adopt_ws", "name": "Baseline Adopt WS"},
+            headers=headers,
+        )
+        workspace_id = workspace_resp.json()["data"]["id"]
+        workspace_headers = headers | {"X-Workspace-Id": str(workspace_id)}
+
+        env_resp = client.post(
+            "/api/v1/environment-profiles",
+            json={"profile_name": "dev", "base_url": "https://example.com"},
+            headers=workspace_headers,
+        )
+        environment_profile_id = env_resp.json()["data"]["id"]
+
+        media_object_id = _create_media_object(client, headers=workspace_headers)
+        template_id = _create_template(
+            client,
+            headers=workspace_headers,
+            media_object_id=media_object_id,
+            template_code="tpl_adopt_source",
+            template_name="Adopt Source Template",
+        )
+
+        case_resp = client.post(
+            "/api/v1/test-cases",
+            json={"case_code": "case_adopt_source", "case_name": "Adopt Source Case", "status": "published"},
+            headers=workspace_headers,
+        )
+        test_case_id = case_resp.json()["data"]["id"]
+        client.put(
+            f"/api/v1/test-cases/{test_case_id}/steps",
+            json=[
+                {
+                    "step_no": 1,
+                    "step_type": "template_assert",
+                    "step_name": "Adopt Source Step",
+                    "template_id": template_id,
+                    "payload_json": {},
+                }
+            ],
+            headers=workspace_headers,
+        )
+
+        suite_resp = client.post(
+            "/api/v1/test-suites",
+            json={"suite_code": "suite_adopt_source", "suite_name": "Adopt Source Suite", "status": "active"},
+            headers=workspace_headers,
+        )
+        test_suite_id = suite_resp.json()["data"]["id"]
+        client.put(
+            f"/api/v1/test-suites/{test_suite_id}/cases",
+            json=[{"test_case_id": test_case_id, "sort_order": 1}],
+            headers=workspace_headers,
+        )
+
+        run_resp = client.post(
+            "/api/v1/test-runs",
+            json={
+                "test_suite_id": test_suite_id,
+                "environment_profile_id": environment_profile_id,
+                "trigger_source": "manual",
+            },
+            headers=workspace_headers | {"Idempotency-Key": "run-baseline-adopt"},
+        )
+        assert run_resp.status_code == 201
+        test_run_id = run_resp.json()["data"]["id"]
+
+        case_runs_resp = client.get(f"/api/v1/test-runs/{test_run_id}/case-runs", headers=workspace_headers)
+        case_run_id = case_runs_resp.json()["data"][0]["id"]
+        step_results_resp = client.get(f"/api/v1/case-runs/{case_run_id}/step-results", headers=workspace_headers)
+        step_result = step_results_resp.json()["data"][0]
+        report_resp = client.get(f"/api/v1/test-runs/{test_run_id}/report", headers=workspace_headers)
+        report_id = report_resp.json()["data"]["id"]
+
+        adopt_resp = client.post(
+            f"/api/v1/templates/{template_id}/baseline-revisions",
+            headers=workspace_headers,
+            json={
+                "media_object_id": step_result["actual_media_object_id"],
+                "source_type": "adopted_from_failure",
+                "source_report_id": report_id,
+                "source_case_run_id": case_run_id,
+                "source_step_result_id": step_result["id"],
+                "remark": "accept latest screenshot",
+                "is_current": True,
+            },
+        )
+        assert adopt_resp.status_code == 201
+        baseline = adopt_resp.json()["data"]
+        assert baseline["source_type"] == "adopted_from_failure"
+        assert baseline["source_report_id"] == report_id
+        assert baseline["source_case_run_id"] == case_run_id
+        assert baseline["source_step_result_id"] == step_result["id"]
+        assert baseline["media_object_id"] == step_result["actual_media_object_id"]
+
+        with SessionLocal() as db:
+            template = db.get(Template, template_id)
+            assert template is not None
+            assert template.current_baseline_revision_id == baseline["id"]
+            revisions = db.query(BaselineRevision).filter(BaselineRevision.template_id == template_id).order_by(BaselineRevision.revision_no.asc()).all()
+            assert revisions[-1].source_report_id == report_id
+            assert revisions[-1].source_case_run_id == case_run_id
+            assert revisions[-1].source_step_result_id == step_result["id"]
+            assert revisions[-1].is_current is True
+            assert revisions[0].is_current is False
+
+
+def test_baseline_adoption_rejects_mismatched_failure_chain(monkeypatch):
+    _reset_local_data()
+    from app.main import app
+
+    _install_visual_browser_adapter(monkeypatch, template_status="failed")
+
+    with TestClient(app) as client:
+        login_resp = client.post("/api/v1/sessions", json={"username": TEST_ADMIN_USERNAME, "password": TEST_ADMIN_PASSWORD})
+        token = login_resp.json()["data"]["access_token"]
+        headers = {"Authorization": f"Bearer {token}"}
+
+        workspace_resp = client.post(
+            "/api/v1/workspaces",
+            json={"workspace_code": "baseline_mismatch_ws", "name": "Baseline Mismatch WS"},
+            headers=headers,
+        )
+        workspace_id = workspace_resp.json()["data"]["id"]
+        workspace_headers = headers | {"X-Workspace-Id": str(workspace_id)}
+
+        env_resp = client.post(
+            "/api/v1/environment-profiles",
+            json={"profile_name": "dev", "base_url": "https://example.com"},
+            headers=workspace_headers,
+        )
+        environment_profile_id = env_resp.json()["data"]["id"]
+
+        media_object_id = _create_media_object(client, headers=workspace_headers)
+        source_template_id = _create_template(
+            client,
+            headers=workspace_headers,
+            media_object_id=media_object_id,
+            template_code="tpl_mismatch_source",
+            template_name="Mismatch Source Template",
+        )
+        other_media_resp = client.post(
+            "/api/v1/media-objects",
+            headers=workspace_headers,
+            data={"usage": "artifact"},
+            files={"file": ("other-baseline.png", TINY_PNG_BYTES + b"-other-template", "image/png")},
+        )
+        assert other_media_resp.status_code == 201
+        other_media_object_id = other_media_resp.json()["data"]["id"]
+        target_template_id = _create_template(
+            client,
+            headers=workspace_headers,
+            media_object_id=other_media_object_id,
+            template_code="tpl_mismatch_target",
+            template_name="Mismatch Target Template",
+        )
+
+        case_resp = client.post(
+            "/api/v1/test-cases",
+            json={"case_code": "case_mismatch_source", "case_name": "Mismatch Source Case", "status": "published"},
+            headers=workspace_headers,
+        )
+        test_case_id = case_resp.json()["data"]["id"]
+        client.put(
+            f"/api/v1/test-cases/{test_case_id}/steps",
+            json=[
+                {
+                    "step_no": 1,
+                    "step_type": "template_assert",
+                    "step_name": "Mismatch Step",
+                    "template_id": source_template_id,
+                    "payload_json": {},
+                }
+            ],
+            headers=workspace_headers,
+        )
+
+        suite_resp = client.post(
+            "/api/v1/test-suites",
+            json={"suite_code": "suite_mismatch_source", "suite_name": "Mismatch Source Suite", "status": "active"},
+            headers=workspace_headers,
+        )
+        test_suite_id = suite_resp.json()["data"]["id"]
+        client.put(
+            f"/api/v1/test-suites/{test_suite_id}/cases",
+            json=[{"test_case_id": test_case_id, "sort_order": 1}],
+            headers=workspace_headers,
+        )
+
+        run_resp = client.post(
+            "/api/v1/test-runs",
+            json={
+                "test_suite_id": test_suite_id,
+                "environment_profile_id": environment_profile_id,
+                "trigger_source": "manual",
+            },
+            headers=workspace_headers | {"Idempotency-Key": "run-baseline-mismatch"},
+        )
+        assert run_resp.status_code == 201
+        test_run_id = run_resp.json()["data"]["id"]
+
+        case_runs_resp = client.get(f"/api/v1/test-runs/{test_run_id}/case-runs", headers=workspace_headers)
+        case_run_id = case_runs_resp.json()["data"][0]["id"]
+        step_results_resp = client.get(f"/api/v1/case-runs/{case_run_id}/step-results", headers=workspace_headers)
+        step_result = step_results_resp.json()["data"][0]
+
+        mismatch_resp = client.post(
+            f"/api/v1/templates/{target_template_id}/baseline-revisions",
+            headers=workspace_headers,
+            json={
+                "media_object_id": step_result["actual_media_object_id"],
+                "source_type": "adopted_from_failure",
+                "source_step_result_id": step_result["id"],
+                "is_current": True,
+            },
+        )
+        assert mismatch_resp.status_code == 422
+        assert mismatch_resp.json()["error"]["code"] == "BASELINE_ADOPTION_MISMATCH"
+
+
+def test_baseline_adoption_rejects_diff_media_object(monkeypatch):
+    _reset_local_data()
+    from app.main import app
+
+    _install_visual_browser_adapter(monkeypatch, template_status="failed")
+
+    with TestClient(app) as client:
+        login_resp = client.post("/api/v1/sessions", json={"username": TEST_ADMIN_USERNAME, "password": TEST_ADMIN_PASSWORD})
+        token = login_resp.json()["data"]["access_token"]
+        headers = {"Authorization": f"Bearer {token}"}
+
+        workspace_resp = client.post(
+            "/api/v1/workspaces",
+            json={"workspace_code": "baseline_diff_ws", "name": "Baseline Diff WS"},
+            headers=headers,
+        )
+        workspace_id = workspace_resp.json()["data"]["id"]
+        workspace_headers = headers | {"X-Workspace-Id": str(workspace_id)}
+
+        env_resp = client.post(
+            "/api/v1/environment-profiles",
+            json={"profile_name": "dev", "base_url": "https://example.com"},
+            headers=workspace_headers,
+        )
+        environment_profile_id = env_resp.json()["data"]["id"]
+
+        media_object_id = _create_media_object(client, headers=workspace_headers)
+        template_id = _create_template(
+            client,
+            headers=workspace_headers,
+            media_object_id=media_object_id,
+            template_code="tpl_diff_source",
+            template_name="Diff Source Template",
+        )
+
+        case_resp = client.post(
+            "/api/v1/test-cases",
+            json={"case_code": "case_diff_source", "case_name": "Diff Source Case", "status": "published"},
+            headers=workspace_headers,
+        )
+        test_case_id = case_resp.json()["data"]["id"]
+        client.put(
+            f"/api/v1/test-cases/{test_case_id}/steps",
+            json=[
+                {
+                    "step_no": 1,
+                    "step_type": "template_assert",
+                    "step_name": "Diff Step",
+                    "template_id": template_id,
+                    "payload_json": {},
+                }
+            ],
+            headers=workspace_headers,
+        )
+
+        suite_resp = client.post(
+            "/api/v1/test-suites",
+            json={"suite_code": "suite_diff_source", "suite_name": "Diff Source Suite", "status": "active"},
+            headers=workspace_headers,
+        )
+        test_suite_id = suite_resp.json()["data"]["id"]
+        client.put(
+            f"/api/v1/test-suites/{test_suite_id}/cases",
+            json=[{"test_case_id": test_case_id, "sort_order": 1}],
+            headers=workspace_headers,
+        )
+
+        run_resp = client.post(
+            "/api/v1/test-runs",
+            json={
+                "test_suite_id": test_suite_id,
+                "environment_profile_id": environment_profile_id,
+                "trigger_source": "manual",
+            },
+            headers=workspace_headers | {"Idempotency-Key": "run-baseline-diff"},
+        )
+        assert run_resp.status_code == 201
+        test_run_id = run_resp.json()["data"]["id"]
+
+        case_runs_resp = client.get(f"/api/v1/test-runs/{test_run_id}/case-runs", headers=workspace_headers)
+        case_run_id = case_runs_resp.json()["data"][0]["id"]
+        step_results_resp = client.get(f"/api/v1/case-runs/{case_run_id}/step-results", headers=workspace_headers)
+        step_result = step_results_resp.json()["data"][0]
+
+        invalid_resp = client.post(
+            f"/api/v1/templates/{template_id}/baseline-revisions",
+            headers=workspace_headers,
+            json={
+                "media_object_id": step_result["diff_media_object_id"],
+                "source_type": "adopted_from_failure",
+                "source_step_result_id": step_result["id"],
+                "is_current": True,
+            },
+        )
+        assert invalid_resp.status_code == 422
+        assert invalid_resp.json()["error"]["code"] == "BASELINE_ADOPTION_INVALID"
+
+
+def test_baseline_adoption_rejects_cross_workspace_media_object(monkeypatch):
+    _reset_local_data()
+    from app.main import app
+
+    _install_visual_browser_adapter(monkeypatch, template_status="failed")
+
+    with TestClient(app) as client:
+        login_resp = client.post("/api/v1/sessions", json={"username": TEST_ADMIN_USERNAME, "password": TEST_ADMIN_PASSWORD})
+        token = login_resp.json()["data"]["access_token"]
+        headers = {"Authorization": f"Bearer {token}"}
+
+        workspace_resp = client.post(
+            "/api/v1/workspaces",
+            json={"workspace_code": "baseline_cross_ws", "name": "Baseline Cross WS"},
+            headers=headers,
+        )
+        workspace_id = workspace_resp.json()["data"]["id"]
+        workspace_headers = headers | {"X-Workspace-Id": str(workspace_id)}
+
+        env_resp = client.post(
+            "/api/v1/environment-profiles",
+            json={"profile_name": "dev", "base_url": "https://example.com"},
+            headers=workspace_headers,
+        )
+        environment_profile_id = env_resp.json()["data"]["id"]
+
+        media_object_id = _create_media_object(client, headers=workspace_headers)
+        template_id = _create_template(
+            client,
+            headers=workspace_headers,
+            media_object_id=media_object_id,
+            template_code="tpl_cross_ws",
+            template_name="Cross Workspace Template",
+        )
+
+        case_resp = client.post(
+            "/api/v1/test-cases",
+            json={"case_code": "case_cross_ws", "case_name": "Cross Workspace Case", "status": "published"},
+            headers=workspace_headers,
+        )
+        test_case_id = case_resp.json()["data"]["id"]
+        client.put(
+            f"/api/v1/test-cases/{test_case_id}/steps",
+            json=[
+                {
+                    "step_no": 1,
+                    "step_type": "template_assert",
+                    "step_name": "Cross Workspace Step",
+                    "template_id": template_id,
+                    "payload_json": {},
+                }
+            ],
+            headers=workspace_headers,
+        )
+
+        suite_resp = client.post(
+            "/api/v1/test-suites",
+            json={"suite_code": "suite_cross_ws", "suite_name": "Cross Workspace Suite", "status": "active"},
+            headers=workspace_headers,
+        )
+        test_suite_id = suite_resp.json()["data"]["id"]
+        client.put(
+            f"/api/v1/test-suites/{test_suite_id}/cases",
+            json=[{"test_case_id": test_case_id, "sort_order": 1}],
+            headers=workspace_headers,
+        )
+
+        other_workspace_resp = client.post(
+            "/api/v1/workspaces",
+            json={"workspace_code": "baseline_cross_other_ws", "name": "Baseline Cross Other WS"},
+            headers=headers,
+        )
+        other_workspace_id = other_workspace_resp.json()["data"]["id"]
+        other_workspace_headers = headers | {"X-Workspace-Id": str(other_workspace_id)}
+        foreign_media_object_id = _create_media_object(client, headers=other_workspace_headers)
+
+        run_resp = client.post(
+            "/api/v1/test-runs",
+            json={
+                "test_suite_id": test_suite_id,
+                "environment_profile_id": environment_profile_id,
+                "trigger_source": "manual",
+            },
+            headers=workspace_headers | {"Idempotency-Key": "run-baseline-cross"},
+        )
+        assert run_resp.status_code == 201
+        test_run_id = run_resp.json()["data"]["id"]
+
+        case_runs_resp = client.get(f"/api/v1/test-runs/{test_run_id}/case-runs", headers=workspace_headers)
+        case_run_id = case_runs_resp.json()["data"][0]["id"]
+        step_results_resp = client.get(f"/api/v1/case-runs/{case_run_id}/step-results", headers=workspace_headers)
+        step_result = step_results_resp.json()["data"][0]
+
+        cross_resp = client.post(
+            f"/api/v1/templates/{template_id}/baseline-revisions",
+            headers=workspace_headers,
+            json={
+                "media_object_id": foreign_media_object_id,
+                "source_type": "adopted_from_failure",
+                "source_step_result_id": step_result["id"],
+                "is_current": True,
+            },
+        )
+        assert cross_resp.status_code == 404
+        assert cross_resp.json()["error"]["code"] == "MEDIA_OBJECT_NOT_FOUND"
 
 
 def test_non_active_suite_cannot_create_test_run():

@@ -239,6 +239,9 @@ class BaselineRevisionRead(ORMModel):
     revision_no: int
     media_object_id: int
     source_type: str
+    source_report_id: int | None = None
+    source_case_run_id: int | None = None
+    source_step_result_id: int | None = None
     is_current: bool
     remark: str | None = None
     created_at: datetime
@@ -247,6 +250,9 @@ class BaselineRevisionRead(ORMModel):
 class BaselineRevisionCreate(BaseModel):
     media_object_id: int
     source_type: str = "manual"
+    source_report_id: int | None = None
+    source_case_run_id: int | None = None
+    source_step_result_id: int | None = None
     remark: str | None = None
     is_current: bool = True
 

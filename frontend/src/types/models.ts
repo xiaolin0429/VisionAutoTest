@@ -34,6 +34,23 @@ export interface SessionPayload {
   user: User
 }
 
+export interface SessionRefreshPayload {
+  accessToken: string
+  refreshToken: string
+  tokenType: string
+  expiresIn: number
+  issuedAt: number
+}
+
+export type SessionCheckStatus = 'idle' | 'checking' | 'valid' | 'invalid'
+
+export interface CurrentSession {
+  sessionId: string
+  status: string
+  expiresAt: string
+  user: User
+}
+
 export interface Workspace {
   id: number
   ownerUserId: number

@@ -3,7 +3,8 @@ import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { deleteCurrentSession } from '@/api/modules/auth'
-import { ApiError } from '@/api/client'
+import { ApiError, clearPersistedAuthState } from '@/api/client'
+import { resetClientSessionState } from '@/auth/sessionRuntime'
 import { useAuthStore } from '@/stores/auth'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { formatLinkupErrorMessage } from '@/utils/http'
@@ -40,6 +41,9 @@ async function handleLogout() {
 
   try {
     try {
+      if (authStore.hasSession) {
+        await authStore.ensureSessionAvailable().catch(() => {})
+      }
       await deleteCurrentSession()
     } catch (error) {
       const isAlreadyInvalid =
@@ -47,15 +51,15 @@ async function handleLogout() {
         (error.statusCode === 401 || error.statusCode === 403)
 
       if (!isAlreadyInvalid) {
-        const message = error instanceof Error ? error.message : '退出登录失败，请稍后重试。'
+        const message = formatLinkupErrorMessage(error, '退出登录失败，请稍后重试。')
         ElMessage.error(message)
         return
       }
     }
 
-    authStore.clearSession()
-    workspaceStore.reset()
-    await router.replace('/login')
+    resetClientSessionState()
+    clearPersistedAuthState()
+    window.location.replace('/login')
     ElMessage.success('已退出登录。')
   } finally {
     loggingOut.value = false

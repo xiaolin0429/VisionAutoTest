@@ -121,12 +121,15 @@
   - `failure.code/summary`
   - `timing.started_at/finished_at/duration_ms`
   - `artifacts.total/by_type`
+- `summary_json.failure` 在 `failed/error/partial_failed/cancelled` 场景下必须返回稳定可消费的结构；仅 `passed` 场景允许为 `null`。
+- `case-runs.failure_reason_code` 与 `case-runs.failure_summary` 在 `failed/error/cancelled` 场景下必须稳定返回，前端不应自行从步骤明细反推主失败原因。
 - 当前报告产物类型收口为：
   - `run_screenshot`
   - `step_actual`
   - `step_diff`
   - `step_ocr`
 - `report_artifacts` 作为报告级索引，允许同时关联 `case_run_id` 与 `step_result_id`，前端不应再依赖文件名或备注推断证据来源。
+- `report_artifacts.artifact_url` 当前定义为稳定访问路径，统一返回 `/api/v1/media-objects/{media_object_id}/content`；它不再等价于底层对象键。
 
 ## 6. 推荐错误码
 
@@ -150,3 +153,4 @@
 | `TEMPLATE_ASSERTION_FAILED` | 模板断言失败 |
 | `OCR_ASSERTION_FAILED` | OCR 断言失败 |
 | `TEST_RUN_EXECUTION_ERROR` | 执行批次在流程级别发生异常 |
+| `TEST_RUN_CANCELLED` | 执行批次被取消 |
