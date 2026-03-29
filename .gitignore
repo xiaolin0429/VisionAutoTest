@@ -1,5 +1,12 @@
+frontend/node_modules
+frontend/dist
 .DS_Store
 /.playwright-cli/
 /.data/visionautotest.db
-/frontend/node_modules/
-/frontend/dist/
+/.data/
+/.idea/
+/.codex/config.toml
+.env
+.env.*
+!.env.example
+!.env.sample

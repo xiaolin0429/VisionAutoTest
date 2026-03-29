@@ -71,6 +71,34 @@ export interface DeviceProfile {
   updatedAt: string
 }
 
+export interface Component {
+  id: number
+  workspaceId: number
+  code: string
+  name: string
+  status: string
+  description: string
+  publishedAt: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface MediaObject {
+  id: number
+  workspaceId: number
+  storageType: string
+  bucketName: string | null
+  objectKey: string
+  fileName: string
+  mimeType: string
+  fileSize: number
+  checksumSha256: string
+  status: string
+  usage: string
+  remark: string
+  createdAt: string
+}
+
 export interface MaskRegion {
   id: number
   name: string
@@ -80,6 +108,68 @@ export interface MaskRegion {
   heightRatio: number
   sortOrder: number
 }
+
+export interface TemplateMaskDraft extends MaskRegion {
+  isNew?: boolean
+}
+
+export interface TemplateMaskCreatePayload {
+  name: string
+  xRatio: number
+  yRatio: number
+  widthRatio: number
+  heightRatio: number
+  sortOrder: number
+}
+
+export interface TemplateMaskUpdatePayload {
+  name?: string
+  xRatio?: number
+  yRatio?: number
+  widthRatio?: number
+  heightRatio?: number
+  sortOrder?: number
+}
+
+export interface BaselineRevision {
+  id: number
+  templateId: number
+  revisionNo: number
+  mediaObjectId: number
+  sourceType: string
+  isCurrent: boolean
+  remark: string
+  createdAt: string
+}
+
+export interface TemplateCreatePayload {
+  code: string
+  name: string
+  templateType: string
+  matchStrategy: string
+  thresholdValue: number
+  status: string
+  originalMediaObjectId: number
+}
+
+export interface TemplateUpdatePayload {
+  name?: string
+  templateType?: string
+  matchStrategy?: string
+  thresholdValue?: number
+  status?: string
+}
+
+export interface BaselineRevisionCreatePayload {
+  mediaObjectId: number
+  sourceType: string
+  remark?: string
+  isCurrent: boolean
+}
+
+export type TemplateEditorMode = 'view' | 'edit'
+
+export type TemplateCanvasInteractionHandle = 'move' | 'nw' | 'ne' | 'sw' | 'se'
 
 export interface Template {
   id: number
@@ -94,6 +184,7 @@ export interface Template {
   createdAt: string
   updatedAt: string
   imageLabel: string
+  baselineRevisions: BaselineRevision[]
   maskRegions: MaskRegion[]
 }
 

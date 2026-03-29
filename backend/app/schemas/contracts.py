@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
+
+ComponentStatus = Literal["draft", "published", "archived"]
+TestCaseStatus = Literal["draft", "published", "archived"]
+TestSuiteStatus = Literal["draft", "active", "archived"]
 
 
 class ORMModel(BaseModel):
@@ -302,13 +306,13 @@ class ComponentRead(ORMModel):
 class ComponentCreate(BaseModel):
     component_code: str
     component_name: str
-    status: str = "draft"
+    status: ComponentStatus = "draft"
     description: str | None = None
 
 
 class ComponentUpdate(BaseModel):
     component_name: str | None = None
-    status: str | None = None
+    status: ComponentStatus | None = None
     description: str | None = None
 
 
@@ -327,14 +331,14 @@ class TestCaseRead(ORMModel):
 class TestCaseCreate(BaseModel):
     case_code: str
     case_name: str
-    status: str = "draft"
+    status: TestCaseStatus = "draft"
     priority: str = "p2"
     description: str | None = None
 
 
 class TestCaseUpdate(BaseModel):
     case_name: str | None = None
-    status: str | None = None
+    status: TestCaseStatus | None = None
     priority: str | None = None
     description: str | None = None
 
@@ -353,13 +357,13 @@ class TestSuiteRead(ORMModel):
 class TestSuiteCreate(BaseModel):
     suite_code: str
     suite_name: str
-    status: str = "draft"
+    status: TestSuiteStatus = "draft"
     description: str | None = None
 
 
 class TestSuiteUpdate(BaseModel):
     suite_name: str | None = None
-    status: str | None = None
+    status: TestSuiteStatus | None = None
     description: str | None = None
 
 
@@ -446,4 +450,3 @@ class RunReportRead(ORMModel):
     summary_json: dict[str, Any]
     generated_at: datetime
     created_at: datetime
-

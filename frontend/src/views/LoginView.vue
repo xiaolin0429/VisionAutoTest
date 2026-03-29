@@ -5,6 +5,7 @@ import { ElMessage } from 'element-plus'
 import { createSession } from '@/api/modules/auth'
 import { useAuthStore } from '@/stores/auth'
 import { useWorkspaceStore } from '@/stores/workspace'
+import { formatLinkupErrorMessage } from '@/utils/http'
 
 const route = useRoute()
 const router = useRouter()
@@ -14,7 +15,7 @@ const workspaceStore = useWorkspaceStore()
 const loading = ref(false)
 const form = reactive({
   username: 'admin',
-  password: 'admin123456'
+  password: ''
 })
 
 const redirectPath = computed(() => {
@@ -28,10 +29,15 @@ async function handleSubmit() {
     const session = await createSession(form)
     authStore.setSession(session)
     await workspaceStore.bootstrap()
-    ElMessage.success('登录成功，已进入 MVP 工作台。')
-    await router.replace(redirectPath.value)
+    const targetPath = workspaceStore.hasWorkspace ? redirectPath.value : '/workspace-empty'
+    ElMessage.success(
+      workspaceStore.hasWorkspace
+        ? '登录成功，已进入 MVP 工作台。'
+        : '登录成功，但当前账号尚未加入工作空间。'
+    )
+    await router.replace(targetPath)
   } catch (error) {
-    const message = error instanceof Error ? error.message : '登录失败，请稍后重试。'
+    const message = formatLinkupErrorMessage(error, '登录失败，请稍后重试。')
     ElMessage.error(message)
   } finally {
     loading.value = false
@@ -57,18 +63,18 @@ async function handleSubmit() {
       <div class="grid grid-cols-2 gap-4">
         <div class="rounded-3xl border border-white/10 bg-white/5 p-5 backdrop-blur">
           <p class="m-0 text-sm text-slate-300">
-            真实契约
+            后端基线
           </p>
           <p class="mb-0 mt-3 text-sm leading-7 text-slate-100">
-            默认对接后端 `FastAPI /api/v1`，字段与实际代码定义保持一致。
+            默认对接后端 `FastAPI /api/v1`，当前联调环境基于 `PostgreSQL + Alembic`。
           </p>
         </div>
         <div class="rounded-3xl border border-white/10 bg-white/5 p-5 backdrop-blur">
           <p class="m-0 text-sm text-slate-300">
-            默认账号
+            联调准备
           </p>
           <p class="mb-0 mt-3 text-sm leading-7 text-slate-100">
-            后端初始化管理员已预填：`admin / admin123456`
+            首次联调前请先在 `backend/.env` 中配置数据库连接与管理员初始密码，再执行 `cd backend && python -m app.db.bootstrap`
           </p>
         </div>
       </div>
@@ -81,7 +87,7 @@ async function handleSubmit() {
             登录工作台
           </h2>
           <p class="mb-0 mt-3 text-sm leading-6 text-slate-500">
-            示例账号已预填：`admin / admin123456`
+            已预填默认管理员用户名；请输入本地环境已配置的管理员密码。若登录失败，请优先确认 PostgreSQL、`.env`、bootstrap 与后端服务状态。
           </p>
         </div>
 

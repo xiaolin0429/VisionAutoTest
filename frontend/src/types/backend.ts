@@ -87,6 +87,34 @@ export interface DeviceProfileReadDTO {
   updated_at: string
 }
 
+export interface ComponentReadDTO {
+  id: number
+  workspace_id: number
+  component_code: string
+  component_name: string
+  status: string
+  description: string | null
+  published_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface MediaObjectReadDTO {
+  id: number
+  workspace_id: number
+  storage_type: string
+  bucket_name: string | null
+  object_key: string
+  file_name: string
+  mime_type: string
+  file_size: number
+  checksum_sha256: string
+  status: string
+  usage: string
+  remark: string | null
+  created_at: string
+}
+
 export interface TemplateReadDTO {
   id: number
   workspace_id: number

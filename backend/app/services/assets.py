@@ -24,6 +24,13 @@ from app.services.helpers import count_total, require_workspace_access
 settings = get_settings()
 
 
+class _SystemUser:
+    id: int | None = None
+
+
+SYSTEM_USER = _SystemUser()
+
+
 def list_media_objects(
     db: Session,
     *,
@@ -46,8 +53,33 @@ def list_media_objects(
 
 
 def create_media_object(db: Session, *, user: User, workspace_id: int, file: UploadFile, usage: str, remark: str | None) -> MediaObject:
-    require_workspace_access(db, user, workspace_id)
     file_bytes = file.file.read()
+    return create_media_object_from_bytes(
+        db,
+        user=user,
+        workspace_id=workspace_id,
+        file_bytes=file_bytes,
+        file_name=file.filename or "upload.bin",
+        mime_type=file.content_type or "application/octet-stream",
+        usage=usage,
+        remark=remark,
+    )
+
+
+def create_media_object_from_bytes(
+    db: Session,
+    *,
+    user: User | None,
+    workspace_id: int,
+    file_bytes: bytes,
+    file_name: str,
+    mime_type: str,
+    usage: str,
+    remark: str | None,
+) -> MediaObject:
+    actor = user or SYSTEM_USER
+    if user is not None:
+        require_workspace_access(db, user, workspace_id)
     checksum = hashlib.sha256(file_bytes).hexdigest()
     existing = db.scalar(
         select(MediaObject).where(
@@ -61,7 +93,7 @@ def create_media_object(db: Session, *, user: User, workspace_id: int, file: Upl
 
     workspace_dir = settings.local_storage_path / str(workspace_id)
     workspace_dir.mkdir(parents=True, exist_ok=True)
-    safe_name = Path(file.filename or "upload.bin").name
+    safe_name = Path(file_name or "upload.bin").name
     object_key = f"{workspace_id}/{generate_token('obj')}_{safe_name}"
     disk_path = settings.local_storage_path / object_key
     disk_path.parent.mkdir(parents=True, exist_ok=True)
@@ -73,13 +105,13 @@ def create_media_object(db: Session, *, user: User, workspace_id: int, file: Upl
         bucket_name=None,
         object_key=object_key,
         file_name=safe_name,
-        mime_type=file.content_type or "application/octet-stream",
+        mime_type=mime_type,
         file_size=len(file_bytes),
         checksum_sha256=checksum,
         status="active",
         usage=usage,
         remark=remark,
-        created_by=user.id,
+        created_by=actor.id,
     )
     db.add(media)
     db.commit()
@@ -350,4 +382,3 @@ def delete_mask_region(db: Session, *, user: User, region: TemplateMaskRegion) -
     require_workspace_access(db, user, template.workspace_id)
     db.delete(region)
     db.commit()
-

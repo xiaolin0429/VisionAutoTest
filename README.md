@@ -101,7 +101,10 @@ npm run dev
 开发联调说明：
 
 - 前端开发服务器默认代理 `/api` 与 `/healthz` 到 `http://127.0.0.1:8000`
-- 登录默认账号：`admin / admin123456`
+- 后端本地联调默认使用 PostgreSQL 开发库 `AutoTestDev`
+- 首次联调前请先复制 `backend/.env.example` 为 `backend/.env` 并填入本地数据库账号、密码与管理员初始密码
+- 首次联调前请先执行 `cd backend && python -m app.db.bootstrap`
+- 登录默认账号：`admin`，初始密码以本地 `backend/.env` 中的 `VAT_DEFAULT_ADMIN_PASSWORD` 为准
 - 当前主链路以 `test-runs -> case-runs -> step-results` 聚合执行详情，不再依赖旧 mock 的报告 ID
 
 ## 工程原则

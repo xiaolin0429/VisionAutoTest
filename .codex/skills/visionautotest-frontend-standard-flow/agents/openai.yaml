@@ -1,0 +1,3 @@
+interface:
+  display_name: "VisionAutoTest Frontend Flow"
+  short_description: "Standard frontend delivery flow for VisionAutoTest"

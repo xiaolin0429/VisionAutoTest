@@ -70,6 +70,7 @@ async function handleLogout() {
       <el-select
         v-model="selectedWorkspaceId"
         class="!w-64"
+        :disabled="workspaceStore.workspaces.length === 0"
         placeholder="请选择工作空间"
       >
         <el-option

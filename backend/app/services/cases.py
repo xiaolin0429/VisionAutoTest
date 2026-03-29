@@ -13,8 +13,15 @@ from app.models import (
     TestCaseStep,
     TestSuite,
     User,
+    utc_now,
 )
 from app.services.helpers import apply_keyword, count_total, require_workspace_access, validate_ordered_sequence
+
+
+def _published_at_for_status(status: str, current_published_at=None):
+    if status == "published" and current_published_at is None:
+        return utc_now()
+    return current_published_at
 
 
 def list_components(db: Session, *, user: User, workspace_id: int, page: int, page_size: int):
@@ -42,6 +49,7 @@ def create_component(db: Session, *, user: User, workspace_id: int, component_co
         component_name=component_name,
         status=status,
         description=description,
+        published_at=_published_at_for_status(status),
         created_by=user.id,
         updated_by=user.id,
     )
@@ -64,6 +72,7 @@ def update_component(db: Session, *, user: User, component: Component, component
         component.component_name = component_name
     if status is not None:
         component.status = status
+        component.published_at = _published_at_for_status(status, component.published_at)
     if description is not None:
         component.description = description
     component.updated_by = user.id
@@ -282,4 +291,3 @@ def _assert_template(db: Session, workspace_id: int, template_id: int) -> None:
     template = db.get(Template, template_id)
     if template is None or template.workspace_id != workspace_id or template.is_deleted:
         raise ApiError(code="TEMPLATE_NOT_FOUND", message="Template not found.", status_code=404)
-
