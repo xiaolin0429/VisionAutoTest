@@ -21,17 +21,32 @@ source .venv/bin/activate
 pip install -e ".[dev]"
 cp .env.example .env
 vim .env
-playwright install chromium
-python -m app.db.bootstrap
-uvicorn app.main:app --reload
+.venv/bin/playwright install chromium
+.venv/bin/python -m app.db.bootstrap
+.venv/bin/uvicorn app.main:app --reload
 ```
+
+首次启动后的默认验收资源：
+
+- `bootstrap` 会在开发环境幂等创建一套最小演示数据：默认管理员、演示工作空间、环境档案、设备预设、占位模板、演示用例、演示套件
+- 默认演示环境 `base_url` 指向后端内置页面 `http://127.0.0.1:8000/demo/acceptance-target`
+- 如本地服务不跑在 `127.0.0.1:8000`，可通过 `VAT_DEMO_TARGET_BASE_URL` 覆盖
+- 可直接用这套资源触发一次执行验收，不再依赖额外被测页服务
 
 `.env` 使用说明：
 
 - `backend/.env` 仅用于本地开发，不提交到代码仓库
 - 请基于 `backend/.env.example` 创建，并填写你自己的本地数据库凭据
+- `backend/.env` 只用于开发服务启动、手工联调和本地 API 调试
 - `backend/.env.example` 只提供安全示例，不提供真实账号密码
 - 启动前必须替换所有占位符值；占位符或示例口令不会再被应用接受
+
+`.env.test.local` 使用说明：
+
+- `backend/.env.test.local` 仅用于本地后端自动化测试，不提交到代码仓库
+- 请基于 `backend/.env.test.sample` 创建，并填写独立测试库连接
+- `VAT_TEST_DATABASE_URL` 必须指向与 `backend/.env` 中 `VAT_DATABASE_URL` 不同的数据库
+- 后端测试会重建测试库结构，禁止复用开发库 `AutoTestDev`
 
 默认使用本地 PostgreSQL 开发库：
 
@@ -47,6 +62,7 @@ uvicorn app.main:app --reload
 - `VAT_DATABASE_ADMIN_URL`：开发环境自动建库时使用的管理库连接串
 - `VAT_DEFAULT_ADMIN_USERNAME` / `VAT_DEFAULT_ADMIN_PASSWORD`：默认管理员初始化配置
 - `VAT_LOCAL_STORAGE_PATH`：本地媒体与执行产物目录
+- `VAT_DEMO_TARGET_BASE_URL`：默认演示环境指向的内置被测页地址
 - `VAT_PLAYWRIGHT_HEADLESS`：是否启用无头浏览器
 - `VAT_PLAYWRIGHT_NAVIGATION_TIMEOUT_MS`：浏览器页面导航超时
 - `VAT_DATABASE_AUTO_CREATE` / `VAT_DATABASE_AUTO_MIGRATE`：仅建议本地开发启用
@@ -59,15 +75,18 @@ uvicorn app.main:app --reload
 
 数据库初始化说明：
 
-- `python -m app.db.bootstrap`：创建开发库 `AutoTestDev`（若不存在）、执行 Alembic 迁移、初始化默认管理员
+- `.venv/bin/python -m app.db.bootstrap`：创建开发库 `AutoTestDev`（若不存在）、执行 Alembic 迁移、初始化默认管理员
+- `.venv/bin/python -m app.db.bootstrap` 默认还会在开发环境幂等初始化演示验收数据；如需跳过可使用 `--skip-seed-demo-data`
 - 应用启动时只有在显式开启 `VAT_DATABASE_AUTO_CREATE=true` 或 `VAT_DATABASE_AUTO_MIGRATE=true` 时才会执行对应动作
 - 测试数据库不由应用自动创建，测试阶段需通过环境变量提供独立测试库连接
 
 测试环境补充说明：
 
 - 后端测试依赖独立测试库，不应复用本地开发库 `AutoTestDev`
-- 运行测试前请单独提供 `VAT_TEST_DATABASE_URL`
+- 运行测试前请提供 `VAT_TEST_DATABASE_URL`，推荐写入 `backend/.env.test.local`
 - `backend/tests/test_app.py` 会在测试前重建测试库结构，并使用独立的本地媒体目录
+- 推荐运行方式：`./scripts/run_pytest.sh`
+- 若直接执行命令，请使用后端虚拟环境：`.venv/bin/pytest -q`
 
 执行链路补充说明：
 
@@ -82,7 +101,7 @@ uvicorn app.main:app --reload
 cd backend
 source .venv/bin/activate
 pip install -e ".[dev]"
-playwright install chromium
+.venv/bin/playwright install chromium
 ```
 
 - `template_assert` 依赖 `opencv-python-headless`
@@ -93,6 +112,15 @@ playwright install chromium
 
 - 仅当 `VAT_DEFAULT_ADMIN_USERNAME` 与 `VAT_DEFAULT_ADMIN_PASSWORD` 同时提供时才会初始化
 - 默认管理员密码必须由本地环境显式提供，不能使用示例占位符
+
+默认验收建议路径：
+
+```text
+1. 执行 `.venv/bin/python -m app.db.bootstrap`
+2. 启动后端 `.venv/bin/uvicorn app.main:app --reload`
+3. 打开 `http://127.0.0.1:8000/demo/acceptance-target` 确认演示页可访问
+4. 使用默认管理员登录前端，直接选择 seeded 的工作空间和演示套件发起执行
+```
 
 ## 后续建议
 

@@ -258,3 +258,12 @@ export interface RunReportReadDTO {
   generated_at: string
   created_at: string
 }
+
+export interface ReportArtifactReadDTO {
+  id: number
+  report_id: number
+  artifact_type: string
+  media_object_id: number | null
+  artifact_url: string | null
+  created_at: string
+}

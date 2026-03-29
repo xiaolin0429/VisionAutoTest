@@ -409,6 +409,12 @@ def get_report_by_test_run(db: Session, test_run_id: int) -> RunReport | None:
     return db.scalar(select(RunReport).where(RunReport.test_run_id == test_run_id))
 
 
+def list_report_artifacts(db: Session, report_id: int):
+    return db.scalars(
+        select(ReportArtifact).where(ReportArtifact.report_id == report_id).order_by(ReportArtifact.id.asc())
+    ).all()
+
+
 def create_report_artifact(
     db: Session,
     *,

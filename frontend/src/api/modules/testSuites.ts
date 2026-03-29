@@ -4,7 +4,12 @@ import type {
   TestCaseReadDTO,
   TestSuiteReadDTO
 } from '@/types/backend'
-import type { TestSuite } from '@/types/models'
+import type {
+  SuiteCaseWritePayload,
+  TestSuite,
+  TestSuiteCreatePayload,
+  TestSuiteUpdatePayload
+} from '@/types/models'
 
 function mapTestSuiteSummary(item: TestSuiteReadDTO): TestSuite {
   return {
@@ -72,4 +77,50 @@ export async function getTestSuiteDetail(testSuiteId: number): Promise<TestSuite
       }
     })
   }
+}
+
+export async function createTestSuite(payload: TestSuiteCreatePayload): Promise<TestSuite> {
+  const response = await requestData<TestSuiteReadDTO>({
+    method: 'post',
+    url: '/test-suites',
+    data: {
+      suite_code: payload.code,
+      suite_name: payload.name,
+      status: payload.status,
+      description: payload.description
+    }
+  })
+
+  return mapTestSuiteSummary(response)
+}
+
+export async function updateTestSuite(
+  testSuiteId: number,
+  payload: TestSuiteUpdatePayload
+): Promise<TestSuite> {
+  const response = await requestData<TestSuiteReadDTO>({
+    method: 'patch',
+    url: `/test-suites/${testSuiteId}`,
+    data: {
+      suite_name: payload.name,
+      status: payload.status,
+      description: payload.description
+    }
+  })
+
+  return mapTestSuiteSummary(response)
+}
+
+export async function replaceSuiteCases(
+  testSuiteId: number,
+  payload: SuiteCaseWritePayload[]
+): Promise<void> {
+  await requestData<SuiteCaseDTO[]>({
+    method: 'put',
+    url: `/test-suites/${testSuiteId}/cases`,
+    data: payload.map((item) => ({
+      test_case_id: item.testCaseId,
+      sort_order: item.sortOrder
+    }))
+  })
 }

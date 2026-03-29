@@ -1,17 +1,47 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
+import { ElMessage } from 'element-plus'
 import MetricCard from '@/components/MetricCard.vue'
 import SectionCard from '@/components/SectionCard.vue'
 import StatusTag from '@/components/StatusTag.vue'
-import { getRunDetail } from '@/api/modules/testRuns'
+import { getMediaObject, getMediaObjectContent } from '@/api/modules/mediaObjects'
+import {
+  getRunDetail,
+  getTestRunReport,
+  listReportArtifacts
+} from '@/api/modules/testRuns'
 import { formatDateTime } from '@/utils/format'
-import type { CaseRun, RunDetail } from '@/types/models'
+import type {
+  CaseRun,
+  MediaObject,
+  ReportArtifact,
+  RunDetail,
+  RunReport,
+  StepResult
+} from '@/types/models'
+
+interface StepMediaEntry {
+  label: string
+  mediaObjectId: number
+}
 
 const route = useRoute()
 const loading = ref(false)
+const reportLoading = ref(false)
 const runDetail = ref<RunDetail | null>(null)
+const runReport = ref<RunReport | null>(null)
+const reportArtifacts = ref<ReportArtifact[]>([])
 const selectedCaseRunId = ref<number | null>(null)
+
+const mediaObjectMap = ref<Record<number, MediaObject>>({})
+const mediaPreviewMap = ref<Record<number, string>>({})
+const mediaLoadingMap = ref<Record<number, boolean>>({})
+const mediaErrorMap = ref<Record<number, string>>({})
+
+let pollTimer: number | null = null
+
+const ACTIVE_RUN_STATUSES = new Set(['queued', 'running', 'cancelling'])
 
 const currentCaseRun = computed(() => {
   return runDetail.value?.caseRuns.find((item) => item.id === selectedCaseRunId.value) ?? null
@@ -46,32 +76,225 @@ const metrics = computed(() => {
   ]
 })
 
-async function loadRunDetail() {
-  loading.value = true
+const reportSummaryEntries = computed(() => {
+  if (!runReport.value) {
+    return []
+  }
+
+  return Object.entries(runReport.value.summaryJson)
+})
+
+function clearPollTimer() {
+  if (pollTimer === null) {
+    return
+  }
+
+  window.clearTimeout(pollTimer)
+  pollTimer = null
+}
+
+function shouldPollRunDetail(detail: RunDetail) {
+  return ACTIVE_RUN_STATUSES.has(detail.status)
+}
+
+function scheduleRunDetailRefresh() {
+  clearPollTimer()
+  pollTimer = window.setTimeout(() => {
+    void loadRunDetail({ silent: true })
+  }, 3000)
+}
+
+function revokePreviewUrls() {
+  Object.values(mediaPreviewMap.value).forEach((url) => URL.revokeObjectURL(url))
+  mediaPreviewMap.value = {}
+}
+
+function getStepMediaEntries(step: StepResult): StepMediaEntry[] {
+  const entries: StepMediaEntry[] = []
+
+  if (step.expectedMediaObjectId !== null) {
+    entries.push({
+      label: '基准图',
+      mediaObjectId: step.expectedMediaObjectId
+    })
+  }
+
+  if (step.actualMediaObjectId !== null) {
+    entries.push({
+      label: '实际截图',
+      mediaObjectId: step.actualMediaObjectId
+    })
+  }
+
+  if (step.diffMediaObjectId !== null) {
+    entries.push({
+      label: 'Diff 图',
+      mediaObjectId: step.diffMediaObjectId
+    })
+  }
+
+  return entries
+}
+
+async function ensureMediaLoaded(mediaObjectId: number) {
+  if (mediaPreviewMap.value[mediaObjectId] || mediaLoadingMap.value[mediaObjectId]) {
+    return
+  }
+
+  mediaLoadingMap.value = {
+    ...mediaLoadingMap.value,
+    [mediaObjectId]: true
+  }
+
+  try {
+    const [metadata, blob] = await Promise.all([
+      mediaObjectMap.value[mediaObjectId]
+        ? Promise.resolve(mediaObjectMap.value[mediaObjectId])
+        : getMediaObject(mediaObjectId),
+      getMediaObjectContent(mediaObjectId)
+    ])
+
+    mediaObjectMap.value = {
+      ...mediaObjectMap.value,
+      [mediaObjectId]: metadata
+    }
+    mediaPreviewMap.value = {
+      ...mediaPreviewMap.value,
+      [mediaObjectId]: URL.createObjectURL(blob)
+    }
+  } catch (error) {
+    mediaErrorMap.value = {
+      ...mediaErrorMap.value,
+      [mediaObjectId]: error instanceof Error ? error.message : '媒体加载失败'
+    }
+  } finally {
+    mediaLoadingMap.value = {
+      ...mediaLoadingMap.value,
+      [mediaObjectId]: false
+    }
+  }
+}
+
+async function warmupCurrentCaseMedia(caseRun: CaseRun | null) {
+  if (!caseRun) {
+    return
+  }
+
+  const mediaIds = caseRun.steps.flatMap((step) =>
+    getStepMediaEntries(step).map((item) => item.mediaObjectId)
+  )
+
+  await Promise.all(mediaIds.map((mediaObjectId) => ensureMediaLoaded(mediaObjectId)))
+}
+
+async function warmupReportArtifactMedia(artifacts: ReportArtifact[]) {
+  const mediaIds = artifacts
+    .map((item) => item.mediaObjectId)
+    .filter((item): item is number => item !== null)
+
+  await Promise.all(mediaIds.map((mediaObjectId) => ensureMediaLoaded(mediaObjectId)))
+}
+
+async function loadRunReport(testRunId: number) {
+  reportLoading.value = true
+
+  try {
+    const report = await getTestRunReport(testRunId)
+    runReport.value = report
+
+    if (!report) {
+      reportArtifacts.value = []
+      return
+    }
+
+    const artifacts = await listReportArtifacts(report.id)
+    reportArtifacts.value = artifacts
+    await warmupReportArtifactMedia(artifacts)
+  } finally {
+    reportLoading.value = false
+  }
+}
+
+async function loadRunDetail(options: { silent?: boolean } = {}) {
+  if (!options.silent || runDetail.value === null) {
+    loading.value = true
+  }
+
   try {
     const testRunId = Number(route.params.testRunId)
     const payload = await getRunDetail(testRunId)
+    const nextSelectedCaseRunId =
+      selectedCaseRunId.value !== null &&
+      payload.caseRuns.some((item) => item.id === selectedCaseRunId.value)
+        ? selectedCaseRunId.value
+        : payload.caseRuns[0]?.id ?? null
+
     runDetail.value = payload
-    selectedCaseRunId.value = payload.caseRuns[0]?.id ?? null
+    selectedCaseRunId.value = nextSelectedCaseRunId
+
+    await Promise.all([
+      warmupCurrentCaseMedia(
+        payload.caseRuns.find((item) => item.id === nextSelectedCaseRunId) ?? null
+      ),
+      loadRunReport(testRunId)
+    ])
+
+    if (shouldPollRunDetail(payload)) {
+      scheduleRunDetailRefresh()
+      return
+    }
+
+    clearPollTimer()
   } finally {
-    loading.value = false
+    if (!options.silent || runDetail.value === null) {
+      loading.value = false
+    }
   }
+}
+
+async function downloadMedia(mediaObjectId: number) {
+  try {
+    await ensureMediaLoaded(mediaObjectId)
+    const url = mediaPreviewMap.value[mediaObjectId]
+    const media = mediaObjectMap.value[mediaObjectId]
+    if (!url || !media) {
+      ElMessage.error('当前媒体尚未加载完成。')
+      return
+    }
+
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download = media.fileName
+    anchor.click()
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '下载失败，请稍后重试。')
+  }
+}
+
+function selectCaseRun(caseRun: CaseRun) {
+  selectedCaseRunId.value = caseRun.id
 }
 
 watch(
   () => route.params.testRunId,
   () => {
+    clearPollTimer()
     void loadRunDetail()
   }
 )
+
+watch(currentCaseRun, async (caseRun) => {
+  await warmupCurrentCaseMedia(caseRun)
+})
 
 onMounted(async () => {
   await loadRunDetail()
 })
 
-function selectCaseRun(caseRun: CaseRun) {
-  selectedCaseRunId.value = caseRun.id
-}
+onBeforeUnmount(() => {
+  clearPollTimer()
+  revokePreviewUrls()
+})
 </script>
 
 <template>
@@ -103,39 +326,143 @@ function selectCaseRun(caseRun: CaseRun) {
 
         <div class="grid grid-cols-4 gap-4">
           <div class="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-            <p class="m-0 text-sm text-slate-500">
-              套件
-            </p>
-            <p class="mb-0 mt-3 text-lg font-semibold text-slate-900">
-              {{ runDetail.suiteName }}
-            </p>
+            <p class="m-0 text-sm text-slate-500">套件</p>
+            <p class="mb-0 mt-3 text-lg font-semibold text-slate-900">{{ runDetail.suiteName }}</p>
           </div>
           <div class="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-            <p class="m-0 text-sm text-slate-500">
-              环境
-            </p>
-            <p class="mb-0 mt-3 text-lg font-semibold text-slate-900">
-              {{ runDetail.environmentName }}
-            </p>
+            <p class="m-0 text-sm text-slate-500">环境</p>
+            <p class="mb-0 mt-3 text-lg font-semibold text-slate-900">{{ runDetail.environmentName }}</p>
           </div>
           <div class="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-            <p class="m-0 text-sm text-slate-500">
-              设备
-            </p>
-            <p class="mb-0 mt-3 text-lg font-semibold text-slate-900">
-              {{ runDetail.deviceName }}
-            </p>
+            <p class="m-0 text-sm text-slate-500">设备</p>
+            <p class="mb-0 mt-3 text-lg font-semibold text-slate-900">{{ runDetail.deviceName }}</p>
           </div>
           <div class="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-            <p class="m-0 text-sm text-slate-500">
-              创建时间
-            </p>
+            <p class="m-0 text-sm text-slate-500">创建时间</p>
             <p class="mb-0 mt-3 text-lg font-semibold text-slate-900">
               {{ formatDateTime(runDetail.createdAt) }}
             </p>
           </div>
         </div>
       </div>
+    </SectionCard>
+
+    <SectionCard
+      description="展示执行报告摘要与报告产物，支持截图预览和下载。"
+      title="执行报告"
+    >
+      <div
+        v-if="reportLoading"
+        class="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-500"
+      >
+        正在加载执行报告...
+      </div>
+
+      <div
+        v-else-if="runReport"
+        class="space-y-6"
+      >
+        <div class="grid grid-cols-4 gap-4">
+          <div class="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+            <p class="m-0 text-sm text-slate-500">报告状态</p>
+            <div class="mt-3">
+              <StatusTag :status="runReport.status" />
+            </div>
+          </div>
+          <div class="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+            <p class="m-0 text-sm text-slate-500">报告 ID</p>
+            <p class="mb-0 mt-3 text-lg font-semibold text-slate-900">#{{ runReport.id }}</p>
+          </div>
+          <div class="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+            <p class="m-0 text-sm text-slate-500">生成时间</p>
+            <p class="mb-0 mt-3 text-lg font-semibold text-slate-900">
+              {{ formatDateTime(runReport.generatedAt) }}
+            </p>
+          </div>
+          <div class="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+            <p class="m-0 text-sm text-slate-500">产物数</p>
+            <p class="mb-0 mt-3 text-lg font-semibold text-slate-900">{{ reportArtifacts.length }}</p>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-4">
+          <div
+            v-for="[key, value] in reportSummaryEntries"
+            :key="key"
+            class="rounded-2xl border border-slate-200 bg-slate-50 p-4"
+          >
+            <p class="m-0 text-sm text-slate-500">{{ key }}</p>
+            <p class="mb-0 mt-3 text-sm font-medium text-slate-900 break-all">
+              {{ typeof value === 'object' ? JSON.stringify(value) : String(value) }}
+            </p>
+          </div>
+        </div>
+
+        <div>
+          <h4 class="mb-4 mt-0 text-base font-semibold text-slate-900">报告产物</h4>
+          <div
+            v-if="reportArtifacts.length > 0"
+            class="grid grid-cols-3 gap-4"
+          >
+            <div
+              v-for="artifact in reportArtifacts"
+              :key="artifact.id"
+              class="rounded-2xl border border-slate-200 bg-slate-50 p-4"
+            >
+              <div class="mb-3 flex items-center justify-between">
+                <p class="m-0 font-medium text-slate-900">
+                  {{ artifact.artifactType }}
+                </p>
+                <p class="m-0 text-xs text-slate-400">
+                  #{{ artifact.id }}
+                </p>
+              </div>
+
+              <img
+                v-if="artifact.mediaObjectId && mediaPreviewMap[artifact.mediaObjectId]"
+                :src="mediaPreviewMap[artifact.mediaObjectId]"
+                class="mb-3 h-40 w-full rounded-xl border border-slate-200 object-cover"
+                :alt="artifact.artifactType"
+              />
+
+              <div
+                v-else
+                class="mb-3 flex h-40 items-center justify-center rounded-xl border border-dashed border-slate-300 bg-white text-sm text-slate-400"
+              >
+                {{ artifact.mediaObjectId && mediaLoadingMap[artifact.mediaObjectId] ? '媒体加载中...' : '暂无可预览图片' }}
+              </div>
+
+              <p class="mb-2 mt-0 text-xs text-slate-500">
+                生成时间：{{ formatDateTime(artifact.createdAt) }}
+              </p>
+              <p
+                v-if="artifact.artifactUrl"
+                class="mb-0 text-xs break-all text-slate-400"
+              >
+                路径：{{ artifact.artifactUrl }}
+              </p>
+              <el-button
+                v-if="artifact.mediaObjectId"
+                class="!mt-3 !w-full"
+                plain
+                @click="void downloadMedia(artifact.mediaObjectId)"
+              >
+                下载产物
+              </el-button>
+            </div>
+          </div>
+
+          <el-empty
+            v-else
+            description="当前执行尚未生成报告产物"
+          />
+        </div>
+      </div>
+
+      <el-empty
+        v-else
+        description="当前执行尚未生成报告"
+      />
     </SectionCard>
 
     <div class="grid grid-cols-[440px_minmax(0,1fr)] gap-6">
@@ -150,29 +477,18 @@ function selectCaseRun(caseRun: CaseRun) {
           stripe
           @row-click="selectCaseRun"
         >
-          <el-table-column
-            label="用例名称"
-            min-width="220"
-            prop="name"
-          />
-          <el-table-column
-            label="状态"
-            width="110"
-          >
+          <el-table-column label="用例名称" min-width="220" prop="name" />
+          <el-table-column label="状态" width="110">
             <template #default="{ row }">
               <StatusTag :status="row.status" />
             </template>
           </el-table-column>
-          <el-table-column
-            label="Diff"
-            prop="diffCount"
-            width="90"
-          />
+          <el-table-column label="Diff" prop="diffCount" width="90" />
         </el-table>
       </SectionCard>
 
       <SectionCard
-        description="step-results 展示真实执行步骤；若用例含 `component_call`，这里会展示展开后的线性执行序列。"
+        description="step-results 展示真实执行步骤，并补充截图、Diff 图和下载入口。"
         title="真实步骤结果"
       >
         <div
@@ -214,9 +530,52 @@ function selectCaseRun(caseRun: CaseRun) {
                 <p class="mb-0 mt-2 text-xs text-slate-400">
                   类型：{{ step.type }} · 耗时：{{ step.durationMs ?? 0 }} ms
                 </p>
+
+                <div
+                  v-if="getStepMediaEntries(step).length > 0"
+                  class="mt-4 grid grid-cols-3 gap-3"
+                >
+                  <div
+                    v-for="entry in getStepMediaEntries(step)"
+                    :key="`${step.id}-${entry.label}`"
+                    class="rounded-2xl border border-slate-200 bg-slate-50 p-3"
+                  >
+                    <p class="m-0 text-sm font-medium text-slate-900">
+                      {{ entry.label }}
+                    </p>
+
+                    <img
+                      v-if="mediaPreviewMap[entry.mediaObjectId]"
+                      :src="mediaPreviewMap[entry.mediaObjectId]"
+                      :alt="entry.label"
+                      class="mt-3 h-36 w-full rounded-xl border border-slate-200 object-cover"
+                    />
+
+                    <div
+                      v-else
+                      class="mt-3 flex h-36 items-center justify-center rounded-xl border border-dashed border-slate-300 bg-white text-sm text-slate-400"
+                    >
+                      {{ mediaLoadingMap[entry.mediaObjectId] ? '媒体加载中...' : (mediaErrorMap[entry.mediaObjectId] || '暂无预览') }}
+                    </div>
+
+                    <div class="mt-3 flex items-center justify-between gap-2">
+                      <p class="m-0 text-xs text-slate-400">
+                        media #{{ entry.mediaObjectId }}
+                      </p>
+                      <el-button
+                        link
+                        type="primary"
+                        @click="void downloadMedia(entry.mediaObjectId)"
+                      >
+                        下载
+                      </el-button>
+                    </div>
+                  </div>
+                </div>
+
                 <p
-                  v-if="step.artifactLabel"
-                  class="mb-0 mt-2 text-xs uppercase tracking-wide text-slate-400"
+                  v-else-if="step.artifactLabel"
+                  class="mb-0 mt-3 text-xs uppercase tracking-wide text-slate-400"
                 >
                   artifact: {{ step.artifactLabel }}
                 </p>

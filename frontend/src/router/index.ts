@@ -1,4 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router'
+import { ApiError } from '@/api/client'
 import AppShell from '@/layouts/AppShell.vue'
 import { pinia } from '@/stores/pinia'
 import { useAuthStore } from '@/stores/auth'
@@ -141,6 +142,32 @@ router.beforeEach(async (to) => {
   const isPublicRoute = Boolean(to.meta.public)
   const requiresWorkspace = to.meta.requiresWorkspace !== false
 
+  if (to.path === '/login') {
+    if (!authStore.isAuthenticated) {
+      return true
+    }
+
+    if (workspaceStore.workspaces.length === 0) {
+      try {
+        await workspaceStore.bootstrap()
+      } catch (error) {
+        const isUnauthorized =
+          error instanceof ApiError &&
+          (error.statusCode === 401 || error.statusCode === 403)
+
+        if (!isUnauthorized) {
+          throw error
+        }
+
+        authStore.clearSession()
+        workspaceStore.reset()
+        return true
+      }
+    }
+
+    return workspaceStore.hasWorkspace ? '/dashboard' : '/workspace-empty'
+  }
+
   if (!isPublicRoute && !authStore.isAuthenticated) {
     return {
       path: '/login',
@@ -150,12 +177,27 @@ router.beforeEach(async (to) => {
     }
   }
 
-  if (authStore.isAuthenticated && workspaceStore.workspaces.length === 0) {
-    await workspaceStore.bootstrap()
-  }
+  if (!isPublicRoute && authStore.isAuthenticated && workspaceStore.workspaces.length === 0) {
+    try {
+      await workspaceStore.bootstrap()
+    } catch (error) {
+      const isUnauthorized =
+        error instanceof ApiError &&
+        (error.statusCode === 401 || error.statusCode === 403)
 
-  if (to.path === '/login' && authStore.isAuthenticated) {
-    return workspaceStore.hasWorkspace ? '/dashboard' : '/workspace-empty'
+      if (!isUnauthorized) {
+        throw error
+      }
+
+      authStore.clearSession()
+      workspaceStore.reset()
+      return {
+        path: '/login',
+        query: {
+          redirect: to.fullPath
+        }
+      }
+    }
   }
 
   if (authStore.isAuthenticated && !workspaceStore.hasWorkspace && requiresWorkspace) {

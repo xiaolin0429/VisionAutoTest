@@ -44,8 +44,9 @@ export async function listWorkspaces(): Promise<Workspace[]> {
         status: item.status,
         memberCount: members.length,
         role:
-          currentMember?.workspace_role ??
-          (item.owner_user_id === currentUserId ? 'workspace_admin' : 'workspace_member'),
+          item.owner_user_id === currentUserId
+            ? 'workspace_admin'
+            : currentMember?.workspace_role ?? 'workspace_member',
         createdAt: item.created_at,
         updatedAt: item.updated_at
       }

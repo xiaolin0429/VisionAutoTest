@@ -1,14 +1,16 @@
-import { requestData, requestPage } from '@/api/client'
+import { ApiError, requestData, requestPage } from '@/api/client'
 import type {
   DeviceProfileReadDTO,
   EnvironmentProfileReadDTO,
+  ReportArtifactReadDTO,
+  RunReportReadDTO,
   StepResultReadDTO,
   TestCaseReadDTO,
   TestCaseRunReadDTO,
   TestRunReadDTO,
   TestSuiteReadDTO
 } from '@/types/backend'
-import type { RunDetail, TestRun } from '@/types/models'
+import type { ReportArtifact, RunDetail, RunReport, TestRun } from '@/types/models'
 
 function createLookupMap<T extends { id: number }>(items: T[]) {
   return new Map(items.map((item) => [item.id, item]))
@@ -213,4 +215,52 @@ export async function getRunDetail(testRunId: number): Promise<RunDetail> {
     },
     caseRuns: caseRunsWithSteps
   }
+}
+
+function mapRunReport(item: RunReportReadDTO): RunReport {
+  return {
+    id: item.id,
+    testRunId: item.test_run_id,
+    status: item.summary_status,
+    summaryJson: item.summary_json,
+    generatedAt: item.generated_at,
+    createdAt: item.created_at
+  }
+}
+
+function mapReportArtifact(item: ReportArtifactReadDTO): ReportArtifact {
+  return {
+    id: item.id,
+    reportId: item.report_id,
+    artifactType: item.artifact_type,
+    mediaObjectId: item.media_object_id,
+    artifactUrl: item.artifact_url,
+    createdAt: item.created_at
+  }
+}
+
+export async function getTestRunReport(testRunId: number): Promise<RunReport | null> {
+  try {
+    const response = await requestData<RunReportReadDTO>({
+      method: 'get',
+      url: `/test-runs/${testRunId}/report`
+    })
+
+    return mapRunReport(response)
+  } catch (error) {
+    if (error instanceof ApiError && error.code === 'REPORT_NOT_FOUND') {
+      return null
+    }
+
+    throw error
+  }
+}
+
+export async function listReportArtifacts(reportId: number): Promise<ReportArtifact[]> {
+  const response = await requestData<ReportArtifactReadDTO[]>({
+    method: 'get',
+    url: `/reports/${reportId}/artifacts`
+  })
+
+  return response.map(mapReportArtifact)
 }
