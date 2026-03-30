@@ -107,7 +107,7 @@
 - 空套件不允许创建执行批次；套件至少需要包含 1 个可执行用例。
 - `component_call` 步骤在执行时会展开为组件内部的真实执行步骤；`step-results` 返回展开后的线性步骤结果。
 - 步骤执行结果中的 `failed` 表示断言不通过；`error` 表示依赖缺失、载荷非法或运行时异常。
-- `wait/click/input/component_call` 不产出 `failed`，仅可能为 `passed` 或 `error`。
+- `wait/click/input/navigate/scroll/long_press/component_call` 不产出 `failed`，仅可能为 `passed` 或 `error`。
 - 用例执行实例和步骤结果为执行流水，不允许逻辑删除。
 - 报告为执行结果快照，应与执行批次一一对应。
 - 大文件证据链通过 `artifact_url` 或对象存储键返回，不直接内联在响应中。

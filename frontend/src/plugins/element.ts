@@ -9,6 +9,7 @@ import {
 } from '@element-plus/icons-vue'
 import {
   ElCheckbox,
+  ElCol,
   ElAvatar,
   ElButton,
   ElDialog,
@@ -22,6 +23,8 @@ import {
   ElMenu,
   ElMenuItem,
   ElOption,
+  ElRow,
+  ElScrollbar,
   ElSelect,
   ElSwitch,
   ElTable,
@@ -34,6 +37,7 @@ import {
 import 'element-plus/es/components/avatar/style/css'
 import 'element-plus/es/components/button/style/css'
 import 'element-plus/es/components/checkbox/style/css'
+import 'element-plus/es/components/col/style/css'
 import 'element-plus/es/components/dialog/style/css'
 import 'element-plus/es/components/empty/style/css'
 import 'element-plus/es/components/form/style/css'
@@ -45,6 +49,8 @@ import 'element-plus/es/components/loading/style/css'
 import 'element-plus/es/components/menu/style/css'
 import 'element-plus/es/components/menu-item/style/css'
 import 'element-plus/es/components/option/style/css'
+import 'element-plus/es/components/row/style/css'
+import 'element-plus/es/components/scrollbar/style/css'
 import 'element-plus/es/components/select/style/css'
 import 'element-plus/es/components/switch/style/css'
 import 'element-plus/es/components/table/style/css'
@@ -57,6 +63,7 @@ const components: Plugin[] = [
   ElAvatar,
   ElButton,
   ElCheckbox,
+  ElCol,
   ElDialog,
   ElEmpty,
   ElForm,
@@ -67,6 +74,8 @@ const components: Plugin[] = [
   ElMenu,
   ElMenuItem,
   ElOption,
+  ElRow,
+  ElScrollbar,
   ElSelect,
   ElSwitch,
   ElTable,

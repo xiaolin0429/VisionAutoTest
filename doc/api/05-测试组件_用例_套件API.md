@@ -116,6 +116,9 @@
   - `wait`：`payload_json.ms`
   - `click`：`payload_json.selector`
   - `input`：`payload_json.selector`、`payload_json.text`
+  - `navigate`：`payload_json.url`、可选 `payload_json.wait_until`
+  - `scroll`：`payload_json.target`、可选 `payload_json.selector`、`payload_json.direction`、`payload_json.distance`、可选 `payload_json.behavior`
+  - `long_press`：`payload_json.selector`、`payload_json.duration_ms`、可选 `payload_json.button`
   - `template_assert`：`template_id`、可选 `payload_json.threshold`
   - `ocr_assert`：`payload_json.selector`、`payload_json.expected_text`、可选 `payload_json.match_mode`、`payload_json.case_sensitive`
 - `component_call` 为编排步骤，不直接映射浏览器动作；执行时会按组件步骤明细展开成真实执行序列。

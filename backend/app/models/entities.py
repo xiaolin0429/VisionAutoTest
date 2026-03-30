@@ -279,6 +279,8 @@ class ComponentStep(Base, TimestampMixin):
     step_name: Mapped[str] = mapped_column(String(128), nullable=False)
     template_id: Mapped[int | None] = mapped_column(ForeignKey("asset_templates.id"), nullable=True)
     payload_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    timeout_ms: Mapped[int] = mapped_column(Integer, default=15000, nullable=False)
+    retry_times: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 
 
 class TestCase(Base, AuditMixin):

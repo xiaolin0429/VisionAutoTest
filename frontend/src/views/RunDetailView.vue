@@ -238,11 +238,17 @@ async function loadRunDetail(options: { silent?: boolean } = {}) {
   try {
     const testRunId = Number(route.params.testRunId)
     const payload = await getRunDetail(testRunId)
+
+    // 优化：优先选择第一个失败或异常的用例
+    const failedCaseRun = payload.caseRuns.find((item) =>
+      item.status === 'failed' || item.status === 'error'
+    )
+
     const nextSelectedCaseRunId =
       selectedCaseRunId.value !== null &&
       payload.caseRuns.some((item) => item.id === selectedCaseRunId.value)
         ? selectedCaseRunId.value
-        : payload.caseRuns[0]?.id ?? null
+        : failedCaseRun?.id ?? payload.caseRuns[0]?.id ?? null
 
     runDetail.value = payload
     selectedCaseRunId.value = nextSelectedCaseRunId
@@ -471,9 +477,15 @@ onBeforeUnmount(() => {
                 <p class="m-0 font-medium text-slate-900">
                   {{ artifact.artifactType }}
                 </p>
-                <p class="m-0 text-xs text-slate-400">
-                  #{{ artifact.id }}
-                </p>
+                <el-button
+                  v-if="artifact.mediaObjectId"
+                  link
+                  size="small"
+                  type="primary"
+                  @click="void downloadMedia(artifact.mediaObjectId)"
+                >
+                  下载
+                </el-button>
               </div>
 
               <img
@@ -490,35 +502,34 @@ onBeforeUnmount(() => {
                 {{ artifact.mediaObjectId && mediaLoadingMap[artifact.mediaObjectId] ? '媒体加载中...' : '暂无可预览图片' }}
               </div>
 
-              <p class="mb-2 mt-0 text-xs text-slate-500">
-                生成时间：{{ formatDateTime(artifact.createdAt) }}
-              </p>
-              <p
-                v-if="artifact.caseRunId !== null"
-                class="mb-0 text-xs text-slate-500"
-              >
-                case-run #{{ artifact.caseRunId }}
-              </p>
-              <p
-                v-if="artifact.stepResultId !== null"
-                class="mb-0 mt-1 text-xs text-slate-500"
-              >
-                step-result #{{ artifact.stepResultId }}
-              </p>
-              <p
-                v-if="artifact.artifactUrl"
-                class="mb-0 mt-2 text-xs break-all text-slate-400"
-              >
-                路径：{{ artifact.artifactUrl }}
-              </p>
-              <el-button
-                v-if="artifact.mediaObjectId"
-                class="!mt-3 !w-full"
-                plain
-                @click="void downloadMedia(artifact.mediaObjectId)"
-              >
-                下载产物
-              </el-button>
+              <div class="space-y-2">
+                <div class="rounded-lg bg-white p-2 border border-slate-200">
+                  <p class="m-0 text-xs text-slate-500">
+                    <span class="font-medium">产物来源</span>
+                  </p>
+                  <p
+                    v-if="artifact.caseRunId !== null"
+                    class="mb-0 mt-1 text-xs text-slate-700"
+                  >
+                    用例执行：case-run #{{ artifact.caseRunId }}
+                  </p>
+                  <p
+                    v-if="artifact.stepResultId !== null"
+                    class="mb-0 mt-1 text-xs text-slate-700"
+                  >
+                    步骤结果：step-result #{{ artifact.stepResultId }}
+                  </p>
+                  <p
+                    v-if="artifact.mediaObjectId !== null"
+                    class="mb-0 mt-1 text-xs text-slate-400"
+                  >
+                    媒体对象：#{{ artifact.mediaObjectId }}
+                  </p>
+                </div>
+                <p class="mb-0 text-xs text-slate-400">
+                  生成时间：{{ formatDateTime(artifact.createdAt) }}
+                </p>
+              </div>
             </div>
           </div>
 
@@ -603,42 +614,46 @@ onBeforeUnmount(() => {
 
                 <div
                   v-if="getStepMediaEntries(step).length > 0"
-                  class="mt-4 grid grid-cols-3 gap-3"
+                  class="mt-4"
                 >
-                  <div
-                    v-for="entry in getStepMediaEntries(step)"
-                    :key="`${step.id}-${entry.label}`"
-                    class="rounded-2xl border border-slate-200 bg-slate-50 p-3"
-                  >
-                    <p class="m-0 text-sm font-medium text-slate-900">
-                      {{ entry.label }}
-                    </p>
-
-                    <img
-                      v-if="mediaPreviewMap[entry.mediaObjectId]"
-                      :src="mediaPreviewMap[entry.mediaObjectId]"
-                      :alt="entry.label"
-                      class="mt-3 h-36 w-full rounded-xl border border-slate-200 object-cover"
-                    />
-
+                  <p class="mb-3 text-sm font-medium text-slate-700">图片对照</p>
+                  <div class="grid grid-cols-3 gap-3">
                     <div
-                      v-else
-                      class="mt-3 flex h-36 items-center justify-center rounded-xl border border-dashed border-slate-300 bg-white text-sm text-slate-400"
+                      v-for="entry in getStepMediaEntries(step)"
+                      :key="`${step.id}-${entry.label}`"
+                      class="rounded-2xl border border-slate-200 bg-slate-50 p-3"
                     >
-                      {{ mediaLoadingMap[entry.mediaObjectId] ? '媒体加载中...' : (mediaErrorMap[entry.mediaObjectId] || '暂无预览') }}
-                    </div>
+                      <div class="mb-2 flex items-center justify-between">
+                        <p class="m-0 text-sm font-medium text-slate-900">
+                          {{ entry.label }}
+                        </p>
+                        <el-button
+                          link
+                          size="small"
+                          type="primary"
+                          @click="void downloadMedia(entry.mediaObjectId)"
+                        >
+                          下载
+                        </el-button>
+                      </div>
 
-                    <div class="mt-3 flex items-center justify-between gap-2">
-                      <p class="m-0 text-xs text-slate-400">
+                      <img
+                        v-if="mediaPreviewMap[entry.mediaObjectId]"
+                        :src="mediaPreviewMap[entry.mediaObjectId]"
+                        :alt="entry.label"
+                        class="h-48 w-full rounded-xl border border-slate-200 object-contain bg-white"
+                      />
+
+                      <div
+                        v-else
+                        class="flex h-48 items-center justify-center rounded-xl border border-dashed border-slate-300 bg-white text-sm text-slate-400"
+                      >
+                        {{ mediaLoadingMap[entry.mediaObjectId] ? '加载中...' : (mediaErrorMap[entry.mediaObjectId] || '暂无预览') }}
+                      </div>
+
+                      <p class="mb-0 mt-2 text-xs text-slate-400">
                         media #{{ entry.mediaObjectId }}
                       </p>
-                      <el-button
-                        link
-                        type="primary"
-                        @click="void downloadMedia(entry.mediaObjectId)"
-                      >
-                        下载
-                      </el-button>
                     </div>
                   </div>
                 </div>

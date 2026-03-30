@@ -1,15 +1,28 @@
-frontend/node_modules
-frontend/dist
+# OS and filesystem noise
 .DS_Store
-/.playwright-cli/
-/.data/visionautotest.db
-/.data/
-/.idea/
-/.codex/config.toml
+Thumbs.db
+
+# Local workspace metadata
+.idea/
+.lingma/
+.playwright-cli/
+.pytest_cache/
+
+# Codex local state
+.codex/config.toml
+.codex/environments/
+
+# Shared local environment files
 .env
 .env.*
 !.env.example
 !.env.sample
-.lingma/
-.codex/environments/environment.toml
-./output
+.envrc
+.python-version
+*.local
+
+# Shared local data and generated outputs
+.data/
+.venv/
+venv/
+output/
