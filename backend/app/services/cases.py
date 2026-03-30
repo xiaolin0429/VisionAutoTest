@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from urllib.parse import urlparse
+
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
@@ -17,6 +19,12 @@ from app.models import (
 )
 from app.services.assets import SUPPORTED_TEMPLATE_MATCH_STRATEGIES
 from app.services.helpers import apply_keyword, count_total, require_workspace_access, validate_ordered_sequence
+
+SUPPORTED_NAVIGATE_WAIT_UNTIL = {"load", "domcontentloaded", "networkidle"}
+SUPPORTED_SCROLL_TARGETS = {"page", "element"}
+SUPPORTED_SCROLL_DIRECTIONS = {"up", "down", "left", "right"}
+SUPPORTED_SCROLL_BEHAVIORS = {"auto", "smooth"}
+SUPPORTED_LONG_PRESS_BUTTONS = {"left"}
 
 
 def _published_at_for_status(status: str, current_published_at=None):
@@ -103,6 +111,8 @@ def replace_component_steps(db: Session, *, user: User, component: Component, st
                 step_name=item["step_name"],
                 template_id=item.get("template_id"),
                 payload_json=item.get("payload_json", {}),
+                timeout_ms=item.get("timeout_ms", 15000),
+                retry_times=item.get("retry_times", 0),
             )
         )
     db.commit()
@@ -357,3 +367,83 @@ def _validate_step_payload(db: Session, *, workspace_id: int, item: dict, allow_
         case_sensitive = payload.get("case_sensitive")
         if case_sensitive is not None and not isinstance(case_sensitive, bool):
             raise ApiError(code="STEP_CONFIGURATION_INVALID", message="ocr_assert case_sensitive must be boolean.", status_code=422)
+        return
+
+    if step_type == "navigate":
+        _validate_navigate_payload(payload)
+        return
+
+    if step_type == "scroll":
+        _validate_scroll_payload(payload)
+        return
+
+    if step_type == "long_press":
+        _validate_long_press_payload(payload)
+
+
+def _validate_navigate_payload(payload: dict) -> None:
+    url = payload.get("url")
+    if not isinstance(url, str) or not url.strip():
+        raise ApiError(code="STEP_CONFIGURATION_INVALID", message="navigate step requires payload_json.url.", status_code=422)
+    parsed_url = urlparse(url)
+    if parsed_url.scheme:
+        if parsed_url.scheme not in {"http", "https"}:
+            raise ApiError(
+                code="STEP_CONFIGURATION_INVALID",
+                message="navigate url must be an absolute http/https URL or a path starting with `/`.",
+                status_code=422,
+            )
+    elif not url.startswith("/"):
+        raise ApiError(
+            code="STEP_CONFIGURATION_INVALID",
+            message="navigate url must be an absolute http/https URL or a path starting with `/`.",
+            status_code=422,
+        )
+
+    wait_until = payload.get("wait_until")
+    if wait_until is not None and wait_until not in SUPPORTED_NAVIGATE_WAIT_UNTIL:
+        raise ApiError(
+            code="STEP_CONFIGURATION_INVALID",
+            message="navigate wait_until must be `load`, `domcontentloaded`, or `networkidle`.",
+            status_code=422,
+        )
+
+
+def _validate_scroll_payload(payload: dict) -> None:
+    target = payload.get("target")
+    if target not in SUPPORTED_SCROLL_TARGETS:
+        raise ApiError(code="STEP_CONFIGURATION_INVALID", message="scroll target must be `page` or `element`.", status_code=422)
+
+    selector = payload.get("selector")
+    if target == "element" and (not isinstance(selector, str) or not selector.strip()):
+        raise ApiError(code="STEP_CONFIGURATION_INVALID", message="scroll step requires payload_json.selector when target is `element`.", status_code=422)
+
+    direction = payload.get("direction")
+    if direction not in SUPPORTED_SCROLL_DIRECTIONS:
+        raise ApiError(
+            code="STEP_CONFIGURATION_INVALID",
+            message="scroll direction must be `up`, `down`, `left`, or `right`.",
+            status_code=422,
+        )
+
+    distance = payload.get("distance")
+    if isinstance(distance, bool) or not isinstance(distance, (int, float)) or float(distance) <= 0:
+        raise ApiError(code="STEP_CONFIGURATION_INVALID", message="scroll distance must be a numeric value greater than 0.", status_code=422)
+
+    behavior = payload.get("behavior")
+    if behavior is not None and behavior not in SUPPORTED_SCROLL_BEHAVIORS:
+        raise ApiError(code="STEP_CONFIGURATION_INVALID", message="scroll behavior must be `auto` or `smooth`.", status_code=422)
+
+
+def _validate_long_press_payload(payload: dict) -> None:
+    selector = payload.get("selector")
+    if not isinstance(selector, str) or not selector.strip():
+        raise ApiError(code="STEP_CONFIGURATION_INVALID", message="long_press step requires payload_json.selector.", status_code=422)
+
+    duration_ms = payload.get("duration_ms")
+    if isinstance(duration_ms, bool) or not isinstance(duration_ms, (int, float)) or float(duration_ms) <= 0:
+        raise ApiError(code="STEP_CONFIGURATION_INVALID", message="long_press duration_ms must be a numeric value greater than 0.", status_code=422)
+
+    button = payload.get("button")
+    if button is not None and button not in SUPPORTED_LONG_PRESS_BUTTONS:
+        raise ApiError(code="STEP_CONFIGURATION_INVALID", message="long_press button currently only supports `left`.", status_code=422)

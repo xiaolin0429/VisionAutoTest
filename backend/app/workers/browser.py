@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
 from typing import Protocol, Sequence
+from urllib.parse import urljoin, urlparse
 
 from app.core.config import get_settings
 from app.models import DeviceProfile, utc_now
@@ -122,6 +123,7 @@ class PlaywrightBrowserExecutionAdapter:
                     try:
                         outcome = self._execute_step(
                             page,
+                            base_url=base_url,
                             step=step,
                             case_run_id=case_run_id,
                             template_contexts=template_contexts,
@@ -242,6 +244,7 @@ class PlaywrightBrowserExecutionAdapter:
         self,
         page,
         *,
+        base_url: str,
         step: BrowserStep,
         case_run_id: int,
         template_contexts: dict[int, TemplateAssertionContext],
@@ -263,6 +266,12 @@ class PlaywrightBrowserExecutionAdapter:
             text = self._payload_str(payload, "text")
             page.locator(selector).fill(text, timeout=timeout_ms)
             return StepExecutionOutcome(status="passed", score_value=1.0)
+        if step.step_type == "navigate":
+            return self._execute_navigate(page, step=step, base_url=base_url, timeout_ms=timeout_ms)
+        if step.step_type == "scroll":
+            return self._execute_scroll(page, step=step, timeout_ms=timeout_ms)
+        if step.step_type == "long_press":
+            return self._execute_long_press(page, step=step, timeout_ms=timeout_ms)
         if step.step_type == "template_assert":
             return self._execute_template_assert(
                 page,
@@ -273,6 +282,96 @@ class PlaywrightBrowserExecutionAdapter:
         if step.step_type == "ocr_assert":
             return self._execute_ocr_assert(page, step=step, case_run_id=case_run_id, timeout_ms=timeout_ms)
         raise UnsupportedStepError(f"Unsupported step type: {step.step_type}")
+
+    def _execute_navigate(self, page, *, step: BrowserStep, base_url: str, timeout_ms: int) -> StepExecutionOutcome:
+        payload = step.payload_json or {}
+        url = self._payload_str(payload, "url")
+        wait_until = payload.get("wait_until", "load")
+        if wait_until not in {"load", "domcontentloaded", "networkidle"}:
+            raise ValueError("navigate `wait_until` must be `load`, `domcontentloaded`, or `networkidle`.")
+        page.goto(self._resolve_navigate_url(base_url, url), wait_until=wait_until, timeout=timeout_ms)
+        return StepExecutionOutcome(status="passed", score_value=1.0)
+
+    def _execute_scroll(self, page, *, step: BrowserStep, timeout_ms: int) -> StepExecutionOutcome:
+        payload = step.payload_json or {}
+        target = self._payload_str(payload, "target")
+        if target not in {"page", "element"}:
+            raise ValueError("scroll `target` must be `page` or `element`.")
+
+        direction = self._payload_str(payload, "direction")
+        distance = self._payload_float(payload, "distance")
+        if distance <= 0:
+            raise ValueError("scroll `distance` must be greater than 0.")
+        behavior = payload.get("behavior", "auto")
+        if behavior not in {"auto", "smooth"}:
+            raise ValueError("scroll `behavior` must be `auto` or `smooth`.")
+
+        delta_x, delta_y = self._scroll_delta(direction, distance)
+        if target == "page":
+            before = page.evaluate(
+                """() => {
+                    const root = document.scrollingElement || document.documentElement;
+                    return { left: root.scrollLeft, top: root.scrollTop };
+                }"""
+            )
+            page.evaluate(
+                """({ left, top, behavior }) => {
+                    const root = document.scrollingElement || document.documentElement;
+                    root.scrollBy({ left, top, behavior });
+                }""",
+                {"left": delta_x, "top": delta_y, "behavior": behavior},
+            )
+            self._settle_scroll(page, behavior)
+            after = page.evaluate(
+                """() => {
+                    const root = document.scrollingElement || document.documentElement;
+                    return { left: root.scrollLeft, top: root.scrollTop };
+                }"""
+            )
+            if before == after:
+                raise RuntimeError("Page scroll did not move; ensure the page can scroll in the requested direction.")
+            return StepExecutionOutcome(status="passed", score_value=1.0)
+
+        selector = self._payload_str(payload, "selector")
+        locator = page.locator(selector)
+        locator.wait_for(state="visible", timeout=timeout_ms)
+        before = locator.evaluate("element => ({ left: element.scrollLeft, top: element.scrollTop })")
+        locator.evaluate(
+            """(element, args) => {
+                element.scrollBy({ left: args.left, top: args.top, behavior: args.behavior });
+            }""",
+            {"left": delta_x, "top": delta_y, "behavior": behavior},
+        )
+        self._settle_scroll(page, behavior)
+        after = locator.evaluate("element => ({ left: element.scrollLeft, top: element.scrollTop })")
+        if before == after:
+            raise RuntimeError("Element scroll did not move; ensure the target element can scroll in the requested direction.")
+        return StepExecutionOutcome(status="passed", score_value=1.0)
+
+    def _execute_long_press(self, page, *, step: BrowserStep, timeout_ms: int) -> StepExecutionOutcome:
+        payload = step.payload_json or {}
+        selector = self._payload_str(payload, "selector")
+        duration_ms = self._payload_int(payload, "duration_ms")
+        if duration_ms <= 0:
+            raise ValueError("long_press `duration_ms` must be greater than 0.")
+        button = payload.get("button", "left")
+        if button != "left":
+            raise ValueError("long_press `button` currently only supports `left`.")
+
+        locator = page.locator(selector)
+        locator.wait_for(state="visible", timeout=timeout_ms)
+        element = locator.element_handle(timeout=timeout_ms)
+        if element is None:
+            raise RuntimeError("long_press target element was not found.")
+        element.scroll_into_view_if_needed(timeout=timeout_ms)
+        box = element.bounding_box()
+        if box is None or box["width"] <= 0 or box["height"] <= 0:
+            raise RuntimeError("long_press target element has no visible bounding box.")
+        page.mouse.move(box["x"] + (box["width"] / 2), box["y"] + (box["height"] / 2))
+        page.mouse.down(button=button)
+        page.wait_for_timeout(duration_ms)
+        page.mouse.up(button=button)
+        return StepExecutionOutcome(status="passed", score_value=1.0)
 
     def _execute_template_assert(
         self,
@@ -360,6 +459,30 @@ class PlaywrightBrowserExecutionAdapter:
         if not isinstance(value, str) or not value.strip():
             raise ValueError(f"Step payload `{key}` must be a non-empty string.")
         return value
+
+    def _resolve_navigate_url(self, base_url: str, url: str) -> str:
+        if url.startswith("/"):
+            return urljoin(base_url, url)
+        parsed = urlparse(url)
+        if parsed.scheme not in {"http", "https"}:
+            raise ValueError("navigate `url` must be an absolute http/https URL or a path starting with `/`.")
+        return url
+
+    def _scroll_delta(self, direction: str, distance: float) -> tuple[float, float]:
+        if direction == "up":
+            return 0.0, -distance
+        if direction == "down":
+            return 0.0, distance
+        if direction == "left":
+            return -distance, 0.0
+        if direction == "right":
+            return distance, 0.0
+        raise ValueError("scroll `direction` must be `up`, `down`, `left`, or `right`.")
+
+    def _settle_scroll(self, page, behavior: str) -> None:
+        page.wait_for_timeout(50)
+        if behavior == "smooth":
+            page.wait_for_timeout(250)
 
     def _failure_code_for_assertion(self, step_type: str) -> str:
         if step_type == "template_assert":

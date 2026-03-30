@@ -112,6 +112,8 @@ def refresh_session(db: Session, refresh_token: str) -> dict:
         db.commit()
         raise ApiError(code="REFRESH_TOKEN_EXPIRED", message="Refresh token is expired.", status_code=401)
 
+    if session.status == "expired":
+        raise ApiError(code="SESSION_NOT_FOUND", message="Session not found.", status_code=404)
     if session.status != "active":
         raise ApiError(code="SESSION_NOT_FOUND", message="Session not found.", status_code=404)
 

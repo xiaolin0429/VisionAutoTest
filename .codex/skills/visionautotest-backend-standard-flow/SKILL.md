@@ -76,6 +76,7 @@ Use this map to decide where to start and which files to touch.
 - 改执行链路时，优先验证 `test-runs -> case-runs -> step-results -> reports` 主链路。
 - 改工作空间隔离时，必须验证 `Authorization` 与 `X-Workspace-Id` 的联合行为。
 - 改媒体或模板引用时，必须验证引用关系不会破坏删除保护或执行证据链。
+- 每次后端变更都不能只停留在“变更点自测通过”；在变更相关测试通过后，交付前还必须追加一次后端全量回归，默认执行 `cd backend && pytest -q`。
 
 ## Backend Decision Tree
 Use this tree when deciding the first move for a backend task.
@@ -174,9 +175,9 @@ Use this tree when deciding the first move for a backend task.
    - Follow the repository rule that every produced code segment must be self-reviewed before moving on.
 
 7. **Validate before handoff**
-   - Run the narrowest useful verification first.
-   - For backend changes, default to `cd backend && pytest -q`.
-   - If the change is isolated, prefer a narrower test path before broadening.
+   - Run the narrowest useful verification first,先确认改动点本身可用。
+   - After the targeted checks pass, always run a full backend regression before handoff; default to `cd backend && pytest -q`.
+   - If the change is isolated, you may start with a narrower test path, but you must not skip the final full regression.
    - If validation is blocked by environment issues, report the exact blocker and likely impact.
 
 ## Backend Guardrails

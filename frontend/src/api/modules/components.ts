@@ -1,6 +1,7 @@
-import { requestData, requestPage } from '@/api/client'
+import { requestData, requestPage, requestVoid } from '@/api/client'
 import type { ComponentReadDTO, TestCaseStepDTO } from '@/types/backend'
-import type { Component, Step, StepType } from '@/types/models'
+import type { Component, Step, StepType, StepWritePayload } from '@/types/models'
+import { formatStepSummary } from '@/utils/steps'
 
 function mapComponent(item: ComponentReadDTO): Component {
   return {
@@ -17,6 +18,15 @@ function mapComponent(item: ComponentReadDTO): Component {
 }
 
 function mapStep(item: TestCaseStepDTO): Step {
+  const summary = formatStepSummary({
+    type: item.step_type as StepType,
+    payloadJson: item.payload_json,
+    templateId: item.template_id,
+    componentId: item.component_id,
+    timeoutMs: item.timeout_ms,
+    retryTimes: item.retry_times
+  })
+
   return {
     id: item.id,
     stepNo: item.step_no,
@@ -24,8 +34,8 @@ function mapStep(item: TestCaseStepDTO): Step {
     type: item.step_type as StepType,
     templateId: item.template_id,
     componentId: item.component_id,
-    target: '--',
-    note: `超时 ${item.timeout_ms} ms · 重试 ${item.retry_times}`,
+    target: summary.target,
+    note: summary.note,
     payloadJson: item.payload_json,
     timeoutMs: item.timeout_ms,
     retryTimes: item.retry_times
@@ -45,6 +55,48 @@ export async function listComponents(): Promise<Component[]> {
   return response.data.map(mapComponent)
 }
 
+export async function createComponent(payload: {
+  code: string
+  name: string
+  description?: string
+}): Promise<Component> {
+  const response = await requestData<ComponentReadDTO>({
+    method: 'post',
+    url: '/components',
+    data: {
+      component_code: payload.code,
+      component_name: payload.name,
+      description: payload.description
+    }
+  })
+
+  return mapComponent(response)
+}
+
+export async function getComponentDetail(componentId: number): Promise<Component> {
+  const response = await requestData<ComponentReadDTO>({
+    method: 'get',
+    url: `/components/${componentId}`
+  })
+
+  return mapComponent(response)
+}
+
+export async function updateComponent(
+  componentId: number,
+  payload: { name?: string; description?: string; status?: string }
+): Promise<void> {
+  await requestVoid({
+    method: 'patch',
+    url: `/components/${componentId}`,
+    data: {
+      component_name: payload.name,
+      description: payload.description,
+      status: payload.status
+    }
+  })
+}
+
 export async function getComponentSteps(componentId: number): Promise<Step[]> {
   const response = await requestData<TestCaseStepDTO[]>({
     method: 'get',
@@ -52,4 +104,26 @@ export async function getComponentSteps(componentId: number): Promise<Step[]> {
   })
 
   return response.map(mapStep)
+}
+
+export async function replaceComponentSteps(
+  componentId: number,
+  steps: StepWritePayload[]
+): Promise<void> {
+  await requestVoid({
+    method: 'put',
+    url: `/components/${componentId}/steps`,
+    data: {
+      steps: steps.map((step) => ({
+        step_no: step.stepNo,
+        step_type: step.type,
+        step_name: step.name,
+        template_id: step.templateId,
+        component_id: step.componentId,
+        payload_json: step.payloadJson,
+        timeout_ms: step.timeoutMs,
+        retry_times: step.retryTimes
+      }))
+    }
+  })
 }

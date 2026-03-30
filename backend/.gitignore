@@ -1,11 +1,28 @@
+# Local runtime data and generated outputs
 .data/
-__pycache__/
-.pytest_cache/
+.testdata/
+output/
+*.db
+*.sqlite
+*.sqlite3
+*.log
+
+# Python environments and caches
 .venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.pyre/
+.hypothesis/
+.tox/
+.nox/
+.coverage
+.coverage.*
+htmlcov/
 
-/.testdata/
-
-# Local environment and sensitive config
+# Local environment and machine-specific config
 .env
 .env.*
 !.env.example
@@ -24,24 +41,9 @@ __pycache__/
 *.pfx
 secrets/
 
-# Local databases and runtime files
-*.db
-*.sqlite
-*.sqlite3
-*.log
-
 # Python build and packaging artifacts
 *.egg-info/
 .eggs/
 dist/
 build/
 pip-wheel-metadata/
-
-# Tooling and coverage artifacts
-.coverage
-.coverage.*
-htmlcov/
-.mypy_cache/
-.ruff_cache/
-.pyre/
-.hypothesis/

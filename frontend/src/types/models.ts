@@ -158,6 +158,7 @@ export interface Component {
   publishedAt: string | null
   createdAt: string
   updatedAt: string
+  steps?: Step[]
 }
 
 export interface MediaObject {
@@ -272,6 +273,19 @@ export type StepType =
   | 'template_assert'
   | 'ocr_assert'
   | 'component_call'
+  | 'navigate'
+  | 'scroll'
+  | 'long_press'
+
+export type NavigateWaitUntil = 'load' | 'domcontentloaded' | 'networkidle'
+
+export type ScrollTargetType = 'page' | 'element'
+
+export type ScrollDirection = 'up' | 'down' | 'left' | 'right'
+
+export type ScrollBehaviorMode = 'auto' | 'smooth'
+
+export type LongPressButton = 'left'
 
 export type OcrAssertMatchMode = 'exact' | 'contains'
 

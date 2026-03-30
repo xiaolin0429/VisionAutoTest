@@ -15,6 +15,7 @@ const EmptyWorkspaceView = () => import('@/views/EmptyWorkspaceView.vue')
 const DashboardView = () => import('@/views/DashboardView.vue')
 const EnvironmentProfilesView = () => import('@/views/EnvironmentProfilesView.vue')
 const TemplatesView = () => import('@/views/TemplatesView.vue')
+const ComponentsView = () => import('@/views/ComponentsView.vue')
 const TestCasesView = () => import('@/views/TestCasesView.vue')
 const TestSuitesView = () => import('@/views/TestSuitesView.vue')
 const TestRunsView = () => import('@/views/TestRunsView.vue')
@@ -88,6 +89,15 @@ const router = createRouter({
           meta: {
             title: '模板管理',
             description: '查看视觉模板、基准版本与忽略区域比例。'
+          }
+        },
+        {
+          path: '/components',
+          name: 'components',
+          component: ComponentsView,
+          meta: {
+            title: '组件管理',
+            description: '维护可复用组件及其步骤编排。'
           }
         },
         {

@@ -6,6 +6,7 @@ import sys
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
+from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 
@@ -17,6 +18,126 @@ TINY_PNG_BYTES = base64.b64decode(
 ACTUAL_ARTIFACT_BYTES = TINY_PNG_BYTES + b"-actual"
 DIFF_ARTIFACT_BYTES = TINY_PNG_BYTES + b"-diff"
 OCR_ARTIFACT_BYTES = TINY_PNG_BYTES + b"-ocr"
+BROWSER_STEPS_HTML = """<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Browser Steps Fixture</title>
+    <style>
+      body {
+        margin: 0;
+        font-family: Arial, sans-serif;
+      }
+      main {
+        width: min(720px, calc(100vw - 32px));
+        margin: 0 auto;
+        padding: 32px 0 96px;
+      }
+      #scroll-container {
+        height: 180px;
+        overflow: auto;
+        border: 1px solid #ccd6e0;
+        border-radius: 16px;
+        padding: 12px;
+      }
+      #scroll-content {
+        width: 820px;
+        height: 520px;
+        position: relative;
+        background: linear-gradient(135deg, rgba(79, 172, 254, 0.18), rgba(20, 33, 61, 0.05));
+      }
+      #element-scroll-target {
+        position: absolute;
+        right: 24px;
+        bottom: 24px;
+        padding: 10px 14px;
+        background: #14213d;
+        color: #fff;
+      }
+      #page-spacer {
+        height: 900px;
+      }
+      #long-press-target {
+        margin-top: 20px;
+        padding: 18px 24px;
+        border: 1px dashed #8193a5;
+        background: #fff;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1 data-testid="fixture-title">Browser Steps Fixture</h1>
+      <div data-testid="navigate-status">Default View</div>
+      <div data-testid="page-scroll-status">Page Not Scrolled</div>
+      <div data-testid="element-scroll-status">Element Not Scrolled</div>
+      <div id="scroll-container" data-testid="scroll-container">
+        <div id="scroll-content">
+          <div id="element-scroll-target" data-testid="element-scroll-target">Element Scroll Target</div>
+        </div>
+      </div>
+      <button id="long-press-target" data-testid="long-press-target" type="button">Press And Hold</button>
+      <div data-testid="press-status">Long Press Idle</div>
+      <div id="page-spacer"></div>
+    </main>
+    <script>
+      const params = new URLSearchParams(window.location.search);
+      const view = params.get("view");
+      const navigateStatus = document.querySelector("[data-testid='navigate-status']");
+      const pageScrollStatus = document.querySelector("[data-testid='page-scroll-status']");
+      const elementScrollStatus = document.querySelector("[data-testid='element-scroll-status']");
+      const scrollContainer = document.querySelector("[data-testid='scroll-container']");
+      const longPressTarget = document.querySelector("[data-testid='long-press-target']");
+      const pressStatus = document.querySelector("[data-testid='press-status']");
+
+      if (view === "details") {
+        navigateStatus.textContent = "Details View";
+      }
+
+      const syncPageScrollStatus = () => {
+        pageScrollStatus.textContent = window.scrollY > 80 ? "Page Scrolled" : "Page Not Scrolled";
+      };
+      window.addEventListener("scroll", syncPageScrollStatus, { passive: true });
+      syncPageScrollStatus();
+
+      scrollContainer.addEventListener("scroll", () => {
+        const moved = scrollContainer.scrollTop > 0 || scrollContainer.scrollLeft > 0;
+        elementScrollStatus.textContent = moved ? "Element Scrolled" : "Element Not Scrolled";
+      });
+
+      let longPressTimer = null;
+      let longPressActive = false;
+      const clearTimer = () => {
+        if (longPressTimer !== null) {
+          window.clearTimeout(longPressTimer);
+          longPressTimer = null;
+        }
+      };
+      const startPress = () => {
+        clearTimer();
+        longPressActive = true;
+        pressStatus.textContent = "Long Press Pending";
+        longPressTimer = window.setTimeout(() => {
+          if (longPressActive) {
+            pressStatus.textContent = "Long Press Activated";
+          }
+        }, 650);
+      };
+      const stopPress = () => {
+        longPressActive = false;
+        clearTimer();
+        if (pressStatus.textContent !== "Long Press Activated") {
+          pressStatus.textContent = "Long Press Idle";
+        }
+      };
+
+      longPressTarget.addEventListener("mousedown", startPress);
+      longPressTarget.addEventListener("mouseup", stopPress);
+      longPressTarget.addEventListener("mouseleave", stopPress);
+    </script>
+  </body>
+</html>
+"""
 
 
 def _require_test_database_url() -> str:
@@ -63,7 +184,7 @@ def _install_fake_browser_adapter(monkeypatch) -> None:
     from app.workers.browser import BrowserArtifact, BrowserStepResult, CaseExecutionResult
 
     class FakeBrowserAdapter:
-        supported_step_types = {"wait", "click", "input"}
+        supported_step_types = {"wait", "click", "input", "navigate", "scroll", "long_press"}
 
         def execute_case(self, *, base_url: str, case_run_id: int, device_profile, steps, template_contexts):
             _ = (base_url, case_run_id, device_profile, template_contexts)
@@ -118,6 +239,30 @@ def _install_fake_browser_adapter(monkeypatch) -> None:
             )
 
     monkeypatch.setattr("app.workers.execution.build_browser_execution_adapter", lambda: FakeBrowserAdapter())
+
+
+def _write_browser_steps_fixture() -> Path:
+    fixture_dir = Path(tempfile.mkdtemp(prefix="browser_steps_"))
+    fixture_path = fixture_dir / "fixture.html"
+    fixture_path.write_text(BROWSER_STEPS_HTML, encoding="utf-8")
+    return fixture_path
+
+
+def _make_browser_step(
+    *,
+    step_no: int,
+    step_type: str,
+    payload_json: dict,
+    timeout_ms: int = 15000,
+    template_id: int | None = None,
+):
+    return SimpleNamespace(
+        step_no=step_no,
+        step_type=step_type,
+        payload_json=payload_json,
+        timeout_ms=timeout_ms,
+        template_id=template_id,
+    )
 
 
 def _install_visual_browser_adapter(monkeypatch, *, template_status: str = "passed", ocr_status: str = "passed") -> None:
@@ -291,6 +436,8 @@ def test_demo_acceptance_target_page_is_served():
         assert "data-testid=\"submit-button\"" in response.text
         assert "data-testid=\"name-input\"" in response.text
         assert "data-testid=\"demo-form\" hidden" not in response.text
+        assert "data-testid=\"scroll-container\"" in response.text
+        assert "data-testid=\"long-press-target\"" in response.text
 
 
 def test_session_login_returns_jwt_token_shape():
@@ -423,6 +570,84 @@ def test_demo_acceptance_target_is_compatible_with_real_playwright_adapter():
         page.locator("[data-testid='name-input']").fill("VisionAutoTest", timeout=15000)
         page.locator("[data-testid='submit-button']").click(timeout=15000)
         assert page.locator("[data-testid='result-banner']").text_content() == "Hello, VisionAutoTest"
+        browser.close()
+
+
+def test_playwright_browser_adapter_executes_navigate_scroll_and_long_press():
+    import pytest
+
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError:  # pragma: no cover
+        pytest.skip("Playwright is not installed in the current environment.")
+
+    from app.workers.browser import PlaywrightBrowserExecutionAdapter
+
+    fixture_path = _write_browser_steps_fixture()
+    adapter = PlaywrightBrowserExecutionAdapter(headless=True, navigation_timeout_ms=15000)
+    base_url = f"{fixture_path.as_uri()}?view=home"
+
+    with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(headless=True)
+        page = browser.new_page(viewport={"width": 1280, "height": 960})
+        page.goto(base_url, wait_until="load", timeout=15000)
+
+        navigate_result = adapter._execute_step(
+            page,
+            base_url=base_url,
+            step=_make_browser_step(
+                step_no=1,
+                step_type="navigate",
+                payload_json={"url": f"{fixture_path.as_posix()}?view=details", "wait_until": "load"},
+            ),
+            case_run_id=1,
+            template_contexts={},
+        )
+        assert navigate_result.status == "passed"
+        assert page.locator("[data-testid='navigate-status']").text_content() == "Details View"
+
+        element_scroll_result = adapter._execute_step(
+            page,
+            base_url=base_url,
+            step=_make_browser_step(
+                step_no=2,
+                step_type="scroll",
+                payload_json={"target": "element", "selector": "[data-testid='scroll-container']", "direction": "down", "distance": 240},
+            ),
+            case_run_id=1,
+            template_contexts={},
+        )
+        assert element_scroll_result.status == "passed"
+        assert page.locator("[data-testid='element-scroll-status']").text_content() == "Element Scrolled"
+
+        long_press_result = adapter._execute_step(
+            page,
+            base_url=base_url,
+            step=_make_browser_step(
+                step_no=3,
+                step_type="long_press",
+                payload_json={"selector": "[data-testid='long-press-target']", "duration_ms": 800},
+            ),
+            case_run_id=1,
+            template_contexts={},
+        )
+        assert long_press_result.status == "passed"
+        assert page.locator("[data-testid='press-status']").text_content() == "Long Press Activated"
+
+        page_scroll_result = adapter._execute_step(
+            page,
+            base_url=base_url,
+            step=_make_browser_step(
+                step_no=4,
+                step_type="scroll",
+                payload_json={"target": "page", "direction": "down", "distance": 420, "behavior": "smooth"},
+            ),
+            case_run_id=1,
+            template_contexts={},
+        )
+        assert page_scroll_result.status == "passed"
+        assert page.locator("[data-testid='page-scroll-status']").text_content() == "Page Scrolled"
+
         browser.close()
 
 
@@ -947,6 +1172,165 @@ def test_invalid_ocr_assert_step_is_rejected_during_step_save():
         assert response.json()["error"]["code"] == "STEP_CONFIGURATION_INVALID"
 
 
+def test_new_step_types_are_saved_for_components_and_test_cases():
+    _reset_local_data()
+    from app.main import app
+
+    with TestClient(app) as client:
+        login_resp = client.post("/api/v1/sessions", json={"username": TEST_ADMIN_USERNAME, "password": TEST_ADMIN_PASSWORD})
+        token = login_resp.json()["data"]["access_token"]
+        headers = {"Authorization": f"Bearer {token}"}
+
+        workspace_resp = client.post(
+            "/api/v1/workspaces",
+            json={"workspace_code": "new_steps_ws", "name": "New Steps WS"},
+            headers=headers,
+        )
+        workspace_id = workspace_resp.json()["data"]["id"]
+        workspace_headers = headers | {"X-Workspace-Id": str(workspace_id)}
+
+        component_resp = client.post(
+            "/api/v1/components",
+            json={"component_code": "cmp_new_steps", "component_name": "New Steps Component", "status": "published"},
+            headers=workspace_headers,
+        )
+        component_id = component_resp.json()["data"]["id"]
+
+        component_steps_resp = client.put(
+            f"/api/v1/components/{component_id}/steps",
+            json=[
+                {"step_no": 1, "step_type": "navigate", "step_name": "Open Details", "payload_json": {"url": "/demo/acceptance-target?view=details"}, "timeout_ms": 21000, "retry_times": 1},
+                {"step_no": 2, "step_type": "scroll", "step_name": "Scroll Container", "payload_json": {"target": "element", "selector": "[data-testid='scroll-container']", "direction": "down", "distance": 220}, "timeout_ms": 22000, "retry_times": 2},
+                {"step_no": 3, "step_type": "long_press", "step_name": "Press Target", "payload_json": {"selector": "[data-testid='long-press-target']", "duration_ms": 800}, "timeout_ms": 23000, "retry_times": 3},
+            ],
+            headers=workspace_headers,
+        )
+        assert component_steps_resp.status_code == 200
+        assert [item["step_type"] for item in component_steps_resp.json()["data"]] == ["navigate", "scroll", "long_press"]
+        assert [item["timeout_ms"] for item in component_steps_resp.json()["data"]] == [21000, 22000, 23000]
+        assert [item["retry_times"] for item in component_steps_resp.json()["data"]] == [1, 2, 3]
+
+        case_resp = client.post(
+            "/api/v1/test-cases",
+            json={"case_code": "case_new_steps", "case_name": "Case New Steps", "status": "published"},
+            headers=workspace_headers,
+        )
+        test_case_id = case_resp.json()["data"]["id"]
+
+        case_steps_resp = client.put(
+            f"/api/v1/test-cases/{test_case_id}/steps",
+            json=[
+                {"step_no": 1, "step_type": "navigate", "step_name": "Open Details", "payload_json": {"url": "/demo/acceptance-target?view=details", "wait_until": "domcontentloaded"}},
+                {"step_no": 2, "step_type": "scroll", "step_name": "Scroll Page", "payload_json": {"target": "page", "direction": "down", "distance": 360, "behavior": "smooth"}},
+                {"step_no": 3, "step_type": "long_press", "step_name": "Press Target", "payload_json": {"selector": "[data-testid='long-press-target']", "duration_ms": 800, "button": "left"}},
+            ],
+            headers=workspace_headers,
+        )
+        assert case_steps_resp.status_code == 200
+        assert [item["step_type"] for item in case_steps_resp.json()["data"]] == ["navigate", "scroll", "long_press"]
+        assert case_steps_resp.json()["data"][0]["payload_json"]["wait_until"] == "domcontentloaded"
+        assert case_steps_resp.json()["data"][1]["payload_json"]["behavior"] == "smooth"
+
+
+def test_invalid_navigate_step_is_rejected_during_step_save():
+    _reset_local_data()
+    from app.main import app
+
+    with TestClient(app) as client:
+        login_resp = client.post("/api/v1/sessions", json={"username": TEST_ADMIN_USERNAME, "password": TEST_ADMIN_PASSWORD})
+        token = login_resp.json()["data"]["access_token"]
+        headers = {"Authorization": f"Bearer {token}"}
+
+        workspace_resp = client.post(
+            "/api/v1/workspaces",
+            json={"workspace_code": "invalid_nav_ws", "name": "Invalid Navigate WS"},
+            headers=headers,
+        )
+        workspace_id = workspace_resp.json()["data"]["id"]
+        workspace_headers = headers | {"X-Workspace-Id": str(workspace_id)}
+
+        case_resp = client.post(
+            "/api/v1/test-cases",
+            json={"case_code": "invalid_nav_case", "case_name": "Invalid Navigate Case", "status": "published"},
+            headers=workspace_headers,
+        )
+        test_case_id = case_resp.json()["data"]["id"]
+
+        response = client.put(
+            f"/api/v1/test-cases/{test_case_id}/steps",
+            json=[{"step_no": 1, "step_type": "navigate", "step_name": "Invalid Navigate", "payload_json": {"url": "login", "wait_until": "ready"}}],
+            headers=workspace_headers,
+        )
+        assert response.status_code == 422
+        assert response.json()["error"]["code"] == "STEP_CONFIGURATION_INVALID"
+
+
+def test_invalid_scroll_step_is_rejected_during_step_save():
+    _reset_local_data()
+    from app.main import app
+
+    with TestClient(app) as client:
+        login_resp = client.post("/api/v1/sessions", json={"username": TEST_ADMIN_USERNAME, "password": TEST_ADMIN_PASSWORD})
+        token = login_resp.json()["data"]["access_token"]
+        headers = {"Authorization": f"Bearer {token}"}
+
+        workspace_resp = client.post(
+            "/api/v1/workspaces",
+            json={"workspace_code": "invalid_scroll_ws", "name": "Invalid Scroll WS"},
+            headers=headers,
+        )
+        workspace_id = workspace_resp.json()["data"]["id"]
+        workspace_headers = headers | {"X-Workspace-Id": str(workspace_id)}
+
+        case_resp = client.post(
+            "/api/v1/test-cases",
+            json={"case_code": "invalid_scroll_case", "case_name": "Invalid Scroll Case", "status": "published"},
+            headers=workspace_headers,
+        )
+        test_case_id = case_resp.json()["data"]["id"]
+
+        response = client.put(
+            f"/api/v1/test-cases/{test_case_id}/steps",
+            json=[{"step_no": 1, "step_type": "scroll", "step_name": "Invalid Scroll", "payload_json": {"target": "element", "direction": "down", "distance": 0}}],
+            headers=workspace_headers,
+        )
+        assert response.status_code == 422
+        assert response.json()["error"]["code"] == "STEP_CONFIGURATION_INVALID"
+
+
+def test_invalid_long_press_step_is_rejected_during_step_save():
+    _reset_local_data()
+    from app.main import app
+
+    with TestClient(app) as client:
+        login_resp = client.post("/api/v1/sessions", json={"username": TEST_ADMIN_USERNAME, "password": TEST_ADMIN_PASSWORD})
+        token = login_resp.json()["data"]["access_token"]
+        headers = {"Authorization": f"Bearer {token}"}
+
+        workspace_resp = client.post(
+            "/api/v1/workspaces",
+            json={"workspace_code": "invalid_press_ws", "name": "Invalid Long Press WS"},
+            headers=headers,
+        )
+        workspace_id = workspace_resp.json()["data"]["id"]
+        workspace_headers = headers | {"X-Workspace-Id": str(workspace_id)}
+
+        case_resp = client.post(
+            "/api/v1/test-cases",
+            json={"case_code": "invalid_press_case", "case_name": "Invalid Long Press Case", "status": "published"},
+            headers=workspace_headers,
+        )
+        test_case_id = case_resp.json()["data"]["id"]
+
+        response = client.put(
+            f"/api/v1/test-cases/{test_case_id}/steps",
+            json=[{"step_no": 1, "step_type": "long_press", "step_name": "Invalid Long Press", "payload_json": {"selector": "#target", "duration_ms": -1, "button": "right"}}],
+            headers=workspace_headers,
+        )
+        assert response.status_code == 422
+        assert response.json()["error"]["code"] == "STEP_CONFIGURATION_INVALID"
+
+
 def test_template_create_rejects_unsupported_match_strategy():
     _reset_local_data()
     from app.main import app
@@ -1206,6 +1590,171 @@ def test_component_call_steps_are_expanded_and_executed(monkeypatch):
         assert len(step_results) == 4
         assert [item["step_no"] for item in step_results] == [1, 2, 3, 4]
         assert [item["step_type"] for item in step_results] == ["wait", "wait", "click", "input"]
+        assert all(item["status"] == "passed" for item in step_results)
+
+
+def test_component_call_can_expand_new_browser_steps(monkeypatch):
+    _reset_local_data()
+    from app.main import app
+
+    _install_fake_browser_adapter(monkeypatch)
+
+    with TestClient(app) as client:
+        login_resp = client.post("/api/v1/sessions", json={"username": TEST_ADMIN_USERNAME, "password": TEST_ADMIN_PASSWORD})
+        token = login_resp.json()["data"]["access_token"]
+        headers = {"Authorization": f"Bearer {token}"}
+
+        workspace_resp = client.post(
+            "/api/v1/workspaces",
+            json={"workspace_code": "component_new_steps_ws", "name": "Component New Steps WS"},
+            headers=headers,
+        )
+        workspace_id = workspace_resp.json()["data"]["id"]
+        workspace_headers = headers | {"X-Workspace-Id": str(workspace_id)}
+
+        env_resp = client.post(
+            "/api/v1/environment-profiles",
+            json={"profile_name": "dev", "base_url": "https://example.com"},
+            headers=workspace_headers,
+        )
+        environment_profile_id = env_resp.json()["data"]["id"]
+
+        component_resp = client.post(
+            "/api/v1/components",
+            json={"component_code": "shared_interactions", "component_name": "Shared Interactions", "status": "published"},
+            headers=workspace_headers,
+        )
+        component_id = component_resp.json()["data"]["id"]
+
+        component_steps_resp = client.put(
+            f"/api/v1/components/{component_id}/steps",
+            json=[
+                {"step_no": 1, "step_type": "scroll", "step_name": "Scroll Container", "payload_json": {"target": "element", "selector": "[data-testid='scroll-container']", "direction": "down", "distance": 180}},
+                {"step_no": 2, "step_type": "long_press", "step_name": "Long Press In Component", "payload_json": {"selector": "[data-testid='long-press-target']", "duration_ms": 800}},
+            ],
+            headers=workspace_headers,
+        )
+        assert component_steps_resp.status_code == 200
+
+        case_resp = client.post(
+            "/api/v1/test-cases",
+            json={"case_code": "case_component_new_steps", "case_name": "Component New Steps Case", "status": "published"},
+            headers=workspace_headers,
+        )
+        test_case_id = case_resp.json()["data"]["id"]
+
+        case_steps_resp = client.put(
+            f"/api/v1/test-cases/{test_case_id}/steps",
+            json=[
+                {"step_no": 1, "step_type": "navigate", "step_name": "Navigate First", "payload_json": {"url": "/demo/acceptance-target?view=details"}},
+                {"step_no": 2, "step_type": "component_call", "step_name": "Invoke Component", "component_id": component_id},
+            ],
+            headers=workspace_headers,
+        )
+        assert case_steps_resp.status_code == 200
+
+        suite_resp = client.post(
+            "/api/v1/test-suites",
+            json={"suite_code": "suite_component_new_steps", "suite_name": "Component New Steps Suite", "status": "active"},
+            headers=workspace_headers,
+        )
+        test_suite_id = suite_resp.json()["data"]["id"]
+
+        client.put(
+            f"/api/v1/test-suites/{test_suite_id}/cases",
+            json=[{"test_case_id": test_case_id, "sort_order": 1}],
+            headers=workspace_headers,
+        )
+
+        run_resp = client.post(
+            "/api/v1/test-runs",
+            json={"test_suite_id": test_suite_id, "environment_profile_id": environment_profile_id, "trigger_source": "manual"},
+            headers=workspace_headers | {"Idempotency-Key": "run-component-new-steps"},
+        )
+        assert run_resp.status_code == 201
+        test_run_id = run_resp.json()["data"]["id"]
+
+        case_runs_resp = client.get(f"/api/v1/test-runs/{test_run_id}/case-runs", headers=workspace_headers)
+        case_run_id = case_runs_resp.json()["data"][0]["id"]
+        step_results_resp = client.get(f"/api/v1/case-runs/{case_run_id}/step-results", headers=workspace_headers)
+        step_results = step_results_resp.json()["data"]
+        assert [item["step_type"] for item in step_results] == ["navigate", "scroll", "long_press"]
+        assert all(item["status"] == "passed" for item in step_results)
+
+
+def test_new_browser_steps_work_with_ocr_assert_execution(monkeypatch):
+    _reset_local_data()
+    from app.main import app
+
+    _install_visual_browser_adapter(monkeypatch, ocr_status="passed")
+
+    with TestClient(app) as client:
+        login_resp = client.post("/api/v1/sessions", json={"username": TEST_ADMIN_USERNAME, "password": TEST_ADMIN_PASSWORD})
+        token = login_resp.json()["data"]["access_token"]
+        headers = {"Authorization": f"Bearer {token}"}
+
+        workspace_resp = client.post(
+            "/api/v1/workspaces",
+            json={"workspace_code": "browser_ocr_ws", "name": "Browser OCR WS"},
+            headers=headers,
+        )
+        workspace_id = workspace_resp.json()["data"]["id"]
+        workspace_headers = headers | {"X-Workspace-Id": str(workspace_id)}
+
+        env_resp = client.post(
+            "/api/v1/environment-profiles",
+            json={"profile_name": "dev", "base_url": "https://example.com"},
+            headers=workspace_headers,
+        )
+        environment_profile_id = env_resp.json()["data"]["id"]
+
+        case_resp = client.post(
+            "/api/v1/test-cases",
+            json={"case_code": "case_browser_ocr", "case_name": "Browser OCR Case", "status": "published"},
+            headers=workspace_headers,
+        )
+        test_case_id = case_resp.json()["data"]["id"]
+
+        client.put(
+            f"/api/v1/test-cases/{test_case_id}/steps",
+            json=[
+                {"step_no": 1, "step_type": "navigate", "step_name": "Navigate", "payload_json": {"url": "/demo/acceptance-target?view=details"}},
+                {"step_no": 2, "step_type": "long_press", "step_name": "Long Press", "payload_json": {"selector": "[data-testid='long-press-target']", "duration_ms": 800}},
+                {"step_no": 3, "step_type": "ocr_assert", "step_name": "OCR Check", "payload_json": {"selector": "[data-testid='result-banner']", "expected_text": "details"}},
+            ],
+            headers=workspace_headers,
+        )
+
+        suite_resp = client.post(
+            "/api/v1/test-suites",
+            json={"suite_code": "suite_browser_ocr", "suite_name": "Browser OCR Suite", "status": "active"},
+            headers=workspace_headers,
+        )
+        test_suite_id = suite_resp.json()["data"]["id"]
+
+        client.put(
+            f"/api/v1/test-suites/{test_suite_id}/cases",
+            json=[{"test_case_id": test_case_id, "sort_order": 1}],
+            headers=workspace_headers,
+        )
+
+        run_resp = client.post(
+            "/api/v1/test-runs",
+            json={"test_suite_id": test_suite_id, "environment_profile_id": environment_profile_id, "trigger_source": "manual"},
+            headers=workspace_headers | {"Idempotency-Key": "run-browser-ocr"},
+        )
+        assert run_resp.status_code == 201
+        test_run_id = run_resp.json()["data"]["id"]
+
+        detail_resp = client.get(f"/api/v1/test-runs/{test_run_id}", headers=workspace_headers)
+        assert detail_resp.status_code == 200
+        assert detail_resp.json()["data"]["status"] == "passed"
+
+        case_runs_resp = client.get(f"/api/v1/test-runs/{test_run_id}/case-runs", headers=workspace_headers)
+        case_run_id = case_runs_resp.json()["data"][0]["id"]
+        step_results_resp = client.get(f"/api/v1/case-runs/{case_run_id}/step-results", headers=workspace_headers)
+        step_results = step_results_resp.json()["data"]
+        assert [item["step_type"] for item in step_results] == ["navigate", "long_press", "ocr_assert"]
         assert all(item["status"] == "passed" for item in step_results)
 
 

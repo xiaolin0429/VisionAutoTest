@@ -25,6 +25,8 @@ class Settings(BaseSettings):
     demo_target_base_url: str = "http://127.0.0.1:8000/demo/acceptance-target"
     playwright_headless: bool = True
     playwright_navigation_timeout_ms: int = 15000
+    # 认证生命周期：access_token 2小时，refresh_token 7天
+    # refresh_token 单次消费，续期后旧令牌进入 used 状态
     access_token_ttl_seconds: int = 7200
     refresh_token_ttl_seconds: int = 7 * 24 * 3600
     jwt_secret_key: str = PLACEHOLDER_JWT_SECRET_KEY

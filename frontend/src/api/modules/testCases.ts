@@ -7,94 +7,17 @@ import type {
   TestCaseCreatePayload,
   TestCaseUpdatePayload
 } from '@/types/models'
-
-function formatTextValue(value: unknown) {
-  if (typeof value !== 'string' || !value.trim()) {
-    return '--'
-  }
-
-  return value.trim()
-}
-
-function formatExtraPayloadKeys(
-  payload: Record<string, unknown>,
-  knownKeys: string[]
-) {
-  const extraKeys = Object.keys(payload).filter((key) => !knownKeys.includes(key))
-  if (extraKeys.length === 0) {
-    return ''
-  }
-
-  return ` · 扩展字段 ${extraKeys.join(', ')}`
-}
-
-function formatStepSummary(item: TestCaseStepDTO) {
-  const payload = item.payload_json ?? {}
-  const type = item.step_type as StepType
-  const timeoutAndRetry = `超时 ${item.timeout_ms} ms · 重试 ${item.retry_times}`
-
-  switch (type) {
-    case 'wait': {
-      const waitMs =
-        typeof payload.ms === 'number' && Number.isFinite(payload.ms) ? payload.ms : '--'
-      return {
-        target: `等待 ${waitMs} ms`,
-        note: `${timeoutAndRetry}${formatExtraPayloadKeys(payload, ['ms'])}`
-      }
-    }
-    case 'click':
-      return {
-        target: `点击 ${formatTextValue(payload.selector)}`,
-        note: `${timeoutAndRetry}${formatExtraPayloadKeys(payload, ['selector'])}`
-      }
-    case 'input':
-      return {
-        target: `输入到 ${formatTextValue(payload.selector)}`,
-        note: `文本 ${formatTextValue(payload.text)} · ${timeoutAndRetry}${formatExtraPayloadKeys(
-          payload,
-          ['selector', 'text']
-        )}`
-      }
-    case 'template_assert': {
-      const threshold =
-        typeof payload.threshold === 'number' && Number.isFinite(payload.threshold)
-          ? `阈值 ${payload.threshold.toFixed(2)}`
-          : '使用模板默认阈值'
-      return {
-        target: item.template_id ? `模板 #${item.template_id}` : '未选择模板',
-        note: `${threshold} · ${timeoutAndRetry}${formatExtraPayloadKeys(payload, ['threshold'])}`
-      }
-    }
-    case 'ocr_assert': {
-      const matchMode = payload.match_mode === 'exact' ? 'exact' : 'contains'
-      const caseSensitive = payload.case_sensitive === true ? '区分大小写' : '忽略大小写'
-      return {
-        target: `OCR ${formatTextValue(payload.selector)}`,
-        note: `期望文本 ${formatTextValue(payload.expected_text)} · ${matchMode} · ${caseSensitive} · ${timeoutAndRetry}${formatExtraPayloadKeys(
-          payload,
-          ['selector', 'expected_text', 'match_mode', 'case_sensitive']
-        )}`
-      }
-    }
-    case 'component_call':
-      return {
-        target: item.component_id ? `组件 #${item.component_id}` : '未选择组件',
-        note: timeoutAndRetry
-      }
-    default:
-      return {
-        target: item.component_id
-          ? `组件 #${item.component_id}`
-          : item.template_id
-            ? `模板 #${item.template_id}`
-            : '--',
-        note: `${timeoutAndRetry}${formatExtraPayloadKeys(payload, [])}`
-      }
-  }
-}
+import { formatStepSummary } from '@/utils/steps'
 
 function mapStep(item: TestCaseStepDTO) {
-  const summary = formatStepSummary(item)
+  const summary = formatStepSummary({
+    type: item.step_type as StepType,
+    payloadJson: item.payload_json,
+    templateId: item.template_id,
+    componentId: item.component_id,
+    timeoutMs: item.timeout_ms,
+    retryTimes: item.retry_times
+  })
 
   return {
     id: item.id,

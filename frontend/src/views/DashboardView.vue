@@ -116,6 +116,51 @@ const releaseReadiness = computed(() => {
   ]
 })
 
+const executionTrend = computed(() => {
+  const recent10 = testRuns.value.slice(0, 10)
+  const passedCount = recent10.filter((item) => item.status === 'passed').length
+  const failedCount = recent10.filter((item) => item.status === 'failed' || item.status === 'partial_failed').length
+  const passRate = recent10.length > 0 ? Math.round((passedCount / recent10.length) * 100) : 0
+
+  return {
+    total: recent10.length,
+    passed: passedCount,
+    failed: failedCount,
+    passRate
+  }
+})
+
+const pendingTemplates = computed(() => {
+  return templates.value.filter((item) =>
+    item.status === 'draft' || item.currentBaselineRevisionId === null
+  )
+})
+
+const riskAlerts = computed(() => {
+  const alerts: Array<{ type: 'warning' | 'error'; message: string }> = []
+
+  if (environmentProfiles.value.filter((item) => item.status === 'active').length === 0) {
+    alerts.push({ type: 'error', message: '无可用环境配置，无法触发执行' })
+  }
+
+  if (testSuites.value.filter((item) => item.status === 'active').length === 0) {
+    alerts.push({ type: 'warning', message: '无活跃套件，建议至少维护一个回归套件' })
+  }
+
+  if (pendingTemplates.value.length > 5) {
+    alerts.push({ type: 'warning', message: `${pendingTemplates.value.length} 个模板待处理，可能影响断言稳定性` })
+  }
+
+  const recentFailedRuns = testRuns.value.slice(0, 5).filter((item) =>
+    item.status === 'failed' || item.status === 'partial_failed'
+  )
+  if (recentFailedRuns.length >= 3) {
+    alerts.push({ type: 'error', message: '最近 5 次执行中有 3 次及以上失败，需要排查' })
+  }
+
+  return alerts
+})
+
 onMounted(async () => {
   loading.value = true
   try {
@@ -145,6 +190,24 @@ function navigate(path: string) {
 
 <template>
   <div class="space-y-6">
+    <div
+      v-if="riskAlerts.length > 0"
+      class="rounded-2xl border-2 border-orange-200 bg-orange-50 p-4"
+    >
+      <h3 class="m-0 mb-3 text-base font-semibold text-orange-900">⚠️ 风险提示</h3>
+      <div class="space-y-2">
+        <div
+          v-for="(alert, index) in riskAlerts"
+          :key="index"
+          class="flex items-start gap-2 text-sm"
+          :class="alert.type === 'error' ? 'text-red-700' : 'text-orange-700'"
+        >
+          <span class="font-medium">{{ alert.type === 'error' ? '🔴' : '🟡' }}</span>
+          <span>{{ alert.message }}</span>
+        </div>
+      </div>
+    </div>
+
     <div class="grid grid-cols-5 gap-4">
       <MetricCard
         v-for="metric in summaryMetrics"
@@ -153,6 +216,66 @@ function navigate(path: string) {
         :label="metric.label"
         :value="metric.value"
       />
+    </div>
+
+    <div class="grid grid-cols-2 gap-6">
+      <SectionCard
+        description="最近 10 次执行的通过率趋势。"
+        title="执行趋势"
+      >
+        <div class="grid grid-cols-3 gap-4">
+          <div class="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+            <p class="m-0 text-sm text-slate-500">总执行次数</p>
+            <p class="mb-0 mt-3 text-2xl font-semibold text-slate-900">{{ executionTrend.total }}</p>
+          </div>
+          <div class="rounded-2xl border border-green-200 bg-green-50 p-4">
+            <p class="m-0 text-sm text-green-700">通过次数</p>
+            <p class="mb-0 mt-3 text-2xl font-semibold text-green-900">{{ executionTrend.passed }}</p>
+          </div>
+          <div class="rounded-2xl border border-red-200 bg-red-50 p-4">
+            <p class="m-0 text-sm text-red-700">失败次数</p>
+            <p class="mb-0 mt-3 text-2xl font-semibold text-red-900">{{ executionTrend.failed }}</p>
+          </div>
+        </div>
+        <div class="mt-4 rounded-2xl border border-blue-200 bg-blue-50 p-4">
+          <p class="m-0 text-sm text-blue-700">通过率</p>
+          <p class="mb-0 mt-3 text-3xl font-bold text-blue-900">{{ executionTrend.passRate }}%</p>
+        </div>
+      </SectionCard>
+
+      <SectionCard
+        description="需要补充基准版本或发布的模板资产。"
+        title="待处理模板"
+      >
+        <div
+          v-if="pendingTemplates.length > 0"
+          class="space-y-2 max-h-64 overflow-y-auto"
+        >
+          <div
+            v-for="template in pendingTemplates.slice(0, 8)"
+            :key="template.id"
+            class="rounded-2xl border border-slate-200 bg-slate-50 p-3"
+          >
+            <div class="flex items-center justify-between">
+              <p class="m-0 text-sm font-medium text-slate-900">{{ template.name }}</p>
+              <StatusTag :status="template.status" size="small" />
+            </div>
+            <p class="mb-0 mt-1 text-xs text-slate-500">
+              {{ template.currentBaselineRevisionId === null ? '缺少基准版本' : '草稿状态' }}
+            </p>
+          </div>
+          <p
+            v-if="pendingTemplates.length > 8"
+            class="mb-0 mt-2 text-xs text-slate-400 text-center"
+          >
+            还有 {{ pendingTemplates.length - 8 }} 个模板待处理
+          </p>
+        </div>
+        <el-empty
+          v-else
+          description="所有模板均已就绪"
+        />
+      </SectionCard>
     </div>
 
     <div class="grid grid-cols-[minmax(0,1.25fr)_minmax(320px,0.75fr)] gap-6">
