@@ -1,6 +1,8 @@
 import { requestData, requestPage, requestVoid } from '@/api/client'
 import type {
   BaselineRevisionReadDTO,
+  TemplateOCRResultReadDTO,
+  TemplatePreviewReadDTO,
   MaskRegionReadDTO,
   TemplateReadDTO
 } from '@/types/backend'
@@ -8,6 +10,9 @@ import type {
   BaselineRevision,
   MaskRegion,
   Template,
+  TemplateOcrResult,
+  TemplateOcrBlock,
+  TemplatePreviewState,
   TemplateCreatePayload,
   TemplateMaskCreatePayload,
   TemplateMaskUpdatePayload,
@@ -52,6 +57,91 @@ function mapBaselineRevision(item: BaselineRevisionReadDTO): BaselineRevision {
 
 function mapBaselineRevisions(items: BaselineRevisionReadDTO[]) {
   return items.map(mapBaselineRevision)
+}
+
+function mapPreviewMaskRegion(item: {
+  name: string
+  x_ratio: number
+  y_ratio: number
+  width_ratio: number
+  height_ratio: number
+  sort_order: number
+}): MaskRegion {
+  return {
+    id: -(item.sort_order || 1),
+    name: item.name,
+    xRatio: Number(item.x_ratio),
+    yRatio: Number(item.y_ratio),
+    widthRatio: Number(item.width_ratio),
+    heightRatio: Number(item.height_ratio),
+    sortOrder: item.sort_order
+  }
+}
+
+function mapTemplateOcrBlock(
+  resultId: number | null,
+  item: TemplateOCRResultReadDTO['blocks'][number]
+): TemplateOcrBlock {
+  return {
+    id: `${resultId ?? 'pending'}-${item.order_no}`,
+    text: item.text,
+    confidence: Number(item.confidence),
+    orderNo: item.order_no,
+    polygonPoints: item.polygon_points.map((point) => ({
+      x: point.x,
+      y: point.y
+    })),
+    pixelRect: {
+      x: item.pixel_rect.x,
+      y: item.pixel_rect.y,
+      width: item.pixel_rect.width,
+      height: item.pixel_rect.height
+    },
+    ratioRect: {
+      xRatio: Number(item.ratio_rect.x_ratio),
+      yRatio: Number(item.ratio_rect.y_ratio),
+      widthRatio: Number(item.ratio_rect.width_ratio),
+      heightRatio: Number(item.ratio_rect.height_ratio)
+    },
+    highlighted: false
+  }
+}
+
+function mapTemplateOcrResult(item: TemplateOCRResultReadDTO): TemplateOcrResult {
+  return {
+    id: item.id,
+    templateId: item.template_id,
+    baselineRevisionId: item.baseline_revision_id,
+    sourceMediaObjectId: item.source_media_object_id,
+    status: item.status,
+    engineName: item.engine_name,
+    imageWidth: item.image_width,
+    imageHeight: item.image_height,
+    errorCode: item.error_code,
+    errorMessage: item.error_message,
+    createdAt: item.created_at,
+    updatedAt: item.updated_at,
+    blocks: item.blocks.map((block) => mapTemplateOcrBlock(item.id, block))
+  }
+}
+
+function mapTemplatePreviewState(
+  item: TemplatePreviewReadDTO,
+  message = '预览生成成功。'
+): TemplatePreviewState {
+  return {
+    status: 'ready',
+    baselineRevisionId: item.baseline_revision_id,
+    sourceMediaObjectId: item.source_media_object_id,
+    overlayMediaObjectId: item.overlay_media_object_id,
+    overlayImageUrl: item.overlay_content_url,
+    processedMediaObjectId: item.processed_media_object_id,
+    processedImageUrl: item.processed_content_url,
+    imageWidth: item.image_width,
+    imageHeight: item.image_height,
+    maskRegions: item.mask_regions.map(mapPreviewMaskRegion),
+    message
+  }
 }
 
 function resolveBaselineVersion(
@@ -208,7 +298,7 @@ export async function createMaskRegion(
     method: 'post',
     url: `/templates/${templateId}/mask-regions`,
     data: {
-      name: payload.name,
+      region_name: payload.name,
       x_ratio: payload.xRatio,
       y_ratio: payload.yRatio,
       width_ratio: payload.widthRatio,
@@ -229,7 +319,7 @@ export async function updateMaskRegion(
     method: 'patch',
     url: `/mask-regions/${maskRegionId}`,
     data: {
-      name: payload.name,
+      region_name: payload.name,
       x_ratio: payload.xRatio,
       y_ratio: payload.yRatio,
       width_ratio: payload.widthRatio,
@@ -246,4 +336,53 @@ export async function deleteMaskRegion(_templateId: number, maskRegionId: number
     method: 'delete',
     url: `/mask-regions/${maskRegionId}`
   })
+}
+
+export async function requestTemplateOcrAnalysis(
+  templateId: number,
+  baselineRevisionId: number
+): Promise<TemplateOcrResult> {
+  const response = await requestData<TemplateOCRResultReadDTO>({
+    method: 'post',
+    url: `/templates/${templateId}/baseline-revisions/${baselineRevisionId}/ocr-results`
+  })
+
+  return mapTemplateOcrResult(response)
+}
+
+export async function listTemplateOcrResults(
+  templateId: number,
+  baselineRevisionId: number
+): Promise<TemplateOcrResult> {
+  const response = await requestData<TemplateOCRResultReadDTO>({
+    method: 'get',
+    url: `/templates/${templateId}/baseline-revisions/${baselineRevisionId}/ocr-results`
+  })
+
+  return mapTemplateOcrResult(response)
+}
+
+export async function getTemplateProcessedPreview(
+  templateId: number,
+  baselineRevisionId: number,
+  maskRegions?: TemplateMaskCreatePayload[]
+): Promise<TemplatePreviewState> {
+  const response = await requestData<TemplatePreviewReadDTO>({
+    method: 'post',
+    url: `/templates/${templateId}/baseline-revisions/${baselineRevisionId}/preview-images`,
+    data: maskRegions
+      ? {
+          mask_regions: maskRegions.map((item) => ({
+            name: item.name,
+            x_ratio: item.xRatio,
+            y_ratio: item.yRatio,
+            width_ratio: item.widthRatio,
+            height_ratio: item.heightRatio,
+            sort_order: item.sortOrder
+          }))
+        }
+      : {}
+  })
+
+  return mapTemplatePreviewState(response)
 }

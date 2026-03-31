@@ -205,6 +205,9 @@ export async function getRunDetail(testRunId: number): Promise<RunDetail> {
   return {
     id: testRun.id,
     testRunId: testRun.id,
+    testSuiteId: testRun.test_suite_id,
+    environmentProfileId: testRun.environment_profile_id,
+    deviceProfileId: testRun.device_profile_id,
     suiteName: suite?.suite_name ?? `套件 #${testRun.test_suite_id}`,
     environmentName:
       environment?.profile_name ?? `环境 #${testRun.environment_profile_id}`,

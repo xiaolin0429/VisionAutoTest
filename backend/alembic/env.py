@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import os
 from logging.config import fileConfig
+from pathlib import Path
 
 from alembic import context
 from sqlalchemy import engine_from_config, pool
@@ -11,6 +13,20 @@ config = context.config
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
+
+# Load .env so `alembic` CLI works without manually exporting VAT_DATABASE_URL.
+_env_file = Path(__file__).parent.parent / ".env"
+if _env_file.is_file():
+    for _line in _env_file.read_text().splitlines():
+        _line = _line.strip()
+        if _line and not _line.startswith("#") and "=" in _line:
+            _key, _, _val = _line.partition("=")
+            os.environ.setdefault(_key.strip(), _val.strip())
+
+# Override sqlalchemy.url from environment if VAT_DATABASE_URL is set.
+_db_url = os.environ.get("VAT_DATABASE_URL")
+if _db_url:
+    config.set_main_option("sqlalchemy.url", _db_url)
 
 target_metadata = Base.metadata
 

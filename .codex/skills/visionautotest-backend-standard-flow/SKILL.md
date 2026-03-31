@@ -165,6 +165,8 @@ Use this tree when deciding the first move for a backend task.
 5. **Synchronize docs when contracts change**
    - If API paths, request or response fields, status transitions, business rules, or model fields change, update the matching API and database docs in the same turn.
    - Keep API, schema, service behavior, and model naming aligned together.
+   - If the backend change affects frontend integration, request flow, resource loading, error handling, or page-level联调方式, also overwrite and refresh the relevant files under `../../../doc/联调文档/` in the same turn.
+   - Treat `../../../doc/联调文档/` as a required deliverable after every backend change that impacts front-end consumption; do not leave it stale.
 
 6. **Self-review after each completed code segment**
    - Check boundary placement: router vs schema vs model vs service vs worker.
@@ -194,5 +196,6 @@ When finishing a backend task, report:
 - What changed
 - Which files were touched
 - Which docs or architecture sources guided the change
+- Which `doc/联调文档/` files were refreshed for frontend integration
 - What validation was run
 - Any remaining risk, warning, or follow-up suggestion

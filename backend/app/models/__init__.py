@@ -14,6 +14,7 @@ from app.models.entities import (
     SuiteCase,
     Template,
     TemplateMaskRegion,
+    TemplateOCRResult,
     TestCase,
     TestCaseRun,
     TestCaseStep,
@@ -42,6 +43,7 @@ __all__ = [
     "SuiteCase",
     "Template",
     "TemplateMaskRegion",
+    "TemplateOCRResult",
     "TestCase",
     "TestCaseRun",
     "TestCaseStep",
@@ -53,4 +55,3 @@ __all__ = [
     "WorkspaceMember",
     "utc_now",
 ]
-

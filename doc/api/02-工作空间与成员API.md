@@ -42,7 +42,7 @@
 
 允许更新字段：
 
-- `name`
+- `workspace_name`
 - `description`
 - `status`
 

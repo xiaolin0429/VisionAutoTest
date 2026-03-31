@@ -253,6 +253,25 @@ class BaselineRevision(Base, CreatedAtMixin):
     created_by: Mapped[int | None] = mapped_column(PK_TYPE, nullable=True)
 
 
+class TemplateOCRResult(Base, TimestampMixin):
+    __tablename__ = "asset_template_ocr_results"
+    __table_args__ = (
+        UniqueConstraint("template_id", "baseline_revision_id", name="uk_asset_template_ocr_results"),
+    )
+
+    id: Mapped[int] = mapped_column(PK_TYPE, primary_key=True)
+    template_id: Mapped[int] = mapped_column(ForeignKey("asset_templates.id"), nullable=False)
+    baseline_revision_id: Mapped[int] = mapped_column(ForeignKey("asset_baseline_revisions.id"), nullable=False)
+    source_media_object_id: Mapped[int] = mapped_column(ForeignKey("asset_media_objects.id"), nullable=False)
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    engine_name: Mapped[str] = mapped_column(String(64), nullable=False)
+    image_width: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    image_height: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    result_json: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    error_message: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+
+
 class Component(Base, AuditMixin):
     __tablename__ = "case_components"
     __table_args__ = (

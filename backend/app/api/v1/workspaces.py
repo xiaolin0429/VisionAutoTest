@@ -58,7 +58,7 @@ def create_workspace(payload: WorkspaceCreate, request: Request, db: Session = D
         db,
         user=current_user,
         workspace_code=payload.workspace_code,
-        name=payload.name,
+        name=payload.workspace_name,
         description=payload.description,
         status=payload.status,
     )
@@ -78,7 +78,7 @@ def patch_workspace(workspace_id: int, payload: WorkspaceUpdate, request: Reques
         db,
         workspace,
         user=current_user,
-        name=payload.name,
+        name=payload.workspace_name,
         description=payload.description,
         status=payload.status,
     )
