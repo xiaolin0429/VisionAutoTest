@@ -159,6 +159,81 @@ export interface BaselineRevisionReadDTO {
   created_at: string
 }
 
+export interface OCRPointReadDTO {
+  x: number
+  y: number
+}
+
+export interface OCRPixelRectReadDTO {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+export interface OCRRatioRectReadDTO {
+  x_ratio: number
+  y_ratio: number
+  width_ratio: number
+  height_ratio: number
+}
+
+export interface TemplateOCRBlockReadDTO {
+  order_no: number
+  text: string
+  confidence: number
+  polygon_points: OCRPointReadDTO[]
+  pixel_rect: OCRPixelRectReadDTO
+  ratio_rect: OCRRatioRectReadDTO
+}
+
+export interface TemplateOCRResultReadDTO {
+  id: number | null
+  template_id: number
+  baseline_revision_id: number
+  source_media_object_id: number
+  status: string
+  engine_name: string
+  image_width: number | null
+  image_height: number | null
+  blocks: TemplateOCRBlockReadDTO[]
+  error_code: string | null
+  error_message: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface MaskRegionPreviewWriteDTO {
+  name?: string
+  x_ratio: number
+  y_ratio: number
+  width_ratio: number
+  height_ratio: number
+  sort_order?: number
+}
+
+export interface MaskRegionPreviewReadDTO {
+  name: string
+  x_ratio: number
+  y_ratio: number
+  width_ratio: number
+  height_ratio: number
+  sort_order: number
+}
+
+export interface TemplatePreviewReadDTO {
+  template_id: number
+  baseline_revision_id: number
+  source_media_object_id: number
+  image_width: number
+  image_height: number
+  overlay_media_object_id: number
+  overlay_content_url: string
+  processed_media_object_id: number
+  processed_content_url: string
+  mask_regions: MaskRegionPreviewReadDTO[]
+}
+
 export interface MaskRegionReadDTO {
   id: number
   template_id: number

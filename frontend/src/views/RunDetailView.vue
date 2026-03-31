@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import MetricCard from '@/components/MetricCard.vue'
 import SectionCard from '@/components/SectionCard.vue'
 import StatusTag from '@/components/StatusTag.vue'
 import { getMediaObject, getMediaObjectContent } from '@/api/modules/mediaObjects'
 import {
+  createTestRun,
   getRunDetail,
   getTestRunReport,
   listReportArtifacts
@@ -27,8 +28,10 @@ interface StepMediaEntry {
 }
 
 const route = useRoute()
+const router = useRouter()
 const loading = ref(false)
 const reportLoading = ref(false)
+const rerunLoading = ref(false)
 const runDetail = ref<RunDetail | null>(null)
 const runReport = ref<RunReport | null>(null)
 const reportArtifacts = ref<ReportArtifact[]>([])
@@ -296,6 +299,28 @@ function selectCaseRun(caseRun: CaseRun) {
   selectedCaseRunId.value = caseRun.id
 }
 
+async function handleRerun() {
+  const detail = runDetail.value
+  if (!detail) {
+    return
+  }
+
+  rerunLoading.value = true
+  try {
+    const newRun = await createTestRun({
+      testSuiteId: detail.testSuiteId,
+      environmentProfileId: detail.environmentProfileId,
+      deviceProfileId: detail.deviceProfileId
+    })
+    ElMessage.success('已创建重新执行批次，正在跳转…')
+    void router.push(`/runs/${newRun.id}`)
+  } catch {
+    ElMessage.error('重新执行失败，请稍后重试')
+  } finally {
+    rerunLoading.value = false
+  }
+}
+
 watch(
   () => route.params.testRunId,
   () => {
@@ -325,10 +350,21 @@ onBeforeUnmount(() => {
       title="执行总览"
     >
       <template #action>
-        <StatusTag
-          v-if="runDetail"
-          :status="runDetail.status"
-        />
+        <div class="flex items-center gap-3">
+          <StatusTag
+            v-if="runDetail"
+            :status="runDetail.status"
+          />
+          <el-button
+            v-if="runDetail && !ACTIVE_RUN_STATUSES.has(runDetail.status)"
+            :loading="rerunLoading"
+            color="#2563eb"
+            size="small"
+            @click="handleRerun"
+          >
+            重新执行
+          </el-button>
+        </div>
       </template>
 
       <div

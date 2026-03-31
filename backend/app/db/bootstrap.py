@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import base64
 import re
 
 from sqlalchemy import create_engine, delete, func, select, text, update
@@ -38,9 +37,33 @@ DEMO_CASE_CODE = "demo_smoke_case"
 DEMO_CASE_NAME = "Demo Smoke Case"
 DEMO_SUITE_CODE = "demo_smoke_suite"
 DEMO_SUITE_NAME = "Demo Smoke Suite"
-DEMO_PLACEHOLDER_PNG_BYTES = base64.b64decode(
-    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9s2GoswAAAAASUVORK5CYII="
-)
+def _generate_demo_placeholder_png() -> bytes:
+    """Generate a minimal valid 800×60 demo placeholder PNG using numpy/cv2."""
+    try:
+        import cv2
+        import numpy as np
+    except ImportError:
+        # Fallback: return a valid 4×4 gray PNG encoded via struct/zlib
+        import struct
+        import zlib
+
+        def _png_chunk(tag: bytes, data: bytes) -> bytes:
+            body = tag + data
+            return struct.pack(">I", len(data)) + body + struct.pack(">I", zlib.crc32(body) & 0xFFFFFFFF)
+
+        w, h = 4, 4
+        ihdr = struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0)
+        raw_rows = b""
+        for _ in range(h):
+            raw_rows += b"\x00" + b"\xc8\xc8\xc8" * w
+        idat = zlib.compress(raw_rows, 9)
+        return b"\x89PNG\r\n\x1a\n" + _png_chunk(b"IHDR", ihdr) + _png_chunk(b"IDAT", idat) + _png_chunk(b"IEND", b"")
+
+    img = np.full((60, 800, 3), 200, dtype=np.uint8)
+    success, buf = cv2.imencode(".png", img)
+    if not success:
+        raise RuntimeError("Failed to generate demo placeholder PNG.")
+    return buf.tobytes()
 DEMO_CASE_STEPS = [
     {"step_no": 1, "step_type": "wait", "step_name": "Wait Demo Page", "payload_json": {"ms": 200}},
     {
@@ -276,7 +299,7 @@ def _ensure_demo_placeholder_media(db, *, workspace_id: int, admin: User):
         db,
         user=admin,
         workspace_id=workspace_id,
-        file_bytes=DEMO_PLACEHOLDER_PNG_BYTES,
+        file_bytes=_generate_demo_placeholder_png(),
         file_name="demo-template-placeholder.png",
         mime_type="image/png",
         usage="baseline",

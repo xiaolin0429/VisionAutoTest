@@ -19,6 +19,9 @@ from app.schemas.contracts import (
     MediaObjectRead,
     MediaObjectUpdate,
     TemplateCreate,
+    TemplateOCRResultRead,
+    TemplatePreviewCreate,
+    TemplatePreviewRead,
     TemplateRead,
     TemplateUpdate,
 )
@@ -196,6 +199,62 @@ def create_baseline_revision(template_id: int, payload: BaselineRevisionCreate, 
     return success_response(request, dump_model(BaselineRevisionRead, baseline), status_code=201)
 
 
+@router.get("/templates/{template_id}/baseline-revisions/{baseline_revision_id}/ocr-results")
+def get_template_ocr_result(
+    template_id: int,
+    baseline_revision_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    template = assets.get_template(db, template_id)
+    snapshot = assets.get_template_ocr_result(
+        db,
+        user=current_user,
+        template=template,
+        baseline_revision_id=baseline_revision_id,
+    )
+    return success_response(request, dump_model(TemplateOCRResultRead, snapshot))
+
+
+@router.post("/templates/{template_id}/baseline-revisions/{baseline_revision_id}/ocr-results", status_code=201)
+def create_template_ocr_result(
+    template_id: int,
+    baseline_revision_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    template = assets.get_template(db, template_id)
+    snapshot = assets.analyze_template_ocr(
+        db,
+        user=current_user,
+        template=template,
+        baseline_revision_id=baseline_revision_id,
+    )
+    return success_response(request, dump_model(TemplateOCRResultRead, assets.template_ocr_result_view(snapshot)), status_code=201)
+
+
+@router.post("/templates/{template_id}/baseline-revisions/{baseline_revision_id}/preview-images", status_code=201)
+def create_template_preview_images(
+    template_id: int,
+    baseline_revision_id: int,
+    payload: TemplatePreviewCreate,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    template = assets.get_template(db, template_id)
+    preview = assets.create_template_preview_images(
+        db,
+        user=current_user,
+        template=template,
+        baseline_revision_id=baseline_revision_id,
+        mask_regions=None if payload.mask_regions is None else [item.model_dump(exclude_none=True) for item in payload.mask_regions],
+    )
+    return success_response(request, dump_model(TemplatePreviewRead, preview), status_code=201)
+
+
 @router.get("/templates/{template_id}/mask-regions")
 def list_mask_regions(template_id: int, request: Request, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
     template = assets.get_template(db, template_id)
@@ -210,7 +269,7 @@ def create_mask_region(template_id: int, payload: MaskRegionCreate, request: Req
         db,
         user=current_user,
         template=template,
-        name=payload.name,
+        name=payload.region_name,
         x_ratio=payload.x_ratio,
         y_ratio=payload.y_ratio,
         width_ratio=payload.width_ratio,

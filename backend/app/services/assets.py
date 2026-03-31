@@ -19,16 +19,22 @@ from app.models import (
     StepResult,
     Template,
     TemplateMaskRegion,
+    TemplateOCRResult,
     TestCaseRun,
     User,
 )
 from app.services.helpers import count_total, require_workspace_access
+from app.workers.vision import MaskRegionRatio, build_vision_assertion_adapter
 
 settings = get_settings()
 storage_backend = get_storage_backend()
 SUPPORTED_TEMPLATE_MATCH_STRATEGIES = {"template", "ocr"}
 SUPPORTED_TEMPLATE_STATUSES = {"draft", "published", "archived"}
 SUPPORTED_BASELINE_SOURCE_TYPES = {"manual", "uploaded", "adopted_from_failure"}
+OCR_RESULT_SUCCESS_STATUS = "succeeded"
+OCR_RESULT_FAILED_STATUS = "failed"
+OCR_RESULT_NOT_GENERATED_STATUS = "not_generated"
+OCR_ENGINE_NAME = "paddleocr"
 
 
 class _SystemUser:
@@ -329,6 +335,180 @@ def create_baseline_revision(
     return baseline
 
 
+def get_baseline_revision(db: Session, baseline_revision_id: int) -> BaselineRevision:
+    baseline = db.get(BaselineRevision, baseline_revision_id)
+    if baseline is None:
+        raise ApiError(code="BASELINE_REVISION_NOT_FOUND", message="Baseline revision not found.", status_code=404)
+    return baseline
+
+
+def get_template_ocr_result(
+    db: Session,
+    *,
+    user: User,
+    template: Template,
+    baseline_revision_id: int,
+) -> dict:
+    require_workspace_access(db, user, template.workspace_id)
+    baseline, media, _ = _resolve_template_baseline_context(
+        db,
+        template=template,
+        baseline_revision_id=baseline_revision_id,
+    )
+    snapshot = db.scalar(
+        select(TemplateOCRResult).where(
+            TemplateOCRResult.template_id == template.id,
+            TemplateOCRResult.baseline_revision_id == baseline_revision_id,
+        )
+    )
+    if snapshot is None:
+        return {
+            "id": None,
+            "template_id": template.id,
+            "baseline_revision_id": baseline.id,
+            "source_media_object_id": media.id,
+            "status": OCR_RESULT_NOT_GENERATED_STATUS,
+            "engine_name": OCR_ENGINE_NAME,
+            "image_width": None,
+            "image_height": None,
+            "blocks": [],
+            "error_code": "TEMPLATE_OCR_RESULT_NOT_FOUND",
+            "error_message": "Template OCR result not found for the baseline revision.",
+            "created_at": None,
+            "updated_at": None,
+        }
+    return template_ocr_result_view(snapshot)
+
+
+def analyze_template_ocr(
+    db: Session,
+    *,
+    user: User,
+    template: Template,
+    baseline_revision_id: int,
+) -> TemplateOCRResult:
+    require_workspace_access(db, user, template.workspace_id)
+    baseline, media, baseline_path = _resolve_template_baseline_context(
+        db,
+        template=template,
+        baseline_revision_id=baseline_revision_id,
+    )
+    adapter = build_vision_assertion_adapter()
+    image_png_bytes = baseline_path.read_bytes()
+    try:
+        analysis = adapter.analyze_ocr(image_png_bytes=image_png_bytes)
+    except Exception as exc:  # noqa: BLE001
+        _upsert_template_ocr_result(
+            db,
+            template_id=template.id,
+            baseline_revision_id=baseline.id,
+            source_media_object_id=media.id,
+            status=OCR_RESULT_FAILED_STATUS,
+            engine_name=OCR_ENGINE_NAME,
+            image_width=None,
+            image_height=None,
+            result_json={"blocks": []},
+            error_code="TEMPLATE_OCR_ANALYSIS_FAILED",
+            error_message=_format_runtime_error(exc),
+        )
+        raise ApiError(
+            code="TEMPLATE_OCR_ANALYSIS_FAILED",
+            message="Template OCR analysis failed.",
+            status_code=500,
+            details=[{"field": "baseline_revision_id", "reason": _format_runtime_error(exc)}],
+        ) from exc
+
+    return _upsert_template_ocr_result(
+        db,
+        template_id=template.id,
+        baseline_revision_id=baseline.id,
+        source_media_object_id=media.id,
+        status=OCR_RESULT_SUCCESS_STATUS,
+        engine_name=str(analysis.get("engine_name") or OCR_ENGINE_NAME),
+        image_width=int(analysis["image_width"]),
+        image_height=int(analysis["image_height"]),
+        result_json={"blocks": list(analysis.get("blocks", []))},
+        error_code=None,
+        error_message=None,
+    )
+
+
+def create_template_preview_images(
+    db: Session,
+    *,
+    user: User,
+    template: Template,
+    baseline_revision_id: int,
+    mask_regions: list[dict] | None,
+) -> dict:
+    require_workspace_access(db, user, template.workspace_id)
+    baseline, media, baseline_path = _resolve_template_baseline_context(
+        db,
+        template=template,
+        baseline_revision_id=baseline_revision_id,
+    )
+    normalized_mask_regions = _normalize_preview_mask_regions(
+        db,
+        template=template,
+        payload_regions=mask_regions,
+    )
+    adapter = build_vision_assertion_adapter()
+    image_png_bytes = baseline_path.read_bytes()
+    try:
+        preview = adapter.build_mask_preview(
+            image_png_bytes=image_png_bytes,
+            mask_regions=[
+                MaskRegionRatio(
+                    x_ratio=region["x_ratio"],
+                    y_ratio=region["y_ratio"],
+                    width_ratio=region["width_ratio"],
+                    height_ratio=region["height_ratio"],
+                )
+                for region in normalized_mask_regions
+            ],
+        )
+    except Exception as exc:  # noqa: BLE001
+        raise ApiError(
+            code="TEMPLATE_PREVIEW_GENERATION_FAILED",
+            message="Template preview generation failed.",
+            status_code=500,
+            details=[{"field": "baseline_revision_id", "reason": _format_runtime_error(exc)}],
+        ) from exc
+
+    overlay_media = create_media_object_from_bytes(
+        db,
+        user=user,
+        workspace_id=template.workspace_id,
+        file_bytes=preview["overlay_png_bytes"],
+        file_name=f"template-{template.id}-baseline-{baseline.id}-overlay.png",
+        mime_type="image/png",
+        usage="artifact",
+        remark=f"template-{template.id}-baseline-{baseline.id}-preview-overlay",
+    )
+    processed_media = create_media_object_from_bytes(
+        db,
+        user=user,
+        workspace_id=template.workspace_id,
+        file_bytes=preview["processed_png_bytes"],
+        file_name=f"template-{template.id}-baseline-{baseline.id}-processed.png",
+        mime_type="image/png",
+        usage="artifact",
+        remark=f"template-{template.id}-baseline-{baseline.id}-preview-processed",
+    )
+    return {
+        "template_id": template.id,
+        "baseline_revision_id": baseline.id,
+        "source_media_object_id": media.id,
+        "image_width": int(preview["image_width"]),
+        "image_height": int(preview["image_height"]),
+        "overlay_media_object_id": overlay_media.id,
+        "overlay_content_url": _media_content_url(overlay_media.id),
+        "processed_media_object_id": processed_media.id,
+        "processed_content_url": _media_content_url(processed_media.id),
+        "mask_regions": normalized_mask_regions,
+    }
+
+
 def list_mask_regions(db: Session, *, user: User, template: Template):
     require_workspace_access(db, user, template.workspace_id)
     return db.scalars(
@@ -383,7 +563,7 @@ def update_mask_region(db: Session, *, user: User, region: TemplateMaskRegion, p
     template = get_template(db, region.template_id)
     require_workspace_access(db, user, template.workspace_id)
     data = {
-        "region_name": payload.get("name", region.region_name),
+        "region_name": payload.get("region_name", region.region_name),
         "x_ratio": payload.get("x_ratio", float(region.x_ratio)),
         "y_ratio": payload.get("y_ratio", float(region.y_ratio)),
         "width_ratio": payload.get("width_ratio", float(region.width_ratio)),
@@ -407,6 +587,141 @@ def delete_mask_region(db: Session, *, user: User, region: TemplateMaskRegion) -
     require_workspace_access(db, user, template.workspace_id)
     db.delete(region)
     db.commit()
+
+
+def template_ocr_result_view(snapshot: TemplateOCRResult) -> dict:
+    payload = snapshot.result_json or {}
+    return {
+        "id": snapshot.id,
+        "template_id": snapshot.template_id,
+        "baseline_revision_id": snapshot.baseline_revision_id,
+        "source_media_object_id": snapshot.source_media_object_id,
+        "status": snapshot.status,
+        "engine_name": snapshot.engine_name,
+        "image_width": snapshot.image_width,
+        "image_height": snapshot.image_height,
+        "blocks": list(payload.get("blocks", [])),
+        "error_code": snapshot.error_code,
+        "error_message": snapshot.error_message,
+        "created_at": snapshot.created_at,
+        "updated_at": snapshot.updated_at,
+    }
+
+
+def _resolve_template_baseline_context(
+    db: Session,
+    *,
+    template: Template,
+    baseline_revision_id: int,
+) -> tuple[BaselineRevision, MediaObject, Path]:
+    baseline = get_baseline_revision(db, baseline_revision_id)
+    if baseline.template_id != template.id:
+        raise ApiError(code="BASELINE_REVISION_NOT_FOUND", message="Baseline revision not found.", status_code=404)
+    media = get_media_object(db, baseline.media_object_id)
+    if media.workspace_id != template.workspace_id:
+        raise ApiError(code="MEDIA_OBJECT_NOT_FOUND", message="Media object not found in workspace.", status_code=404)
+    return baseline, media, storage_backend.resolve_path(media.object_key)
+
+
+def _upsert_template_ocr_result(
+    db: Session,
+    *,
+    template_id: int,
+    baseline_revision_id: int,
+    source_media_object_id: int,
+    status: str,
+    engine_name: str,
+    image_width: int | None,
+    image_height: int | None,
+    result_json: dict,
+    error_code: str | None,
+    error_message: str | None,
+) -> TemplateOCRResult:
+    snapshot = db.scalar(
+        select(TemplateOCRResult).where(
+            TemplateOCRResult.template_id == template_id,
+            TemplateOCRResult.baseline_revision_id == baseline_revision_id,
+        )
+    )
+    if snapshot is None:
+        snapshot = TemplateOCRResult(
+            template_id=template_id,
+            baseline_revision_id=baseline_revision_id,
+            source_media_object_id=source_media_object_id,
+            status=status,
+            engine_name=engine_name,
+            image_width=image_width,
+            image_height=image_height,
+            result_json=result_json,
+            error_code=error_code,
+            error_message=error_message,
+        )
+        db.add(snapshot)
+    else:
+        snapshot.source_media_object_id = source_media_object_id
+        snapshot.status = status
+        snapshot.engine_name = engine_name
+        snapshot.image_width = image_width
+        snapshot.image_height = image_height
+        snapshot.result_json = result_json
+        snapshot.error_code = error_code
+        snapshot.error_message = error_message
+    db.commit()
+    db.refresh(snapshot)
+    return snapshot
+
+
+def _normalize_preview_mask_regions(
+    db: Session,
+    *,
+    template: Template,
+    payload_regions: list[dict] | None,
+) -> list[dict]:
+    if payload_regions is None:
+        persisted_regions = db.scalars(
+            select(TemplateMaskRegion)
+            .where(TemplateMaskRegion.template_id == template.id)
+            .order_by(TemplateMaskRegion.sort_order.asc(), TemplateMaskRegion.id.asc())
+        ).all()
+        return [
+            {
+                "name": region.region_name,
+                "x_ratio": float(region.x_ratio),
+                "y_ratio": float(region.y_ratio),
+                "width_ratio": float(region.width_ratio),
+                "height_ratio": float(region.height_ratio),
+                "sort_order": int(region.sort_order),
+            }
+            for region in persisted_regions
+        ]
+
+    normalized_regions: list[dict] = []
+    for index, item in enumerate(payload_regions, start=1):
+        region = {
+            "name": str(item.get("name") or f"mask_region_{index}"),
+            "x_ratio": float(item["x_ratio"]),
+            "y_ratio": float(item["y_ratio"]),
+            "width_ratio": float(item["width_ratio"]),
+            "height_ratio": float(item["height_ratio"]),
+            "sort_order": int(item.get("sort_order") or index),
+        }
+        _validate_ratios(
+            region["x_ratio"],
+            region["y_ratio"],
+            region["width_ratio"],
+            region["height_ratio"],
+        )
+        normalized_regions.append(region)
+    normalized_regions.sort(key=lambda item: (item["sort_order"], item["name"]))
+    return normalized_regions
+
+
+def _media_content_url(media_object_id: int) -> str:
+    return f"{settings.api_v1_prefix}/media-objects/{media_object_id}/content"
+
+
+def _format_runtime_error(exc: Exception) -> str:
+    return f"{type(exc).__name__}: {str(exc).strip() or 'unexpected runtime error'}"
 
 
 def _validate_template_contract(*, match_strategy: str, status: str) -> None:

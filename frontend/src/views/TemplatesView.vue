@@ -1,17 +1,22 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { onBeforeRouteLeave } from 'vue-router'
 import { ElMessage } from 'element-plus'
+import { ApiError, requestBlob } from '@/api/client'
 import SectionCard from '@/components/SectionCard.vue'
 import StatusTag from '@/components/StatusTag.vue'
 import TemplateCanvas from '@/components/TemplateCanvas.vue'
-import { createMediaObject } from '@/api/modules/mediaObjects'
+import { createMediaObject, getMediaObjectContent } from '@/api/modules/mediaObjects'
 import {
   createBaselineRevision,
   createMaskRegion,
   createTemplate,
   deleteMaskRegion,
+  getTemplateProcessedPreview,
   getTemplateDetail,
   listTemplates,
+  listTemplateOcrResults,
+  requestTemplateOcrAnalysis,
   updateMaskRegion,
   updateTemplate,
   type ListTemplatesParams
@@ -21,9 +26,19 @@ import type {
   BaselineRevision,
   MaskRegion,
   Template,
+  TemplateOcrBlock,
   TemplateEditorMode,
-  TemplateMaskDraft
+  TemplateMaskDraft,
+  TemplateOcrResult,
+  TemplatePreviewState,
+  TemplateWorkbenchViewMode
 } from '@/types/models'
+
+interface OcrPanelState {
+  status: 'idle' | 'loading' | 'not_generated' | 'ready' | 'error'
+  baselineRevisionId: number | null
+  message: string
+}
 
 const templateTypeOptions = [
   { label: '页面模板', value: 'page' },
@@ -95,6 +110,66 @@ const baselineForm = reactive({
   remark: '',
   isCurrent: true
 })
+
+const workbenchViewMode = ref<TemplateWorkbenchViewMode>('mask')
+const selectedBaselineRevisionId = ref<number | null>(null)
+const baselinePreviewUrl = ref('')
+const baselinePreviewLoading = ref(false)
+const baselinePreviewError = ref('')
+const previewUrlCache = ref<Record<number, string>>({})
+const ocrPanelState = ref<OcrPanelState>({
+  status: 'idle',
+  baselineRevisionId: null,
+  message: '当前基准版本尚未生成 OCR 结果。'
+})
+const processedPreviewState = ref<TemplatePreviewState>({
+  status: 'idle',
+  baselineRevisionId: null,
+  sourceMediaObjectId: null,
+  overlayMediaObjectId: null,
+  overlayImageUrl: null,
+  processedMediaObjectId: null,
+  processedImageUrl: null,
+  imageWidth: null,
+  imageHeight: null,
+  maskRegions: [],
+  message: 'Mask 处理后预览尚未生成。'
+})
+const ocrSnapshot = ref<TemplateOcrResult | null>(null)
+const selectedOcrResultId = ref<string | null>(null)
+
+function createIdlePreviewState(message: string, baselineRevisionId: number | null): TemplatePreviewState {
+  return {
+    status: 'idle',
+    baselineRevisionId,
+    sourceMediaObjectId: null,
+    overlayMediaObjectId: null,
+    overlayImageUrl: null,
+    processedMediaObjectId: null,
+    processedImageUrl: null,
+    imageWidth: null,
+    imageHeight: null,
+    maskRegions: [],
+    message
+  }
+}
+
+function createIdleOcrState(
+  message: string,
+  baselineRevisionId: number | null,
+  status: OcrPanelState['status'] = 'idle'
+): OcrPanelState {
+  return {
+    status,
+    baselineRevisionId,
+    message
+  }
+}
+
+function revokePreviewUrls() {
+  Object.values(previewUrlCache.value).forEach((url) => URL.revokeObjectURL(url))
+  previewUrlCache.value = {}
+}
 
 function cloneMaskRegion(item: MaskRegion): TemplateMaskDraft {
   return {
@@ -341,6 +416,43 @@ const baselineRevisions = computed<BaselineRevision[]>(() => {
   return currentTemplate.value?.baselineRevisions ?? []
 })
 
+const currentBaselineRevision = computed(() => {
+  return baselineRevisions.value.find((item) => item.id === selectedBaselineRevisionId.value) ?? null
+})
+
+const ocrBlocks = computed<TemplateOcrBlock[]>(() => {
+  return ocrSnapshot.value?.blocks ?? []
+})
+
+const canTriggerOcr = computed(() => {
+  return Boolean(currentTemplate.value && currentBaselineRevision.value)
+})
+
+const detailBaselineVersionLabel = computed(() => {
+  if (currentBaselineRevision.value) {
+    return `v${currentBaselineRevision.value.revisionNo}`
+  }
+
+  return currentTemplate.value?.baselineVersion ?? '未设置'
+})
+
+const workbenchImageLabel = computed(() => {
+  if (!currentBaselineRevision.value) {
+    return '当前暂无工作基准图'
+  }
+
+  const revisionLabel = `v${currentBaselineRevision.value.revisionNo}`
+  const sourceLabel = currentBaselineRevision.value.isCurrent ? '当前基准' : '历史基准'
+  return `${revisionLabel} · ${sourceLabel}`
+})
+
+const workbenchViewOptions = [
+  { label: '原图', value: 'original' },
+  { label: 'OCR', value: 'ocr' },
+  { label: 'Mask', value: 'mask' },
+  { label: '处理后', value: 'processed' }
+] as const
+
 const hasActiveFilters = computed(() => {
   const filters = buildTemplateFilters()
   return Boolean(filters.keyword || filters.status || filters.templateType)
@@ -359,6 +471,119 @@ function blockMaskDraftInterruption(actionLabel: string) {
   return true
 }
 
+function syncSelectedBaselineRevision(template: Template | null) {
+  if (!template || template.baselineRevisions.length === 0) {
+    selectedBaselineRevisionId.value = null
+    return
+  }
+
+  const currentBaseline =
+    template.baselineRevisions.find((item) => item.isCurrent) ?? template.baselineRevisions[0]
+  selectedBaselineRevisionId.value = currentBaseline.id
+}
+
+function resetDerivedWorkbenchState() {
+  const baselineRevisionId = currentBaselineRevision.value?.id ?? null
+  ocrSnapshot.value = null
+  selectedOcrResultId.value = null
+  ocrPanelState.value = createIdleOcrState('当前基准版本尚未生成 OCR 结果。', baselineRevisionId)
+  processedPreviewState.value = createIdlePreviewState(
+    '切换到处理后视图后，将基于当前基准版本和 Mask 重新生成预览。',
+    baselineRevisionId
+  )
+}
+
+async function ensurePreviewUrl(mediaObjectId: number, contentUrl?: string | null) {
+  if (previewUrlCache.value[mediaObjectId]) {
+    return previewUrlCache.value[mediaObjectId]
+  }
+
+  const blob = contentUrl
+    ? await requestBlob({
+        method: 'get',
+        url: contentUrl
+      })
+    : await getMediaObjectContent(mediaObjectId)
+  const objectUrl = URL.createObjectURL(blob)
+  previewUrlCache.value = {
+    ...previewUrlCache.value,
+    [mediaObjectId]: objectUrl
+  }
+  return objectUrl
+}
+
+async function loadWorkbenchImage() {
+  if (!currentBaselineRevision.value) {
+    baselinePreviewUrl.value = ''
+    baselinePreviewError.value = '当前模板暂无可用基准图。'
+    baselinePreviewLoading.value = false
+    return
+  }
+
+  baselinePreviewLoading.value = true
+  baselinePreviewError.value = ''
+
+  try {
+    baselinePreviewUrl.value = await ensurePreviewUrl(currentBaselineRevision.value.mediaObjectId)
+  } catch (error) {
+    baselinePreviewUrl.value = ''
+    baselinePreviewError.value =
+      error instanceof Error ? error.message : '当前基准图加载失败，请稍后重试。'
+  } finally {
+    baselinePreviewLoading.value = false
+  }
+}
+
+function buildPreviewMaskPayload() {
+  if (editorMode.value !== 'edit') {
+    return undefined
+  }
+
+  return draftMaskRegions.value.map((item) => ({
+    name: item.name,
+    xRatio: item.xRatio,
+    yRatio: item.yRatio,
+    widthRatio: item.widthRatio,
+    heightRatio: item.heightRatio,
+    sortOrder: item.sortOrder
+  }))
+}
+
+async function loadPreviewImages() {
+  if (!currentTemplate.value || !currentBaselineRevision.value) {
+    processedPreviewState.value = createIdlePreviewState('当前基准版本不可用于生成预览。', null)
+    return
+  }
+
+  processedPreviewState.value = {
+    ...createIdlePreviewState('正在生成 Mask 预览图...', currentBaselineRevision.value.id),
+    status: 'loading'
+  }
+
+  try {
+    const preview = await getTemplateProcessedPreview(
+      currentTemplate.value.id,
+      currentBaselineRevision.value.id,
+      buildPreviewMaskPayload()
+    )
+
+    processedPreviewState.value = {
+      ...preview,
+      overlayImageUrl: await ensurePreviewUrl(preview.overlayMediaObjectId ?? 0),
+      processedImageUrl: await ensurePreviewUrl(preview.processedMediaObjectId ?? 0),
+      message: editorMode.value === 'edit' ? '当前展示的是草稿 Mask 预览结果。' : '当前展示的是正式 Mask 预览结果。'
+    }
+  } catch (error) {
+    processedPreviewState.value = {
+      ...createIdlePreviewState(
+        error instanceof Error ? error.message : 'Mask 预览生成失败，请稍后重试。',
+        currentBaselineRevision.value.id
+      ),
+      status: 'error'
+    }
+  }
+}
+
 async function loadTemplates(options: { preferredTemplateId?: number | null } = {}) {
   listLoading.value = true
   listError.value = ''
@@ -371,6 +596,10 @@ async function loadTemplates(options: { preferredTemplateId?: number | null } = 
       selectedTemplateId.value = null
       currentTemplate.value = null
       resetEditorState(null)
+      selectedBaselineRevisionId.value = null
+      baselinePreviewUrl.value = ''
+      baselinePreviewError.value = ''
+      resetDerivedWorkbenchState()
       return items
     }
 
@@ -393,6 +622,10 @@ async function loadTemplates(options: { preferredTemplateId?: number | null } = 
       selectedTemplateId.value = null
       currentTemplate.value = null
       resetEditorState(null)
+      selectedBaselineRevisionId.value = null
+      baselinePreviewUrl.value = ''
+      baselinePreviewError.value = ''
+      resetDerivedWorkbenchState()
     }
     return []
   } finally {
@@ -408,10 +641,16 @@ async function loadTemplateDetail(templateId: number) {
     const detail = await getTemplateDetail(templateId)
     currentTemplate.value = detail
     resetEditorState(detail)
+    syncSelectedBaselineRevision(detail)
+    resetDerivedWorkbenchState()
   } catch (error) {
     detailError.value = error instanceof Error ? error.message : '模板详情加载失败，请稍后重试。'
     currentTemplate.value = null
     resetEditorState(null)
+    selectedBaselineRevisionId.value = null
+    baselinePreviewUrl.value = ''
+    baselinePreviewError.value = ''
+    resetDerivedWorkbenchState()
   } finally {
     detailLoading.value = false
   }
@@ -494,13 +733,22 @@ function handleStartEditing() {
     return
   }
 
+  if (!currentBaselineRevision.value || !baselinePreviewUrl.value) {
+    ElMessage.warning('当前模板暂无可编辑的真实基准图，请先选择可用基准版本。')
+    return
+  }
+
   draftMaskRegions.value = currentTemplate.value.maskRegions.map(cloneMaskRegion)
   selectedMaskId.value = draftMaskRegions.value[0]?.id ?? null
   editorMode.value = 'edit'
+  workbenchViewMode.value = 'mask'
 }
 
 function handleCancelEditing() {
   resetEditorState(currentTemplate.value)
+  if (workbenchViewMode.value === 'processed' || workbenchViewMode.value === 'mask') {
+    void loadPreviewImages()
+  }
   ElMessage.info('已取消本次 Mask 编辑。')
 }
 
@@ -556,6 +804,158 @@ function handleDeleteSelectedMask() {
 
 function handleMaskRowClick(row: MaskRegion) {
   selectedMaskId.value = row.id
+}
+
+function handleSelectWorkbenchViewMode(mode: TemplateWorkbenchViewMode) {
+  if (mode === workbenchViewMode.value) {
+    if (mode === 'processed' || (mode === 'mask' && editorMode.value !== 'edit')) {
+      void loadPreviewImages()
+    }
+    return
+  }
+
+  workbenchViewMode.value = mode
+}
+
+function handleSelectBaselineRevision(revisionId: number) {
+  if (revisionId === selectedBaselineRevisionId.value) {
+    return
+  }
+
+  if (blockMaskDraftInterruption('切换基准版本')) {
+    return
+  }
+
+  selectedBaselineRevisionId.value = revisionId
+}
+
+async function loadOcrSnapshot() {
+  if (!currentTemplate.value || !currentBaselineRevision.value) {
+    ocrSnapshot.value = null
+    ocrPanelState.value = createIdleOcrState('当前基准版本尚未生成 OCR 结果。', null)
+    return
+  }
+
+  try {
+    const snapshot = await listTemplateOcrResults(
+      currentTemplate.value.id,
+      currentBaselineRevision.value.id
+    )
+
+    ocrSnapshot.value = snapshot
+
+    if (snapshot.status === 'not_generated') {
+      ocrPanelState.value = createIdleOcrState(
+        snapshot.errorMessage || '当前基准版本尚未生成 OCR 结果，可手动触发分析。',
+        currentBaselineRevision.value.id,
+        'not_generated'
+      )
+      return
+    }
+
+    ocrPanelState.value = createIdleOcrState(
+      snapshot.status === 'failed'
+        ? snapshot.errorMessage || '该基准版本最近一次 OCR 分析失败，可重新触发。'
+        : `已加载 OCR 快照，共 ${snapshot.blocks.length} 个识别块。`,
+      currentBaselineRevision.value.id,
+      snapshot.status === 'failed' ? 'error' : 'ready'
+    )
+  } catch (error) {
+    ocrSnapshot.value = null
+    ocrPanelState.value = createIdleOcrState(
+      error instanceof Error ? error.message : 'OCR 快照加载失败，请稍后重试。',
+      currentBaselineRevision.value?.id ?? null,
+      'error'
+    )
+  }
+}
+
+async function handleTriggerOcrAnalysis() {
+  if (!currentTemplate.value || !currentBaselineRevision.value) {
+    ElMessage.warning('请先选择可用的基准版本。')
+    return
+  }
+
+  ocrPanelState.value = createIdleOcrState(
+    '正在执行 OCR 分析，请稍候...',
+    currentBaselineRevision.value.id,
+    'loading'
+  )
+
+  try {
+    const snapshot = await requestTemplateOcrAnalysis(
+      currentTemplate.value.id,
+      currentBaselineRevision.value.id
+    )
+    ocrSnapshot.value = snapshot
+    ocrPanelState.value = createIdleOcrState(
+      snapshot.status === 'failed'
+        ? snapshot.errorMessage || 'OCR 分析失败，请稍后重试。'
+        : `OCR 分析完成，共识别 ${snapshot.blocks.length} 个结果。`,
+      currentBaselineRevision.value.id,
+      snapshot.status === 'failed' ? 'error' : 'ready'
+    )
+    workbenchViewMode.value = 'ocr'
+    ElMessage.success('OCR 分析完成。')
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'OCR 分析失败，请稍后重试。'
+    ocrPanelState.value = createIdleOcrState(
+      message,
+      currentBaselineRevision.value.id,
+      'error'
+    )
+
+    if (error instanceof ApiError && error.code === 'TEMPLATE_OCR_ANALYSIS_FAILED') {
+      void loadOcrSnapshot()
+    }
+
+    ElMessage.error(message)
+  }
+}
+
+function handleSelectOcrBlock(blockId: string | null) {
+  selectedOcrResultId.value = blockId
+
+  if (!ocrSnapshot.value) {
+    return
+  }
+
+  ocrSnapshot.value = {
+    ...ocrSnapshot.value,
+    blocks: ocrSnapshot.value.blocks.map((item) => ({
+      ...item,
+      highlighted: item.id === blockId
+    }))
+  }
+}
+
+function handleConvertOcrResultToMask(result: TemplateOcrBlock) {
+  if (editorMode.value !== 'edit') {
+    handleStartEditing()
+  }
+
+  if (editorMode.value !== 'edit') {
+    return
+  }
+
+  const nextId =
+    draftMaskRegions.value.reduce((minimumId, item) => Math.min(minimumId, item.id), 0) - 1
+  const nextMask: TemplateMaskDraft = {
+    id: nextId,
+    name: trimText(result.text) || `OCR 区域 ${result.orderNo}`,
+    xRatio: result.ratioRect.xRatio,
+    yRatio: result.ratioRect.yRatio,
+    widthRatio: result.ratioRect.widthRatio,
+    heightRatio: result.ratioRect.heightRatio,
+    sortOrder: draftMaskRegions.value.length + 1,
+    isNew: true
+  }
+
+  replaceDraftMaskRegions([...draftMaskRegions.value, nextMask])
+  selectedMaskId.value = nextId
+  selectedOcrResultId.value = result.id
+  workbenchViewMode.value = 'mask'
+  ElMessage.success('OCR 识别框已转为 Mask 草稿，请继续调整并保存。')
 }
 
 function handleSelectTemplate(templateId: number) {
@@ -775,6 +1175,9 @@ async function handleSaveMaskRegions() {
     }
 
     await reloadCurrentTemplate()
+    if (workbenchViewMode.value === 'processed' || workbenchViewMode.value === 'mask') {
+      await loadPreviewImages()
+    }
     ElMessage.success('模板 Mask 草稿已保存。')
   } catch (error) {
     const message = error instanceof Error ? error.message : '保存 Mask 失败，请稍后重试。'
@@ -800,12 +1203,34 @@ function retryDetail() {
   void loadTemplateDetail(selectedTemplateId.value)
 }
 
+function handleBeforeUnload(event: BeforeUnloadEvent) {
+  if (!hasPendingMaskDraft.value) {
+    return
+  }
+
+  event.preventDefault()
+  event.returnValue = ''
+}
+
+onBeforeRouteLeave(() => {
+  if (!hasPendingMaskDraft.value) {
+    return true
+  }
+
+  ElMessage.warning('当前 Mask 草稿尚未保存，请先保存或取消后再离开当前页面。')
+  return false
+})
+
 watch(
   selectedTemplateId,
   async (templateId) => {
     if (!templateId) {
       currentTemplate.value = null
       resetEditorState(null)
+      selectedBaselineRevisionId.value = null
+      baselinePreviewUrl.value = ''
+      baselinePreviewError.value = ''
+      resetDerivedWorkbenchState()
       return
     }
 
@@ -813,8 +1238,39 @@ watch(
   }
 )
 
+watch(
+  currentBaselineRevision,
+  async () => {
+    resetDerivedWorkbenchState()
+    await loadWorkbenchImage()
+    await loadOcrSnapshot()
+    if (workbenchViewMode.value === 'mask' || workbenchViewMode.value === 'processed') {
+      await loadPreviewImages()
+    }
+  }
+)
+
+watch(
+  workbenchViewMode,
+  async (mode) => {
+    if (!currentTemplate.value || !currentBaselineRevision.value) {
+      return
+    }
+
+    if (mode === 'processed') {
+      await loadPreviewImages()
+    }
+  }
+)
+
 onMounted(async () => {
+  window.addEventListener('beforeunload', handleBeforeUnload)
   await loadTemplates()
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('beforeunload', handleBeforeUnload)
+  revokePreviewUrls()
 })
 </script>
 
@@ -1065,13 +1521,13 @@ onMounted(async () => {
               </p>
             </div>
             <div class="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-              <p class="m-0 text-sm text-slate-500">
-                当前基准版本
-              </p>
-              <p class="mb-0 mt-3 text-lg font-semibold text-slate-900">
-                {{ currentTemplate.baselineVersion }}
-              </p>
-            </div>
+	              <p class="m-0 text-sm text-slate-500">
+	                当前工作基准版本
+	              </p>
+	              <p class="mb-0 mt-3 text-lg font-semibold text-slate-900">
+	                {{ detailBaselineVersionLabel }}
+	              </p>
+	            </div>
           </div>
 
           <div class="grid grid-cols-4 gap-4">
@@ -1113,10 +1569,30 @@ onMounted(async () => {
             description="新增基准版本会自动上传媒体对象，并以当前模板上下文追加新的 baseline revision。"
             title="基准版本"
           >
+            <template #action>
+              <el-select
+                :model-value="selectedBaselineRevisionId ?? undefined"
+                class="!w-72"
+                placeholder="请选择工作基准版本"
+                @change="handleSelectBaselineRevision"
+              >
+                <el-option
+                  v-for="revision in baselineRevisions"
+                  :key="revision.id"
+                  :label="`v${revision.revisionNo} · ${revision.isCurrent ? '当前基准' : '历史基准'}`"
+                  :value="revision.id"
+                />
+              </el-select>
+            </template>
+
             <el-table
+              :current-row-key="selectedBaselineRevisionId ?? undefined"
               :data="baselineRevisions"
               empty-text="当前模板尚未记录基准版本"
+              highlight-current-row
+              row-key="id"
               stripe
+              @row-click="handleSelectBaselineRevision($event.id)"
             >
               <el-table-column
                 label="版本号"
@@ -1169,19 +1645,58 @@ onMounted(async () => {
           </SectionCard>
 
           <SectionCard
-            description="Mask 编辑仍使用相对比例坐标，并在保存后统一重载模板详情。"
-            title="Mask 管理"
+            description="模板页已升级为围绕真实基准图工作的前端工作台，当前阶段聚焦真实图片、Mask 编辑与 OCR/预览骨架。"
+            title="模板资产工作台"
           >
-            <div class="grid grid-cols-[minmax(0,1fr)_320px] gap-6">
-              <TemplateCanvas
-                :editable="editorMode === 'edit'"
-                :image-label="currentTemplate.imageLabel"
-                :regions="activeMaskRegions"
-                :selected-mask-id="selectedMaskId"
-                :template-type="currentTemplate.templateType"
-                @update:regions="handleCanvasRegionsUpdate"
-                @update:selected-mask-id="selectedMaskId = $event"
-              />
+            <div class="grid grid-cols-[minmax(0,1fr)_360px] gap-6">
+              <div class="space-y-4">
+                <div class="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                  <div>
+                    <p class="m-0 text-sm font-medium text-slate-700">
+                      当前工作基准
+                    </p>
+                    <p class="mb-0 mt-2 text-sm leading-6 text-slate-500">
+                      {{
+                        currentBaselineRevision
+                          ? `当前正在围绕 v${currentBaselineRevision.revisionNo} 进行图片查看、Mask 编辑与后续 OCR 处理。`
+                          : '当前模板还没有可用于工作台展示的基准版本。'
+                      }}
+                    </p>
+                  </div>
+
+                  <div class="flex flex-wrap items-center gap-2">
+                    <el-button
+                      v-for="option in workbenchViewOptions"
+                      :key="option.value"
+                      :plain="workbenchViewMode !== option.value"
+                      :type="workbenchViewMode === option.value ? 'primary' : 'default'"
+                      @click="handleSelectWorkbenchViewMode(option.value)"
+                    >
+                      {{ option.label }}
+                    </el-button>
+                  </div>
+                </div>
+
+                <TemplateCanvas
+                  :editable="editorMode === 'edit'"
+                  :image-error="baselinePreviewError"
+                  :image-label="workbenchImageLabel"
+                  :image-loading="baselinePreviewLoading"
+                  :image-url="baselinePreviewUrl || null"
+                  :ocr-blocks="ocrBlocks"
+                  :overlay-image-url="processedPreviewState.overlayImageUrl"
+                  :preview-state="workbenchViewMode === 'ocr' ? ocrPanelState : processedPreviewState"
+                  :processed-image-url="processedPreviewState.processedImageUrl"
+                  :regions="activeMaskRegions"
+                  :selected-mask-id="selectedMaskId"
+                  :selected-ocr-result-id="selectedOcrResultId"
+                  :template-type="currentTemplate.templateType"
+                  :view-mode="workbenchViewMode"
+                  @update:regions="handleCanvasRegionsUpdate"
+                  @update:selected-mask-id="selectedMaskId = $event"
+                  @update:selected-ocr-result-id="handleSelectOcrBlock"
+                />
+              </div>
 
               <div class="space-y-4">
                 <div class="rounded-2xl border border-slate-200 bg-slate-50 p-4">
@@ -1189,7 +1704,7 @@ onMounted(async () => {
                     v-if="hasPendingMaskDraft"
                     class="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700"
                   >
-                    当前 Mask 草稿尚未保存，切换模板、查询列表或打开其他管理操作前，请先保存或取消。
+                    当前 Mask 草稿尚未保存。切换模板、切换基准版本、离开页面前，请先保存或取消；同一基准版本内仍可切换视图查看草稿预览。
                   </p>
                   <p class="m-0 text-sm font-medium text-slate-700">
                     当前模式
@@ -1197,11 +1712,93 @@ onMounted(async () => {
                   <p class="mb-0 mt-2 text-sm leading-6 text-slate-500">
                     {{
                       editorMode === 'edit'
-                        ? '编辑模式下可直接拖拽区域、缩放角点，并在右侧维护名称与删除操作。'
-                        : '浏览模式下可点击画布或表格查看某个 Mask 的比例与位置。'
+                        ? '编辑模式下可直接基于真实图片拖拽区域、缩放角点，并在右侧维护名称与删除操作。'
+                        : '浏览模式下可切换原图、OCR、Mask 与处理后视图，核对工作基准与区域覆盖效果。'
                     }}
                   </p>
                 </div>
+
+                <SectionCard
+                  description="OCR 结果按 template + baseline revision 唯一快照联调，重复触发会覆盖更新，不展示历史列表。"
+                  title="OCR 结果"
+                >
+                  <template #action>
+                    <el-button
+                      :disabled="!canTriggerOcr"
+                      plain
+                      type="primary"
+                      @click="handleTriggerOcrAnalysis"
+                    >
+                      执行 OCR 分析
+                    </el-button>
+                  </template>
+
+                  <div class="space-y-3">
+                    <div class="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm leading-6 text-slate-500">
+                      {{ ocrPanelState.message }}
+                    </div>
+
+                    <div
+                      v-if="ocrSnapshot"
+                      class="grid grid-cols-2 gap-3 text-sm"
+                    >
+                      <div class="rounded-xl border border-slate-200 bg-white p-3">
+                        <p class="m-0 text-slate-500">OCR 状态</p>
+                        <p class="mb-0 mt-2 font-medium text-slate-900">
+                          {{ ocrSnapshot.status }}
+                        </p>
+                      </div>
+                      <div class="rounded-xl border border-slate-200 bg-white p-3">
+                        <p class="m-0 text-slate-500">识别引擎</p>
+                        <p class="mb-0 mt-2 font-medium text-slate-900">
+                          {{ ocrSnapshot.engineName }}
+                        </p>
+                      </div>
+                    </div>
+
+                    <el-empty
+                      v-if="ocrBlocks.length === 0"
+                      description="当前暂无 OCR 结果"
+                    />
+
+                    <div
+                      v-else
+                      class="space-y-3"
+                    >
+                      <button
+                        v-for="result in ocrBlocks"
+                        :key="result.id"
+                        :class="[
+                          'w-full rounded-2xl border p-4 text-left transition',
+                          selectedOcrResultId === result.id
+                            ? 'border-emerald-400 bg-emerald-50'
+                            : 'border-slate-200 bg-slate-50 hover:border-slate-300'
+                        ]"
+                        type="button"
+                        @click="handleSelectOcrBlock(result.id)"
+                      >
+                        <div class="flex items-start justify-between gap-3">
+                          <div>
+                            <p class="m-0 text-sm font-semibold text-slate-900">
+                              {{ result.orderNo }}. {{ result.text || '未识别文本' }}
+                            </p>
+                            <p class="mb-0 mt-2 text-xs text-slate-500">
+                              置信度 {{ result.confidence.toFixed(2) }}
+                            </p>
+                          </div>
+                          <el-button
+                            plain
+                            size="small"
+                            type="primary"
+                            @click.stop="handleConvertOcrResultToMask(result)"
+                          >
+                            转为 Mask
+                          </el-button>
+                        </div>
+                      </button>
+                    </div>
+                  </div>
+                </SectionCard>
 
                 <div class="rounded-2xl border border-slate-200 bg-slate-50 p-4">
                   <div class="mb-4 flex items-center justify-between">

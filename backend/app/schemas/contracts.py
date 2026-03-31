@@ -66,13 +66,13 @@ class WorkspaceRead(ORMModel):
 
 class WorkspaceCreate(BaseModel):
     workspace_code: str
-    name: str
+    workspace_name: str
     description: str | None = None
     status: str = "active"
 
 
 class WorkspaceUpdate(BaseModel):
-    name: str | None = None
+    workspace_name: str | None = None
     description: str | None = None
     status: str | None = None
 
@@ -257,6 +257,50 @@ class BaselineRevisionCreate(BaseModel):
     is_current: bool = True
 
 
+class OCRPointRead(BaseModel):
+    x: int
+    y: int
+
+
+class OCRPixelRectRead(BaseModel):
+    x: int
+    y: int
+    width: int
+    height: int
+
+
+class OCRRatioRectRead(BaseModel):
+    x_ratio: float
+    y_ratio: float
+    width_ratio: float
+    height_ratio: float
+
+
+class TemplateOCRBlockRead(BaseModel):
+    order_no: int
+    text: str
+    confidence: float
+    polygon_points: list[OCRPointRead]
+    pixel_rect: OCRPixelRectRead
+    ratio_rect: OCRRatioRectRead
+
+
+class TemplateOCRResultRead(BaseModel):
+    id: int | None = None
+    template_id: int
+    baseline_revision_id: int
+    source_media_object_id: int
+    status: str
+    engine_name: str
+    image_width: int | None = None
+    image_height: int | None = None
+    blocks: list[TemplateOCRBlockRead] = Field(default_factory=list)
+    error_code: str | None = None
+    error_message: str | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
 class MaskRegionRead(ORMModel):
     id: int
     template_id: int
@@ -271,7 +315,7 @@ class MaskRegionRead(ORMModel):
 
 
 class MaskRegionCreate(BaseModel):
-    name: str
+    region_name: str
     x_ratio: float
     y_ratio: float
     width_ratio: float
@@ -280,12 +324,47 @@ class MaskRegionCreate(BaseModel):
 
 
 class MaskRegionUpdate(BaseModel):
-    name: str | None = None
+    region_name: str | None = None
     x_ratio: float | None = None
     y_ratio: float | None = None
     width_ratio: float | None = None
     height_ratio: float | None = None
     sort_order: int | None = None
+
+
+class MaskRegionPreviewWrite(BaseModel):
+    name: str | None = None
+    x_ratio: float
+    y_ratio: float
+    width_ratio: float
+    height_ratio: float
+    sort_order: int | None = None
+
+
+class MaskRegionPreviewRead(BaseModel):
+    name: str
+    x_ratio: float
+    y_ratio: float
+    width_ratio: float
+    height_ratio: float
+    sort_order: int
+
+
+class TemplatePreviewCreate(BaseModel):
+    mask_regions: list[MaskRegionPreviewWrite] | None = None
+
+
+class TemplatePreviewRead(BaseModel):
+    template_id: int
+    baseline_revision_id: int
+    source_media_object_id: int
+    image_width: int
+    image_height: int
+    overlay_media_object_id: int
+    overlay_content_url: str
+    processed_media_object_id: int
+    processed_content_url: str
+    mask_regions: list[MaskRegionPreviewRead]
 
 
 class StepWrite(BaseModel):

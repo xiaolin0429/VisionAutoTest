@@ -266,6 +266,68 @@ export interface Template {
   maskRegions: MaskRegion[]
 }
 
+export type TemplateWorkbenchViewMode = 'original' | 'ocr' | 'mask' | 'processed'
+
+export interface TemplateOcrPoint {
+  x: number
+  y: number
+}
+
+export interface TemplateOcrPixelRect {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+export interface TemplateOcrRatioRect {
+  xRatio: number
+  yRatio: number
+  widthRatio: number
+  heightRatio: number
+}
+
+export interface TemplateOcrResult {
+  id: number | null
+  templateId: number
+  baselineRevisionId: number
+  sourceMediaObjectId: number
+  status: string
+  engineName: string
+  imageWidth: number | null
+  imageHeight: number | null
+  errorCode: string | null
+  errorMessage: string | null
+  createdAt: string | null
+  updatedAt: string | null
+  blocks: TemplateOcrBlock[]
+}
+
+export interface TemplateOcrBlock {
+  id: string
+  text: string
+  confidence: number
+  orderNo: number
+  polygonPoints: TemplateOcrPoint[]
+  pixelRect: TemplateOcrPixelRect
+  ratioRect: TemplateOcrRatioRect
+  highlighted: boolean
+}
+
+export interface TemplatePreviewState {
+  status: 'idle' | 'loading' | 'ready' | 'unavailable' | 'error'
+  baselineRevisionId: number | null
+  sourceMediaObjectId: number | null
+  overlayMediaObjectId: number | null
+  overlayImageUrl: string | null
+  processedMediaObjectId: number | null
+  processedImageUrl: string | null
+  imageWidth: number | null
+  imageHeight: number | null
+  maskRegions: MaskRegion[]
+  message: string
+}
+
 export type StepType =
   | 'wait'
   | 'click'
@@ -514,6 +576,9 @@ export interface RunSummary {
 export interface RunDetail {
   id: number
   testRunId: number
+  testSuiteId: number
+  environmentProfileId: number
+  deviceProfileId: number | null
   suiteName: string
   environmentName: string
   deviceName: string
