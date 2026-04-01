@@ -6,6 +6,8 @@ import { ApiError } from '@/api/client'
 import { getComponentSteps, listComponents } from '@/api/modules/components'
 import SectionCard from '@/components/SectionCard.vue'
 import StatusTag from '@/components/StatusTag.vue'
+import SuiteCaseDialog from '@/components/suite/SuiteCaseDialog.vue'
+import SuiteFormDialog from '@/components/suite/SuiteFormDialog.vue'
 import { listDeviceProfiles, listEnvironmentProfiles } from '@/api/modules/environments'
 import { getTestCaseDetail, listTestCases } from '@/api/modules/testCases'
 import { listTemplates } from '@/api/modules/templates'
@@ -702,135 +704,28 @@ onMounted(async () => {
       </SectionCard>
     </div>
 
-    <el-dialog
-      v-model="suiteDialogVisible"
-      :title="suiteDialogMode === 'create' ? '新建测试套件' : '编辑测试套件'"
-      width="560px"
-    >
-      <div class="grid grid-cols-2 gap-4">
-        <div>
-          <label class="mb-2 block text-sm font-medium text-slate-700">套件编码</label>
-          <el-input
-            v-model="suiteForm.code"
-            :disabled="suiteDialogMode === 'edit'"
-          />
-        </div>
-        <div>
-          <label class="mb-2 block text-sm font-medium text-slate-700">状态</label>
-          <el-select
-            v-model="suiteForm.status"
-            class="!w-full"
-          >
-            <el-option
-              v-for="option in suiteStatusOptions"
-              :key="option.value"
-              :label="option.label"
-              :value="option.value"
-            />
-          </el-select>
-        </div>
-        <div class="col-span-2">
-          <label class="mb-2 block text-sm font-medium text-slate-700">套件名称</label>
-          <el-input v-model="suiteForm.name" />
-        </div>
-        <div class="col-span-2">
-          <label class="mb-2 block text-sm font-medium text-slate-700">说明</label>
-          <el-input
-            v-model="suiteForm.description"
-            :rows="4"
-            type="textarea"
-          />
-        </div>
-      </div>
+    <SuiteFormDialog
+      :form="suiteForm"
+      :mode="suiteDialogMode"
+      :saving-suite="savingSuite"
+      :status-options="suiteStatusOptions"
+      :visible="suiteDialogVisible"
+      @submit="handleSaveSuite"
+      @update:visible="suiteDialogVisible = $event"
+    />
 
-      <template #footer>
-        <div class="flex justify-end gap-3">
-          <el-button @click="suiteDialogVisible = false">
-            取消
-          </el-button>
-          <el-button
-            :loading="savingSuite"
-            color="#2563eb"
-            @click="handleSaveSuite"
-          >
-            保存
-          </el-button>
-        </div>
-      </template>
-    </el-dialog>
-
-    <el-dialog
-      v-model="caseDialogVisible"
-      title="编排套件用例"
-      width="780px"
-    >
-      <div class="mb-4 grid grid-cols-[minmax(0,1fr)_auto] gap-3">
-        <el-select
-          v-model="selectedCaseToAdd"
-          class="!w-full"
-          filterable
-          clearable
-          placeholder="选择一个测试用例加入套件"
-        >
-          <el-option
-            v-for="item in availableCasesToAdd"
-            :key="item.id"
-            :label="`${item.name} (${item.code})`"
-            :value="item.id"
-          />
-        </el-select>
-        <el-button plain @click="addSuiteCase">
-          加入套件
-        </el-button>
-      </div>
-
-      <div class="space-y-3">
-        <div
-          v-for="(item, index) in suiteCaseDrafts"
-          :key="item.testCaseId"
-          class="flex items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 p-4"
-        >
-          <div>
-            <p class="m-0 text-base font-semibold text-slate-900">
-              {{ item.orderNo }}. {{ item.name }}
-            </p>
-            <p class="mb-0 mt-2 text-sm text-slate-500">
-              测试用例 #{{ item.testCaseId }}
-            </p>
-          </div>
-          <div class="flex items-center gap-2">
-            <StatusTag :status="item.status" />
-            <el-button plain @click="moveSuiteCase(index, -1)">
-              上移
-            </el-button>
-            <el-button plain @click="moveSuiteCase(index, 1)">
-              下移
-            </el-button>
-            <el-button
-              link
-              type="danger"
-              @click="removeSuiteCase(index)"
-            >
-              移除
-            </el-button>
-          </div>
-        </div>
-      </div>
-
-      <template #footer>
-        <div class="flex justify-end gap-3">
-          <el-button @click="caseDialogVisible = false">
-            取消
-          </el-button>
-          <el-button
-            :loading="savingCases"
-            color="#2563eb"
-            @click="handleSaveSuiteCases"
-          >
-            保存编排
-          </el-button>
-        </div>
-      </template>
-    </el-dialog>
+    <SuiteCaseDialog
+      :available-cases-to-add="availableCasesToAdd"
+      :saving-cases="savingCases"
+      :selected-case-to-add="selectedCaseToAdd"
+      :suite-case-drafts="suiteCaseDrafts"
+      :visible="caseDialogVisible"
+      @add-case="addSuiteCase"
+      @move-case="moveSuiteCase"
+      @remove-case="removeSuiteCase"
+      @save="handleSaveSuiteCases"
+      @update:selected-case-to-add="selectedCaseToAdd = $event"
+      @update:visible="caseDialogVisible = $event"
+    />
   </div>
 </template>
