@@ -1,0 +1,205 @@
+from __future__ import annotations
+
+from tests.support.constants import TEST_ADMIN_PASSWORD, TEST_ADMIN_USERNAME
+from tests.support.runtime import app_client
+
+def test_invalid_template_assert_step_is_rejected_during_step_save():
+    with app_client(reset=True) as client:
+        login_resp = client.post("/api/v1/sessions", json={"username": TEST_ADMIN_USERNAME, "password": TEST_ADMIN_PASSWORD})
+        token = login_resp.json()["data"]["access_token"]
+        headers = {"Authorization": f"Bearer {token}"}
+
+        workspace_resp = client.post(
+            "/api/v1/workspaces",
+            json={"workspace_code": "unsupported_ws", "workspace_name": "Unsupported WS"},
+            headers=headers,
+        )
+        workspace_id = workspace_resp.json()["data"]["id"]
+        workspace_headers = headers | {"X-Workspace-Id": str(workspace_id)}
+
+        case_resp = client.post(
+            "/api/v1/test-cases",
+            json={"case_code": "unsupported_case", "case_name": "Unsupported Case", "status": "published"},
+            headers=workspace_headers,
+        )
+        test_case_id = case_resp.json()["data"]["id"]
+
+        response = client.put(
+            f"/api/v1/test-cases/{test_case_id}/steps",
+            json=[{"step_no": 1, "step_type": "template_assert", "step_name": "Unsupported", "payload_json": {}}],
+            headers=workspace_headers,
+        )
+        assert response.status_code == 422
+        assert response.json()["error"]["code"] == "STEP_CONFIGURATION_INVALID"
+
+def test_invalid_ocr_assert_step_is_rejected_during_step_save():
+    with app_client(reset=True) as client:
+        login_resp = client.post("/api/v1/sessions", json={"username": TEST_ADMIN_USERNAME, "password": TEST_ADMIN_PASSWORD})
+        token = login_resp.json()["data"]["access_token"]
+        headers = {"Authorization": f"Bearer {token}"}
+
+        workspace_resp = client.post(
+            "/api/v1/workspaces",
+            json={"workspace_code": "invalid_ocr_ws", "workspace_name": "Invalid OCR WS"},
+            headers=headers,
+        )
+        workspace_id = workspace_resp.json()["data"]["id"]
+        workspace_headers = headers | {"X-Workspace-Id": str(workspace_id)}
+
+        case_resp = client.post(
+            "/api/v1/test-cases",
+            json={"case_code": "invalid_ocr_case", "case_name": "Invalid OCR Case", "status": "published"},
+            headers=workspace_headers,
+        )
+        test_case_id = case_resp.json()["data"]["id"]
+
+        response = client.put(
+            f"/api/v1/test-cases/{test_case_id}/steps",
+            json=[{"step_no": 1, "step_type": "ocr_assert", "step_name": "Invalid OCR", "payload_json": {"selector": "#main"}}],
+            headers=workspace_headers,
+        )
+        assert response.status_code == 422
+        assert response.json()["error"]["code"] == "STEP_CONFIGURATION_INVALID"
+
+def test_new_step_types_are_saved_for_components_and_test_cases():
+    with app_client(reset=True) as client:
+        login_resp = client.post("/api/v1/sessions", json={"username": TEST_ADMIN_USERNAME, "password": TEST_ADMIN_PASSWORD})
+        token = login_resp.json()["data"]["access_token"]
+        headers = {"Authorization": f"Bearer {token}"}
+
+        workspace_resp = client.post(
+            "/api/v1/workspaces",
+            json={"workspace_code": "new_steps_ws", "workspace_name": "New Steps WS"},
+            headers=headers,
+        )
+        workspace_id = workspace_resp.json()["data"]["id"]
+        workspace_headers = headers | {"X-Workspace-Id": str(workspace_id)}
+
+        component_resp = client.post(
+            "/api/v1/components",
+            json={"component_code": "cmp_new_steps", "component_name": "New Steps Component", "status": "published"},
+            headers=workspace_headers,
+        )
+        component_id = component_resp.json()["data"]["id"]
+
+        component_steps_resp = client.put(
+            f"/api/v1/components/{component_id}/steps",
+            json=[
+                {"step_no": 1, "step_type": "navigate", "step_name": "Open Details", "payload_json": {"url": "/demo/acceptance-target?view=details"}, "timeout_ms": 21000, "retry_times": 1},
+                {"step_no": 2, "step_type": "scroll", "step_name": "Scroll Container", "payload_json": {"target": "element", "selector": "[data-testid='scroll-container']", "direction": "down", "distance": 220}, "timeout_ms": 22000, "retry_times": 2},
+                {"step_no": 3, "step_type": "long_press", "step_name": "Press Target", "payload_json": {"selector": "[data-testid='long-press-target']", "duration_ms": 800}, "timeout_ms": 23000, "retry_times": 3},
+            ],
+            headers=workspace_headers,
+        )
+        assert component_steps_resp.status_code == 200
+        assert [item["step_type"] for item in component_steps_resp.json()["data"]] == ["navigate", "scroll", "long_press"]
+        assert [item["timeout_ms"] for item in component_steps_resp.json()["data"]] == [21000, 22000, 23000]
+        assert [item["retry_times"] for item in component_steps_resp.json()["data"]] == [1, 2, 3]
+
+        case_resp = client.post(
+            "/api/v1/test-cases",
+            json={"case_code": "case_new_steps", "case_name": "Case New Steps", "status": "published"},
+            headers=workspace_headers,
+        )
+        test_case_id = case_resp.json()["data"]["id"]
+
+        case_steps_resp = client.put(
+            f"/api/v1/test-cases/{test_case_id}/steps",
+            json=[
+                {"step_no": 1, "step_type": "navigate", "step_name": "Open Details", "payload_json": {"url": "/demo/acceptance-target?view=details", "wait_until": "domcontentloaded"}},
+                {"step_no": 2, "step_type": "scroll", "step_name": "Scroll Page", "payload_json": {"target": "page", "direction": "down", "distance": 360, "behavior": "smooth"}},
+                {"step_no": 3, "step_type": "long_press", "step_name": "Press Target", "payload_json": {"selector": "[data-testid='long-press-target']", "duration_ms": 800, "button": "left"}},
+            ],
+            headers=workspace_headers,
+        )
+        assert case_steps_resp.status_code == 200
+        assert [item["step_type"] for item in case_steps_resp.json()["data"]] == ["navigate", "scroll", "long_press"]
+        assert case_steps_resp.json()["data"][0]["payload_json"]["wait_until"] == "domcontentloaded"
+        assert case_steps_resp.json()["data"][1]["payload_json"]["behavior"] == "smooth"
+
+def test_invalid_navigate_step_is_rejected_during_step_save():
+    with app_client(reset=True) as client:
+        login_resp = client.post("/api/v1/sessions", json={"username": TEST_ADMIN_USERNAME, "password": TEST_ADMIN_PASSWORD})
+        token = login_resp.json()["data"]["access_token"]
+        headers = {"Authorization": f"Bearer {token}"}
+
+        workspace_resp = client.post(
+            "/api/v1/workspaces",
+            json={"workspace_code": "invalid_nav_ws", "workspace_name": "Invalid Navigate WS"},
+            headers=headers,
+        )
+        workspace_id = workspace_resp.json()["data"]["id"]
+        workspace_headers = headers | {"X-Workspace-Id": str(workspace_id)}
+
+        case_resp = client.post(
+            "/api/v1/test-cases",
+            json={"case_code": "invalid_nav_case", "case_name": "Invalid Navigate Case", "status": "published"},
+            headers=workspace_headers,
+        )
+        test_case_id = case_resp.json()["data"]["id"]
+
+        response = client.put(
+            f"/api/v1/test-cases/{test_case_id}/steps",
+            json=[{"step_no": 1, "step_type": "navigate", "step_name": "Invalid Navigate", "payload_json": {"url": "login", "wait_until": "ready"}}],
+            headers=workspace_headers,
+        )
+        assert response.status_code == 422
+        assert response.json()["error"]["code"] == "STEP_CONFIGURATION_INVALID"
+
+def test_invalid_scroll_step_is_rejected_during_step_save():
+    with app_client(reset=True) as client:
+        login_resp = client.post("/api/v1/sessions", json={"username": TEST_ADMIN_USERNAME, "password": TEST_ADMIN_PASSWORD})
+        token = login_resp.json()["data"]["access_token"]
+        headers = {"Authorization": f"Bearer {token}"}
+
+        workspace_resp = client.post(
+            "/api/v1/workspaces",
+            json={"workspace_code": "invalid_scroll_ws", "workspace_name": "Invalid Scroll WS"},
+            headers=headers,
+        )
+        workspace_id = workspace_resp.json()["data"]["id"]
+        workspace_headers = headers | {"X-Workspace-Id": str(workspace_id)}
+
+        case_resp = client.post(
+            "/api/v1/test-cases",
+            json={"case_code": "invalid_scroll_case", "case_name": "Invalid Scroll Case", "status": "published"},
+            headers=workspace_headers,
+        )
+        test_case_id = case_resp.json()["data"]["id"]
+
+        response = client.put(
+            f"/api/v1/test-cases/{test_case_id}/steps",
+            json=[{"step_no": 1, "step_type": "scroll", "step_name": "Invalid Scroll", "payload_json": {"target": "element", "direction": "down", "distance": 0}}],
+            headers=workspace_headers,
+        )
+        assert response.status_code == 422
+        assert response.json()["error"]["code"] == "STEP_CONFIGURATION_INVALID"
+
+def test_invalid_long_press_step_is_rejected_during_step_save():
+    with app_client(reset=True) as client:
+        login_resp = client.post("/api/v1/sessions", json={"username": TEST_ADMIN_USERNAME, "password": TEST_ADMIN_PASSWORD})
+        token = login_resp.json()["data"]["access_token"]
+        headers = {"Authorization": f"Bearer {token}"}
+
+        workspace_resp = client.post(
+            "/api/v1/workspaces",
+            json={"workspace_code": "invalid_press_ws", "workspace_name": "Invalid Long Press WS"},
+            headers=headers,
+        )
+        workspace_id = workspace_resp.json()["data"]["id"]
+        workspace_headers = headers | {"X-Workspace-Id": str(workspace_id)}
+
+        case_resp = client.post(
+            "/api/v1/test-cases",
+            json={"case_code": "invalid_press_case", "case_name": "Invalid Long Press Case", "status": "published"},
+            headers=workspace_headers,
+        )
+        test_case_id = case_resp.json()["data"]["id"]
+
+        response = client.put(
+            f"/api/v1/test-cases/{test_case_id}/steps",
+            json=[{"step_no": 1, "step_type": "long_press", "step_name": "Invalid Long Press", "payload_json": {"selector": "#target", "duration_ms": -1, "button": "right"}}],
+            headers=workspace_headers,
+        )
+        assert response.status_code == 422
+        assert response.json()["error"]["code"] == "STEP_CONFIGURATION_INVALID"

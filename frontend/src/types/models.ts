@@ -328,6 +328,12 @@ export interface TemplatePreviewState {
   message: string
 }
 
+export interface TemplateOcrPanelState {
+  status: 'idle' | 'loading' | 'not_generated' | 'ready' | 'error'
+  baselineRevisionId: number | null
+  message: string
+}
+
 export type StepType =
   | 'wait'
   | 'click'

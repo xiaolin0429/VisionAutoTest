@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
-import { ApiError } from '@/api/client'
 import MetricCard from '@/components/MetricCard.vue'
 import SectionCard from '@/components/SectionCard.vue'
 import StatusTag from '@/components/StatusTag.vue'
+import StepEditorDialog from '@/components/step/StepEditorDialog.vue'
 import {
   createComponent,
   getComponentDetail,
@@ -15,30 +15,12 @@ import {
 } from '@/api/modules/components'
 import { listTemplates } from '@/api/modules/templates'
 import { formatDateTime } from '@/utils/format'
-import {
-  LONG_PRESS_BUTTON_OPTIONS,
-  NAVIGATE_WAIT_UNTIL_OPTIONS,
-  OCR_MATCH_MODE_OPTIONS,
-  SCROLL_BEHAVIOR_OPTIONS,
-  SCROLL_DIRECTION_OPTIONS,
-  SCROLL_TARGET_OPTIONS,
-  STEP_TYPE_LABELS,
-  buildStepDraft,
-  buildStepWritePayload,
-  createEmptyStepDraft,
-  createStepTypeOptions,
-  normalizeStepByType,
-  normalizeStepDrafts as normalizeStepDraftItems,
-  validateStepDraft,
-  type StepDraft,
-  type StepValidationErrors
-} from '@/utils/steps'
+import { STEP_TYPE_LABELS, type StepDraft } from '@/utils/steps'
+import { useStepEditor } from '@/composables/useStepEditor'
 import type { Component, StepType, Template } from '@/types/models'
 
 const loading = ref(false)
 const savingComponent = ref(false)
-const savingSteps = ref(false)
-const stepSubmitAttempted = ref(false)
 
 const components = ref<Component[]>([])
 const templates = ref<Template[]>([])
@@ -56,8 +38,7 @@ const componentForm = reactive({
   description: ''
 })
 
-const stepDrafts = ref<StepDraft[]>([])
-const stepTypeOptions = createStepTypeOptions({ allowComponentCall: false })
+const stepEditor = useStepEditor({ allowComponentCall: false })
 
 const componentStatusOptions = [
   { label: '草稿', value: 'draft' },
@@ -82,30 +63,6 @@ const metrics = computed(() => [
     hint: '步骤顺序在保存时会自动重排为连续编号。'
   }
 ])
-
-const stepValidationErrors = computed(() => {
-  return stepDrafts.value.map((step) => validateStepDraft(step))
-})
-
-const hasStepValidationErrors = computed(() => {
-  return stepValidationErrors.value.some((item) => Object.keys(item).length > 0)
-})
-
-function normalizeStepDrafts(items: StepDraft[]) {
-  stepDrafts.value = normalizeStepDraftItems(items)
-}
-
-function getStepError(index: number, field: keyof StepValidationErrors) {
-  return stepValidationErrors.value[index]?.[field] ?? ''
-}
-
-function updateStepType(step: StepDraft, nextType: StepType) {
-  Object.assign(step, normalizeStepByType(step, nextType))
-}
-
-function handleStepTypeModelUpdate(step: StepDraft, value: string | number | boolean) {
-  updateStepType(step, value as StepType)
-}
 
 async function loadComponents() {
   loading.value = true
@@ -135,11 +92,9 @@ async function selectComponent(componentId: number) {
       getComponentSteps(componentId)
     ])
     currentComponent.value = { ...detail, steps }
-    normalizeStepDrafts(steps.map((step) => buildStepDraft(step)))
   } catch {
     ElMessage.error('加载组件详情失败')
     currentComponent.value = null
-    stepDrafts.value = []
   } finally {
     loading.value = false
   }
@@ -207,85 +162,27 @@ function openStepDialog() {
     ElMessage.warning('请先选择一个组件。')
     return
   }
-
-  stepSubmitAttempted.value = false
-  if (stepDrafts.value.length === 0) {
-    normalizeStepDrafts([createEmptyStepDraft(0)])
-  }
+  stepEditor.initFromSteps(currentComponent.value.steps ?? [])
   stepDialogVisible.value = true
 }
 
-function addStep() {
-  normalizeStepDrafts([...stepDrafts.value, createEmptyStepDraft(stepDrafts.value.length)])
-}
-
-function removeStep(index: number) {
-  normalizeStepDrafts(stepDrafts.value.filter((_, currentIndex) => currentIndex !== index))
-}
-
-function moveStepUp(index: number) {
-  if (index === 0) {
-    return
-  }
-
-  const nextDrafts = [...stepDrafts.value]
-  const [currentItem] = nextDrafts.splice(index, 1)
-  nextDrafts.splice(index - 1, 0, currentItem)
-  normalizeStepDrafts(nextDrafts)
-}
-
-function moveStepDown(index: number) {
-  if (index === stepDrafts.value.length - 1) {
-    return
-  }
-
-  const nextDrafts = [...stepDrafts.value]
-  const [currentItem] = nextDrafts.splice(index, 1)
-  nextDrafts.splice(index + 1, 0, currentItem)
-  normalizeStepDrafts(nextDrafts)
-}
-
 async function submitSteps() {
-  stepSubmitAttempted.value = true
-  if (hasStepValidationErrors.value) {
-    ElMessage.warning('请修正步骤配置错误')
-    return
-  }
-
-  if (!currentComponent.value) {
-    return
-  }
-
-  savingSteps.value = true
-  try {
-    const payload = stepDrafts.value.map((step, index) => buildStepWritePayload(step, index))
-    await replaceComponentSteps(currentComponent.value.id, payload)
-    await selectComponent(currentComponent.value.id)
-    ElMessage.success('步骤保存成功')
+  if (!currentComponent.value) return
+  const success = await stepEditor.saveSteps(async (payload) => {
+    await replaceComponentSteps(currentComponent.value!.id, payload)
+  })
+  if (success) {
     stepDialogVisible.value = false
-  } catch (error) {
-    const message =
-      error instanceof ApiError && error.code === 'STEP_CONFIGURATION_INVALID'
-        ? error.message
-        : '步骤保存失败'
-    ElMessage.error(message)
-  } finally {
-    savingSteps.value = false
+    await selectComponent(currentComponent.value.id)
   }
 }
 
 function getStepTemplateOptions(step: StepDraft) {
-  if (step.type !== 'template_assert' && step.type !== 'ocr_assert') {
-    return []
-  }
-
+  if (step.type !== 'template_assert' && step.type !== 'ocr_assert') return []
   const expectedStrategy = step.type === 'template_assert' ? 'template' : 'ocr'
   return templates.value
     .filter((item) => item.matchStrategy === expectedStrategy)
-    .map((item) => ({
-      value: item.id,
-      label: `${item.name} (#${item.id}) · ${item.status}`
-    }))
+    .map((item) => ({ id: item.id, label: `${item.name} (#${item.id}) · ${item.status}` }))
 }
 
 watch(selectedComponentId, (newId) => {
@@ -424,260 +321,27 @@ onMounted(() => {
       </template>
     </el-dialog>
 
-    <el-dialog v-model="stepDialogVisible" title="编排步骤" width="90%" top="5vh">
-      <div class="step-editor">
-        <div class="step-toolbar">
-          <el-button type="primary" size="small" @click="addStep">添加步骤</el-button>
-          <el-button type="success" size="small" :loading="savingSteps" @click="submitSteps">
-            保存步骤
-          </el-button>
-        </div>
-
-        <div
-          v-if="stepSubmitAttempted && hasStepValidationErrors"
-          class="mb-4 rounded border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700"
-        >
-          请修正步骤配置后再保存。
-        </div>
-
-        <div v-for="(step, index) in stepDrafts" :key="step.id" class="step-card">
-          <div class="step-header">
-            <span class="step-number">步骤 {{ step.stepNo }}</span>
-            <div class="step-actions">
-              <el-button size="small" :disabled="index === 0" @click="moveStepUp(index)">上移</el-button>
-              <el-button size="small" :disabled="index === stepDrafts.length - 1" @click="moveStepDown(index)">
-                下移
-              </el-button>
-              <el-button type="danger" size="small" @click="removeStep(index)">删除</el-button>
-            </div>
-          </div>
-
-          <el-form label-width="120px" class="step-form">
-            <el-row :gutter="20">
-              <el-col :span="12">
-                <el-form-item label="步骤名称">
-                  <el-input v-model="step.name" placeholder="例如：点击登录按钮" />
-                </el-form-item>
-              </el-col>
-              <el-col :span="12">
-                <el-form-item label="步骤类型">
-                  <el-select
-                    :model-value="step.type"
-                    style="width: 100%"
-                    @update:model-value="handleStepTypeModelUpdate(step, $event)"
-                  >
-                    <el-option
-                      v-for="option in stepTypeOptions"
-                      :key="option.value"
-                      :label="option.label"
-                      :value="option.value"
-                    />
-                  </el-select>
-                </el-form-item>
-              </el-col>
-            </el-row>
-
-            <el-row v-if="step.type === 'wait'" :gutter="20">
-              <el-col :span="12">
-                <el-form-item label="等待时间(ms)" :error="getStepError(index, 'waitMs')">
-                  <el-input-number v-model="step.waitMs" :min="0" style="width: 100%" />
-                </el-form-item>
-              </el-col>
-            </el-row>
-
-            <el-row v-if="step.type === 'click' || step.type === 'input' || step.type === 'ocr_assert'" :gutter="20">
-              <el-col :span="24">
-                <el-form-item label="选择器" :error="getStepError(index, 'selector')">
-                  <el-input v-model="step.selector" placeholder="CSS 选择器" />
-                </el-form-item>
-              </el-col>
-            </el-row>
-
-            <el-row v-if="step.type === 'navigate'" :gutter="20">
-              <el-col :span="12">
-                <el-form-item label="URL / 相对路径" :error="getStepError(index, 'url')">
-                  <el-input
-                    v-model="step.url"
-                    placeholder="/login 或 https://example.com/orders/123"
-                  />
-                </el-form-item>
-              </el-col>
-              <el-col :span="12">
-                <el-form-item label="等待策略" :error="getStepError(index, 'waitUntil')">
-                  <el-select v-model="step.waitUntil" style="width: 100%">
-                    <el-option
-                      v-for="option in NAVIGATE_WAIT_UNTIL_OPTIONS"
-                      :key="option.value"
-                      :label="option.label"
-                      :value="option.value"
-                    />
-                  </el-select>
-                </el-form-item>
-              </el-col>
-            </el-row>
-
-            <el-row v-if="step.type === 'scroll'" :gutter="20">
-              <el-col :span="12">
-                <el-form-item label="滑动目标" :error="getStepError(index, 'scrollTarget')">
-                  <el-select v-model="step.scrollTarget" style="width: 100%">
-                    <el-option
-                      v-for="option in SCROLL_TARGET_OPTIONS"
-                      :key="option.value"
-                      :label="option.label"
-                      :value="option.value"
-                    />
-                  </el-select>
-                </el-form-item>
-              </el-col>
-              <el-col :span="12">
-                <el-form-item label="滑动方向" :error="getStepError(index, 'direction')">
-                  <el-select v-model="step.direction" style="width: 100%">
-                    <el-option
-                      v-for="option in SCROLL_DIRECTION_OPTIONS"
-                      :key="option.value"
-                      :label="option.label"
-                      :value="option.value"
-                    />
-                  </el-select>
-                </el-form-item>
-              </el-col>
-            </el-row>
-
-            <el-row v-if="step.type === 'scroll' && step.scrollTarget === 'element'" :gutter="20">
-              <el-col :span="24">
-                <el-form-item label="目标元素选择器" :error="getStepError(index, 'selector')">
-                  <el-input v-model="step.selector" placeholder=".table-container" />
-                </el-form-item>
-              </el-col>
-            </el-row>
-
-            <el-row v-if="step.type === 'scroll'" :gutter="20">
-              <el-col :span="12">
-                <el-form-item label="滑动距离(px)" :error="getStepError(index, 'distance')">
-                  <el-input-number v-model="step.distance" :min="1" style="width: 100%" />
-                </el-form-item>
-              </el-col>
-              <el-col :span="12">
-                <el-form-item label="滑动行为" :error="getStepError(index, 'behavior')">
-                  <el-select v-model="step.behavior" style="width: 100%">
-                    <el-option
-                      v-for="option in SCROLL_BEHAVIOR_OPTIONS"
-                      :key="option.value"
-                      :label="option.label"
-                      :value="option.value"
-                    />
-                  </el-select>
-                </el-form-item>
-              </el-col>
-            </el-row>
-
-            <el-row v-if="step.type === 'long_press'" :gutter="20">
-              <el-col :span="12">
-                <el-form-item label="选择器" :error="getStepError(index, 'selector')">
-                  <el-input v-model="step.selector" placeholder="[data-testid='card']" />
-                </el-form-item>
-              </el-col>
-              <el-col :span="12">
-                <el-form-item label="长按时长(ms)" :error="getStepError(index, 'durationMs')">
-                  <el-input-number v-model="step.durationMs" :min="1" style="width: 100%" />
-                </el-form-item>
-              </el-col>
-            </el-row>
-
-            <el-row v-if="step.type === 'long_press'" :gutter="20">
-              <el-col :span="24">
-                <el-form-item label="按钮类型" :error="getStepError(index, 'button')">
-                  <el-select v-model="step.button" style="width: 100%">
-                    <el-option
-                      v-for="option in LONG_PRESS_BUTTON_OPTIONS"
-                      :key="option.value"
-                      :label="option.label"
-                      :value="option.value"
-                    />
-                  </el-select>
-                </el-form-item>
-              </el-col>
-            </el-row>
-
-            <el-row v-if="step.type === 'input'" :gutter="20">
-              <el-col :span="24">
-                <el-form-item label="输入文本" :error="getStepError(index, 'text')">
-                  <el-input v-model="step.text" placeholder="支持变量占位符 {{ variable }}" />
-                </el-form-item>
-              </el-col>
-            </el-row>
-
-            <el-row v-if="step.type === 'template_assert' || step.type === 'ocr_assert'" :gutter="20">
-              <el-col :span="12">
-                <el-form-item label="模板" :error="getStepError(index, 'templateId')">
-                  <el-select v-model="step.templateId" clearable style="width: 100%">
-                    <el-option
-                      v-for="option in getStepTemplateOptions(step)"
-                      :key="option.value"
-                      :label="option.label"
-                      :value="option.value"
-                    />
-                  </el-select>
-                </el-form-item>
-              </el-col>
-              <el-col v-if="step.type === 'template_assert'" :span="12">
-                <el-form-item label="阈值">
-                  <el-input-number v-model="step.threshold" :min="0" :max="1" :step="0.01" style="width: 100%" />
-                </el-form-item>
-              </el-col>
-            </el-row>
-
-            <el-row v-if="step.type === 'ocr_assert'" :gutter="20">
-              <el-col :span="12">
-                <el-form-item label="期望文本" :error="getStepError(index, 'expectedText')">
-                  <el-input v-model="step.expectedText" />
-                </el-form-item>
-              </el-col>
-              <el-col :span="6">
-                <el-form-item label="匹配模式">
-                  <el-select v-model="step.matchMode" style="width: 100%">
-                    <el-option
-                      v-for="option in OCR_MATCH_MODE_OPTIONS"
-                      :key="option.value"
-                      :label="option.label"
-                      :value="option.value"
-                    />
-                  </el-select>
-                </el-form-item>
-              </el-col>
-              <el-col :span="6">
-                <el-form-item label="区分大小写">
-                  <el-switch v-model="step.caseSensitive" />
-                </el-form-item>
-              </el-col>
-            </el-row>
-
-            <el-row :gutter="20">
-              <el-col :span="12">
-                <el-form-item label="超时(ms)" :error="getStepError(index, 'timeoutMs')">
-                  <el-input-number v-model="step.timeoutMs" :min="0" style="width: 100%" />
-                </el-form-item>
-              </el-col>
-              <el-col :span="12">
-                <el-form-item label="重试次数" :error="getStepError(index, 'retryTimes')">
-                  <el-input-number v-model="step.retryTimes" :min="0" style="width: 100%" />
-                </el-form-item>
-              </el-col>
-            </el-row>
-
-            <el-row :gutter="20">
-              <el-col :span="24">
-                <el-form-item label="额外 Payload" :error="getStepError(index, 'extraPayloadJson')">
-                  <el-input v-model="step.extraPayloadJson" type="textarea" :rows="2" />
-                </el-form-item>
-              </el-col>
-            </el-row>
-          </el-form>
-        </div>
-
-        <el-empty v-if="stepDrafts.length === 0" description="暂无步骤，点击「添加步骤」开始配置" />
-      </div>
-    </el-dialog>
+    <StepEditorDialog
+      :visible="stepDialogVisible"
+      title="编排步骤"
+      :step-drafts="stepEditor.stepDrafts.value"
+      :saving-steps="stepEditor.savingSteps.value"
+      :step-submit-attempted="stepEditor.stepSubmitAttempted.value"
+      :has-step-validation-errors="stepEditor.hasStepValidationErrors.value"
+      :step-type-options="stepEditor.stepTypeOptions"
+      :templates="templates"
+      :allow-component-call="false"
+      :get-step-error-fn="stepEditor.getStepError"
+      :should-open-advanced-payload-fn="stepEditor.shouldOpenAdvancedPayload"
+      :get-step-template-options-fn="getStepTemplateOptions"
+      @update:visible="stepDialogVisible = $event"
+      @add-step="stepEditor.addStep()"
+      @remove-step="stepEditor.removeStep($event)"
+      @move-step="(index, direction) => stepEditor.moveStep(index, direction)"
+      @update-step-type="(step, value) => stepEditor.handleStepTypeModelUpdate(step, value)"
+      @save="submitSteps"
+      @closed="stepEditor.resetState()"
+    />
   </div>
 </template>
 
@@ -771,51 +435,4 @@ onMounted(() => {
   font-size: 16px;
   color: #303133;
 }
-
-.step-editor {
-  max-height: 70vh;
-  overflow-y: auto;
-}
-
-.step-toolbar {
-  margin-bottom: 16px;
-  display: flex;
-  gap: 8px;
-}
-
-.step-card {
-  border: 1px solid #dcdfe6;
-  border-radius: 4px;
-  padding: 16px;
-  margin-bottom: 16px;
-  background-color: #fafafa;
-}
-
-.step-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 16px;
-  padding-bottom: 12px;
-  border-bottom: 1px solid #e4e7ed;
-}
-
-.step-number {
-  font-weight: 600;
-  font-size: 14px;
-  color: #409eff;
-}
-
-.step-actions {
-  display: flex;
-  gap: 8px;
-}
-
-.step-form {
-  background-color: white;
-  padding: 16px;
-  border-radius: 4px;
-}
 </style>
-
-

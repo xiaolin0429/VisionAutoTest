@@ -34,6 +34,10 @@ dev = [
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
+markers = [
+  "playwright: tests that require a real Playwright/Chromium runtime",
+  "vision: tests that cover OCR, visual assertion, or baseline adoption flows",
+]
 
 [tool.setuptools.packages.find]
 include = ["app*"]

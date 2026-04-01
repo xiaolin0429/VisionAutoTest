@@ -1,21 +1,18 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import DeviceFormDialog from '@/components/environment/DeviceFormDialog.vue'
+import ProfileFormDialog from '@/components/environment/ProfileFormDialog.vue'
+import VariableFormDialog from '@/components/environment/VariableFormDialog.vue'
 import MetricCard from '@/components/MetricCard.vue'
 import SectionCard from '@/components/SectionCard.vue'
 import StatusTag from '@/components/StatusTag.vue'
 import {
-  createDeviceProfile,
-  createEnvironmentProfile,
-  createEnvironmentVariable,
   deleteEnvironmentProfile,
   deleteEnvironmentVariable,
   listDeviceProfiles,
   listEnvironmentProfiles,
-  listEnvironmentVariables,
-  updateDeviceProfile,
-  updateEnvironmentProfile,
-  updateEnvironmentVariable
+  listEnvironmentVariables
 } from '@/api/modules/environments'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { formatDateTime } from '@/utils/format'
@@ -28,9 +25,6 @@ import type {
 const workspaceStore = useWorkspaceStore()
 const loading = ref(false)
 const variablesLoading = ref(false)
-const savingProfile = ref(false)
-const savingVariable = ref(false)
-const savingDevice = ref(false)
 
 const environmentProfiles = ref<EnvironmentProfile[]>([])
 const deviceProfiles = ref<DeviceProfile[]>([])
@@ -47,42 +41,6 @@ const deviceDialogVisible = ref(false)
 const profileDialogMode = ref<'create' | 'edit'>('create')
 const variableDialogMode = ref<'create' | 'edit'>('create')
 const deviceDialogMode = ref<'create' | 'edit'>('create')
-
-const profileForm = reactive({
-  name: '',
-  baseUrl: '',
-  description: '',
-  status: 'active'
-})
-
-const variableForm = reactive({
-  key: '',
-  value: '',
-  description: '',
-  isSecret: false
-})
-
-const deviceForm = reactive({
-  name: '',
-  platform: 'desktop_chrome',
-  width: 1440,
-  height: 900,
-  pixelRatio: 1,
-  userAgent: '',
-  isDefault: false
-})
-
-const profileStatusOptions = [
-  { label: '启用', value: 'active' },
-  { label: '停用', value: 'inactive' }
-]
-
-const deviceTypeOptions = [
-  { label: 'Desktop Chrome', value: 'desktop_chrome' },
-  { label: 'iPhone 14', value: 'mobile_ios' },
-  { label: 'Android Pixel', value: 'mobile_android' },
-  { label: 'Tablet', value: 'tablet' }
-]
 
 const metrics = computed(() => [
   {
@@ -157,33 +115,8 @@ async function loadEnvironmentVariables(environmentProfileId: number | null) {
   }
 }
 
-function resetProfileForm() {
-  profileForm.name = ''
-  profileForm.baseUrl = ''
-  profileForm.description = ''
-  profileForm.status = 'active'
-}
-
-function resetVariableForm() {
-  variableForm.key = ''
-  variableForm.value = ''
-  variableForm.description = ''
-  variableForm.isSecret = false
-}
-
-function resetDeviceForm() {
-  deviceForm.name = ''
-  deviceForm.platform = 'desktop_chrome'
-  deviceForm.width = 1440
-  deviceForm.height = 900
-  deviceForm.pixelRatio = 1
-  deviceForm.userAgent = ''
-  deviceForm.isDefault = false
-}
-
 function openCreateProfileDialog() {
   profileDialogMode.value = 'create'
-  resetProfileForm()
   profileDialogVisible.value = true
 }
 
@@ -194,44 +127,7 @@ function openEditProfileDialog() {
   }
 
   profileDialogMode.value = 'edit'
-  profileForm.name = selectedEnvironment.value.name
-  profileForm.baseUrl = selectedEnvironment.value.baseUrl
-  profileForm.description = selectedEnvironment.value.description
-  profileForm.status = selectedEnvironment.value.status
   profileDialogVisible.value = true
-}
-
-async function handleSaveProfile() {
-  if (!profileForm.name.trim() || !profileForm.baseUrl.trim()) {
-    ElMessage.warning('请补齐环境名称和基础地址。')
-    return
-  }
-
-  savingProfile.value = true
-
-  try {
-    const payload = {
-      name: profileForm.name.trim(),
-      baseUrl: profileForm.baseUrl.trim(),
-      description: profileForm.description.trim(),
-      status: profileForm.status
-    }
-
-    if (profileDialogMode.value === 'create') {
-      const created = await createEnvironmentProfile(payload)
-      selectedEnvironmentId.value = created.id
-      ElMessage.success('环境档案已创建。')
-    } else if (selectedEnvironment.value) {
-      await updateEnvironmentProfile(selectedEnvironment.value.id, payload)
-      ElMessage.success('环境档案已更新。')
-    }
-
-    profileDialogVisible.value = false
-    await loadEnvironmentData()
-    await loadEnvironmentVariables(selectedEnvironmentId.value)
-  } finally {
-    savingProfile.value = false
-  }
 }
 
 async function handleDeleteProfile() {
@@ -266,7 +162,6 @@ function openCreateVariableDialog() {
   }
 
   variableDialogMode.value = 'create'
-  resetVariableForm()
   variableDialogVisible.value = true
 }
 
@@ -277,53 +172,7 @@ function openEditVariableDialog() {
   }
 
   variableDialogMode.value = 'edit'
-  variableForm.key = selectedVariable.value.key
-  variableForm.value = selectedVariable.value.isSecret ? '' : selectedVariable.value.displayValue
-  variableForm.description = selectedVariable.value.description
-  variableForm.isSecret = selectedVariable.value.isSecret
   variableDialogVisible.value = true
-}
-
-async function handleSaveVariable() {
-  if (!selectedEnvironment.value) {
-    ElMessage.warning('当前没有可写入变量的环境档案。')
-    return
-  }
-
-  if (variableDialogMode.value === 'create' && (!variableForm.key.trim() || !variableForm.value.trim())) {
-    ElMessage.warning('请补齐变量键名和值。')
-    return
-  }
-
-  savingVariable.value = true
-
-  try {
-    if (variableDialogMode.value === 'create') {
-      await createEnvironmentVariable(selectedEnvironment.value.id, {
-        key: variableForm.key.trim(),
-        value: variableForm.value,
-        description: variableForm.description.trim(),
-        isSecret: variableForm.isSecret
-      })
-      ElMessage.success('环境变量已新增。')
-    } else if (selectedVariable.value) {
-      await updateEnvironmentVariable(selectedVariable.value.id, {
-        value:
-          selectedVariable.value.isSecret && !variableForm.value.trim()
-            ? undefined
-            : variableForm.value,
-        description: variableForm.description.trim(),
-        isSecret: variableForm.isSecret
-      })
-      ElMessage.success('环境变量已更新。')
-    }
-
-    variableDialogVisible.value = false
-    await loadEnvironmentData()
-    await loadEnvironmentVariables(selectedEnvironment.value.id)
-  } finally {
-    savingVariable.value = false
-  }
 }
 
 async function handleDeleteVariable() {
@@ -333,13 +182,9 @@ async function handleDeleteVariable() {
   }
 
   try {
-    await ElMessageBox.confirm(
-      `确认删除变量「${selectedVariable.value.key}」吗？`,
-      '删除环境变量',
-      {
-        type: 'warning'
-      }
-    )
+    await ElMessageBox.confirm(`确认删除变量「${selectedVariable.value.key}」吗？`, '删除环境变量', {
+      type: 'warning'
+    })
   } catch {
     return
   }
@@ -352,7 +197,6 @@ async function handleDeleteVariable() {
 
 function openCreateDeviceDialog() {
   deviceDialogMode.value = 'create'
-  resetDeviceForm()
   deviceDialogVisible.value = true
 }
 
@@ -363,49 +207,26 @@ function openEditDeviceDialog() {
   }
 
   deviceDialogMode.value = 'edit'
-  deviceForm.name = selectedDevice.value.name
-  deviceForm.platform = selectedDevice.value.platform
-  deviceForm.width = selectedDevice.value.width
-  deviceForm.height = selectedDevice.value.height
-  deviceForm.pixelRatio = selectedDevice.value.pixelRatio
-  deviceForm.userAgent = selectedDevice.value.userAgent ?? ''
-  deviceForm.isDefault = selectedDevice.value.isDefault
   deviceDialogVisible.value = true
 }
 
-async function handleSaveDevice() {
-  if (!deviceForm.name.trim() || deviceForm.width <= 0 || deviceForm.height <= 0) {
-    ElMessage.warning('请补齐设备名称与有效的视口尺寸。')
-    return
-  }
+async function handleProfileSaved(environmentId: number) {
+  profileDialogVisible.value = false
+  selectedEnvironmentId.value = environmentId
+  await loadEnvironmentData()
+  await loadEnvironmentVariables(environmentId)
+}
 
-  savingDevice.value = true
+async function handleVariableSaved() {
+  variableDialogVisible.value = false
+  await loadEnvironmentData()
+  await loadEnvironmentVariables(selectedEnvironment.value?.id ?? null)
+}
 
-  try {
-    const payload = {
-      name: deviceForm.name.trim(),
-      platform: deviceForm.platform,
-      width: Number(deviceForm.width),
-      height: Number(deviceForm.height),
-      pixelRatio: Number(deviceForm.pixelRatio),
-      userAgent: deviceForm.userAgent.trim() || undefined,
-      isDefault: deviceForm.isDefault
-    }
-
-    if (deviceDialogMode.value === 'create') {
-      const created = await createDeviceProfile(payload)
-      selectedDeviceId.value = created.id
-      ElMessage.success('设备预设已创建。')
-    } else if (selectedDevice.value) {
-      await updateDeviceProfile(selectedDevice.value.id, payload)
-      ElMessage.success('设备预设已更新。')
-    }
-
-    deviceDialogVisible.value = false
-    await loadEnvironmentData()
-  } finally {
-    savingDevice.value = false
-  }
+async function handleDeviceSaved(deviceId: number) {
+  deviceDialogVisible.value = false
+  selectedDeviceId.value = deviceId
+  await loadEnvironmentData()
 }
 
 watch(selectedEnvironmentId, async (environmentProfileId) => {
@@ -655,191 +476,29 @@ onMounted(async () => {
       </div>
     </SectionCard>
 
-    <el-dialog
-      v-model="profileDialogVisible"
-      :title="profileDialogMode === 'create' ? '新建环境档案' : '编辑环境档案'"
-      width="520px"
-    >
-      <div class="space-y-4">
-        <div>
-          <label class="mb-2 block text-sm font-medium text-slate-700">环境名称</label>
-          <el-input v-model="profileForm.name" />
-        </div>
-        <div>
-          <label class="mb-2 block text-sm font-medium text-slate-700">基础地址</label>
-          <el-input v-model="profileForm.baseUrl" placeholder="https://example.test" />
-        </div>
-        <div>
-          <label class="mb-2 block text-sm font-medium text-slate-700">状态</label>
-          <el-select
-            v-model="profileForm.status"
-            class="!w-full"
-          >
-            <el-option
-              v-for="option in profileStatusOptions"
-              :key="option.value"
-              :label="option.label"
-              :value="option.value"
-            />
-          </el-select>
-        </div>
-        <div>
-          <label class="mb-2 block text-sm font-medium text-slate-700">说明</label>
-          <el-input
-            v-model="profileForm.description"
-            :rows="3"
-            type="textarea"
-          />
-        </div>
-      </div>
+    <ProfileFormDialog
+      :mode="profileDialogMode"
+      :profile="selectedEnvironment"
+      :visible="profileDialogVisible"
+      @saved="handleProfileSaved"
+      @update:visible="profileDialogVisible = $event"
+    />
 
-      <template #footer>
-        <div class="flex justify-end gap-3">
-          <el-button @click="profileDialogVisible = false">
-            取消
-          </el-button>
-          <el-button
-            :loading="savingProfile"
-            color="#2563eb"
-            @click="handleSaveProfile"
-          >
-            保存
-          </el-button>
-        </div>
-      </template>
-    </el-dialog>
+    <VariableFormDialog
+      :environment-profile-id="selectedEnvironment?.id ?? null"
+      :mode="variableDialogMode"
+      :variable="selectedVariable"
+      :visible="variableDialogVisible"
+      @saved="handleVariableSaved"
+      @update:visible="variableDialogVisible = $event"
+    />
 
-    <el-dialog
-      v-model="variableDialogVisible"
-      :title="variableDialogMode === 'create' ? '新增环境变量' : '编辑环境变量'"
-      width="520px"
-    >
-      <div class="space-y-4">
-        <div>
-          <label class="mb-2 block text-sm font-medium text-slate-700">键名</label>
-          <el-input
-            v-model="variableForm.key"
-            :disabled="variableDialogMode === 'edit'"
-          />
-        </div>
-        <div>
-          <label class="mb-2 block text-sm font-medium text-slate-700">值</label>
-          <el-input
-            v-model="variableForm.value"
-            :placeholder="variableDialogMode === 'edit' && selectedVariable?.isSecret ? '留空表示保持原密文值' : ''"
-          />
-        </div>
-        <div>
-          <label class="mb-2 block text-sm font-medium text-slate-700">备注</label>
-          <el-input
-            v-model="variableForm.description"
-            :rows="3"
-            type="textarea"
-          />
-        </div>
-        <el-switch
-          v-model="variableForm.isSecret"
-          active-text="密文变量"
-          inactive-text="普通变量"
-        />
-      </div>
-
-      <template #footer>
-        <div class="flex justify-end gap-3">
-          <el-button @click="variableDialogVisible = false">
-            取消
-          </el-button>
-          <el-button
-            :loading="savingVariable"
-            color="#2563eb"
-            @click="handleSaveVariable"
-          >
-            保存变量
-          </el-button>
-        </div>
-      </template>
-    </el-dialog>
-
-    <el-dialog
-      v-model="deviceDialogVisible"
-      :title="deviceDialogMode === 'create' ? '新建设备预设' : '编辑设备预设'"
-      width="560px"
-    >
-      <div class="grid grid-cols-2 gap-4">
-        <div class="col-span-2">
-          <label class="mb-2 block text-sm font-medium text-slate-700">设备名称</label>
-          <el-input v-model="deviceForm.name" />
-        </div>
-        <div>
-          <label class="mb-2 block text-sm font-medium text-slate-700">设备类型</label>
-          <el-select
-            v-model="deviceForm.platform"
-            class="!w-full"
-          >
-            <el-option
-              v-for="option in deviceTypeOptions"
-              :key="option.value"
-              :label="option.label"
-              :value="option.value"
-            />
-          </el-select>
-        </div>
-        <div>
-          <label class="mb-2 block text-sm font-medium text-slate-700">像素比</label>
-          <el-input-number
-            v-model="deviceForm.pixelRatio"
-            :min="0.5"
-            :precision="2"
-            :step="0.25"
-            class="!w-full"
-          />
-        </div>
-        <div>
-          <label class="mb-2 block text-sm font-medium text-slate-700">宽度</label>
-          <el-input-number
-            v-model="deviceForm.width"
-            :min="1"
-            class="!w-full"
-          />
-        </div>
-        <div>
-          <label class="mb-2 block text-sm font-medium text-slate-700">高度</label>
-          <el-input-number
-            v-model="deviceForm.height"
-            :min="1"
-            class="!w-full"
-          />
-        </div>
-        <div class="col-span-2">
-          <label class="mb-2 block text-sm font-medium text-slate-700">User Agent</label>
-          <el-input
-            v-model="deviceForm.userAgent"
-            placeholder="可选"
-          />
-        </div>
-        <div class="col-span-2">
-          <el-switch
-            v-model="deviceForm.isDefault"
-            active-text="设为默认设备"
-            inactive-text="普通设备"
-          />
-        </div>
-      </div>
-
-      <template #footer>
-        <div class="flex justify-end gap-3">
-          <el-button @click="deviceDialogVisible = false">
-            取消
-          </el-button>
-          <el-button
-            :loading="savingDevice"
-            color="#2563eb"
-            @click="handleSaveDevice"
-          >
-            保存设备
-          </el-button>
-        </div>
-      </template>
-    </el-dialog>
+    <DeviceFormDialog
+      :device="selectedDevice"
+      :mode="deviceDialogMode"
+      :visible="deviceDialogVisible"
+      @saved="handleDeviceSaved"
+      @update:visible="deviceDialogVisible = $event"
+    />
   </div>
 </template>
