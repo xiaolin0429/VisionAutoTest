@@ -7,6 +7,7 @@ import StatusTag from '@/components/StatusTag.vue'
 import StepEditorDialog from '@/components/step/StepEditorDialog.vue'
 import { listComponents } from '@/api/modules/components'
 import {
+  cloneTestCase,
   createTestCase,
   getTestCaseDetail,
   listTestCases,
@@ -34,6 +35,30 @@ const components = ref<Component[]>([])
 const templates = ref<Template[]>([])
 const selectedCaseId = ref<number | null>(null)
 const currentCase = ref<TestCase | null>(null)
+
+const searchKeyword = ref('')
+const filterStatus = ref('')
+let searchTimer: number | null = null
+
+const filterStatusOptions = [
+  { label: '全部', value: '' },
+  { label: '草稿', value: 'draft' },
+  { label: '已发布', value: 'published' },
+  { label: '已归档', value: 'archived' }
+]
+
+function handleFilterChange() {
+  void loadCaseList()
+}
+
+function handleSearchInput() {
+  if (searchTimer !== null) {
+    window.clearTimeout(searchTimer)
+  }
+  searchTimer = window.setTimeout(() => {
+    void loadCaseList()
+  }, 300)
+}
 
 const caseDialogVisible = ref(false)
 const stepDialogVisible = ref(false)
@@ -146,7 +171,17 @@ function getStepTemplateHint(step: StepDraft) {
 }
 
 async function loadCaseList() {
-  testCases.value = await listTestCases()
+  const options: { keyword?: string; status?: string } = {}
+  if (searchKeyword.value.trim()) {
+    options.keyword = searchKeyword.value.trim()
+  }
+  if (filterStatus.value) {
+    options.status = filterStatus.value
+  }
+
+  testCases.value = await listTestCases(
+    Object.keys(options).length > 0 ? options : undefined
+  )
 
   if (!testCases.value.some((item) => item.id === selectedCaseId.value)) {
     selectedCaseId.value = testCases.value[0]?.id ?? null
@@ -246,6 +281,23 @@ async function publishCurrentCase() {
   await loadCaseDetail(currentCase.value.id)
 }
 
+async function handleCloneCase() {
+  if (!currentCase.value) {
+    ElMessage.warning('请先选择一个用例。')
+    return
+  }
+
+  try {
+    const cloned = await cloneTestCase(currentCase.value.id)
+    selectedCaseId.value = cloned.id
+    ElMessage.success('用例已克隆。')
+    await loadCaseList()
+    await loadCaseDetail(cloned.id)
+  } catch {
+    ElMessage.error('克隆失败，请重试。')
+  }
+}
+
 function openStepDialog() {
   if (!currentCase.value) {
     ElMessage.warning('请先选择一个用例。')
@@ -321,6 +373,29 @@ onMounted(async () => {
           </el-button>
         </template>
 
+        <div class="mb-3 space-y-2">
+          <el-input
+            v-model="searchKeyword"
+            clearable
+            placeholder="搜索编码或名称"
+            @input="handleSearchInput"
+            @clear="handleFilterChange"
+          />
+          <el-select
+            v-model="filterStatus"
+            class="!w-full"
+            placeholder="按状态筛选"
+            @change="handleFilterChange"
+          >
+            <el-option
+              v-for="option in filterStatusOptions"
+              :key="option.value"
+              :label="option.label"
+              :value="option.value"
+            />
+          </el-select>
+        </div>
+
         <el-empty
           v-if="testCases.length === 0 && !loading"
           description="当前工作空间暂无用例"
@@ -370,6 +445,9 @@ onMounted(async () => {
               v-if="currentCase"
               class="flex gap-2"
             >
+              <el-button plain @click="handleCloneCase">
+                克隆
+              </el-button>
               <el-button plain @click="openEditCaseDialog">
                 编辑信息
               </el-button>

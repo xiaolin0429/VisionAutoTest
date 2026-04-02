@@ -119,15 +119,17 @@ function calcDurationSeconds(startedAt: string | null, finishedAt: string | null
   return Math.max(0, Math.round(duration))
 }
 
-export async function listTestRuns(): Promise<TestRun[]> {
+export async function listTestRuns(options?: { status?: string }): Promise<TestRun[]> {
+  const params: Record<string, string | number> = { page: 1, page_size: 100 }
+  if (options?.status) {
+    params.status = options.status
+  }
+
   const [response, reference] = await Promise.all([
     requestPage<TestRunReadDTO>({
       method: 'get',
       url: '/test-runs',
-      params: {
-        page: 1,
-        page_size: 100
-      }
+      params
     }),
     loadReferenceMaps()
   ])

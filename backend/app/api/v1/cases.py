@@ -154,6 +154,13 @@ def patch_test_case(test_case_id: int, payload: TestCaseUpdate, request: Request
     return success_response(request, dump_model(TestCaseRead, updated))
 
 
+@router.post("/test-cases/{test_case_id}/clone", status_code=201)
+def clone_test_case(test_case_id: int, request: Request, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+    test_case = cases.get_test_case(db, test_case_id)
+    cloned = cases.clone_test_case(db, user=current_user, test_case=test_case)
+    return success_response(request, dump_model(TestCaseRead, cloned), status_code=201)
+
+
 @router.get("/test-cases/{test_case_id}/steps")
 def list_test_case_steps(test_case_id: int, request: Request, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
     test_case = cases.get_test_case(db, test_case_id)

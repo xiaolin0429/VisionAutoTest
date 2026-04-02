@@ -18,6 +18,21 @@ let pollTimer: number | null = null
 
 const ACTIVE_RUN_STATUSES = new Set(['queued', 'running', 'cancelling'])
 
+const statusFilter = ref('')
+const statusFilterOptions = [
+  { label: '全部', value: '' },
+  { label: '排队中', value: 'queued' },
+  { label: '执行中', value: 'running' },
+  { label: '已通过', value: 'passed' },
+  { label: '失败', value: 'failed' },
+  { label: '部分失败', value: 'partial_failed' },
+  { label: '已取消', value: 'cancelled' }
+]
+
+function handleStatusFilterChange() {
+  void loadTestRuns()
+}
+
 // ── Trigger dialog ────────────────────────────────────────────────────────────
 const triggerDialogVisible = ref(false)
 const triggerLoading = ref(false)
@@ -80,11 +95,36 @@ async function handleTriggerRun() {
 }
 
 // ── Runs list ─────────────────────────────────────────────────────────────────
+function formatDuration(startedAt: string | null, finishedAt: string | null): string {
+  if (!startedAt) return '--'
+  if (!finishedAt) return '进行中'
+  const ms = new Date(finishedAt).getTime() - new Date(startedAt).getTime()
+  if (ms < 0) return '--'
+  const seconds = Math.round(ms / 1000)
+  if (seconds < 60) return `${seconds}s`
+  const minutes = Math.floor(seconds / 60)
+  const remainSeconds = seconds % 60
+  return `${minutes}m ${remainSeconds}s`
+}
+
+function formatPassRate(run: TestRun): string {
+  if (run.totalCaseCount === 0) return '--'
+  return `${Math.round((run.passedCaseCount / run.totalCaseCount) * 100)}%`
+}
+
 const metrics = computed(() => {
   const total = testRuns.value.length
   const running = testRuns.value.filter((item) => item.status === 'running').length
   const passed = testRuns.value.filter((item) => item.status === 'passed').length
   const warning = testRuns.value.filter((item) => item.status === 'failed' || item.status === 'partial_failed').length
+  const finishedRuns = testRuns.value.filter((item) => item.totalCaseCount > 0)
+  const overallPassRate = finishedRuns.length > 0
+    ? Math.round(
+        (finishedRuns.reduce((sum, item) => sum + item.passedCaseCount, 0) /
+          finishedRuns.reduce((sum, item) => sum + item.totalCaseCount, 0)) *
+          100
+      )
+    : 0
 
   return [
     {
@@ -106,6 +146,11 @@ const metrics = computed(() => {
       label: '需关注',
       value: warning,
       hint: '包含 failed 与 partial_failed 状态。'
+    },
+    {
+      label: '用例通过率',
+      value: `${overallPassRate}%`,
+      hint: '所有批次的用例通过率汇总。'
     }
   ]
 })
@@ -132,7 +177,9 @@ async function loadTestRuns(options: { silent?: boolean } = {}) {
   }
 
   try {
-    testRuns.value = await listTestRuns()
+    testRuns.value = await listTestRuns(
+      statusFilter.value ? { status: statusFilter.value } : undefined
+    )
 
     if (testRuns.value.some((item) => ACTIVE_RUN_STATUSES.has(item.status))) {
       scheduleTestRunsRefresh()
@@ -162,7 +209,7 @@ function openRunDetail(testRunId: number) {
 
 <template>
   <div class="space-y-6">
-    <div class="grid grid-cols-4 gap-4">
+    <div class="grid grid-cols-5 gap-4">
       <MetricCard
         v-for="metric in metrics"
         :key="metric.label"
@@ -184,6 +231,21 @@ function openRunDetail(testRunId: number) {
           触发执行
         </el-button>
       </template>
+
+      <div class="mb-4">
+        <el-radio-group
+          v-model="statusFilter"
+          @change="handleStatusFilterChange"
+        >
+          <el-radio-button
+            v-for="option in statusFilterOptions"
+            :key="option.value"
+            :value="option.value"
+          >
+            {{ option.label }}
+          </el-radio-button>
+        </el-radio-group>
+      </div>
 
       <el-table
         v-loading="loading"
@@ -220,10 +282,37 @@ function openRunDetail(testRunId: number) {
         </el-table-column>
         <el-table-column
           label="用例统计"
-          min-width="180"
+          min-width="160"
         >
           <template #default="{ row }">
             {{ row.passedCaseCount }}/{{ row.totalCaseCount }} 通过
+          </template>
+        </el-table-column>
+        <el-table-column
+          label="通过率"
+          width="100"
+        >
+          <template #default="{ row }">
+            <span
+              :class="[
+                'font-medium',
+                row.totalCaseCount > 0 && row.passedCaseCount === row.totalCaseCount
+                  ? 'text-green-600'
+                  : row.totalCaseCount > 0 && row.passedCaseCount === 0
+                    ? 'text-red-600'
+                    : 'text-slate-600'
+              ]"
+            >
+              {{ formatPassRate(row) }}
+            </span>
+          </template>
+        </el-table-column>
+        <el-table-column
+          label="耗时"
+          width="110"
+        >
+          <template #default="{ row }">
+            {{ formatDuration(row.startedAt, row.finishedAt) }}
           </template>
         </el-table-column>
         <el-table-column

@@ -49,14 +49,22 @@ function mapTestCaseSummary(item: TestCaseReadDTO): TestCase {
   }
 }
 
-export async function listTestCases(): Promise<TestCase[]> {
+export async function listTestCases(options?: {
+  keyword?: string
+  status?: string
+}): Promise<TestCase[]> {
+  const params: Record<string, string | number> = { page: 1, page_size: 100 }
+  if (options?.keyword) {
+    params.keyword = options.keyword
+  }
+  if (options?.status) {
+    params.status = options.status
+  }
+
   const response = await requestPage<TestCaseReadDTO>({
     method: 'get',
     url: '/test-cases',
-    params: {
-      page: 1,
-      page_size: 100
-    }
+    params
   })
 
   return response.data.map(mapTestCaseSummary)
@@ -112,6 +120,15 @@ export async function updateTestCase(
       priority: payload.priority,
       description: payload.description
     }
+  })
+
+  return mapTestCaseSummary(response)
+}
+
+export async function cloneTestCase(testCaseId: number): Promise<TestCase> {
+  const response = await requestData<TestCaseReadDTO>({
+    method: 'post',
+    url: `/test-cases/${testCaseId}/clone`
   })
 
   return mapTestCaseSummary(response)
