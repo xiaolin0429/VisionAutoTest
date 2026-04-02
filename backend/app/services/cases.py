@@ -212,6 +212,44 @@ def replace_test_case_steps(db: Session, *, user: User, test_case: TestCase, ste
     return list_test_case_steps(db, user=user, test_case=test_case)
 
 
+def clone_test_case(db: Session, *, user: User, test_case: TestCase) -> TestCase:
+    require_workspace_access(db, user, test_case.workspace_id)
+    timestamp_suffix = utc_now().strftime("%Y%m%d%H%M%S")
+    new_code = f"{test_case.case_code}_copy_{timestamp_suffix}"
+    cloned = TestCase(
+        workspace_id=test_case.workspace_id,
+        case_code=new_code,
+        case_name=f"{test_case.case_name} (副本)",
+        status="draft",
+        priority=test_case.priority,
+        description=test_case.description,
+        created_by=user.id,
+        updated_by=user.id,
+    )
+    db.add(cloned)
+    db.flush()
+    source_steps = db.scalars(
+        select(TestCaseStep).where(TestCaseStep.test_case_id == test_case.id).order_by(TestCaseStep.step_no.asc())
+    ).all()
+    for step in source_steps:
+        db.add(
+            TestCaseStep(
+                test_case_id=cloned.id,
+                step_no=step.step_no,
+                step_type=step.step_type,
+                step_name=step.step_name,
+                component_id=step.component_id,
+                template_id=step.template_id,
+                payload_json=step.payload_json,
+                timeout_ms=step.timeout_ms,
+                retry_times=step.retry_times,
+            )
+        )
+    db.commit()
+    db.refresh(cloned)
+    return cloned
+
+
 def list_test_suites(db: Session, *, user: User, workspace_id: int, page: int, page_size: int):
     require_workspace_access(db, user, workspace_id)
     stmt = select(TestSuite).where(TestSuite.workspace_id == workspace_id, TestSuite.is_deleted.is_(False))

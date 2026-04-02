@@ -75,32 +75,39 @@
 - 方法：`PUT`
 - 路径：`/api/v1/test-cases/{test_case_id}/steps`
 
-### 3.13 查询套件列表
+### 3.13 克隆用例
+
+- 方法：`POST`
+- 路径：`/api/v1/test-cases/{test_case_id}/clone`
+- 说明：深拷贝目标用例的基础信息与全部步骤，生成新用例。新用例 `case_code` 为 `{原编码}_copy_{时间戳}`，状态强制为 `draft`。
+- 响应：`201`，返回新用例的 `TestCaseRead`。
+
+### 3.14 查询套件列表
 
 - 方法：`GET`
 - 路径：`/api/v1/test-suites`
 
-### 3.14 创建套件
+### 3.15 创建套件
 
 - 方法：`POST`
 - 路径：`/api/v1/test-suites`
 
-### 3.15 查询套件详情
+### 3.16 查询套件详情
 
 - 方法：`GET`
 - 路径：`/api/v1/test-suites/{test_suite_id}`
 
-### 3.16 更新套件
+### 3.17 更新套件
 
 - 方法：`PATCH`
 - 路径：`/api/v1/test-suites/{test_suite_id}`
 
-### 3.17 查询套件用例集合
+### 3.18 查询套件用例集合
 
 - 方法：`GET`
 - 路径：`/api/v1/test-suites/{test_suite_id}/cases`
 
-### 3.18 全量替换套件用例集合
+### 3.19 全量替换套件用例集合
 
 - 方法：`PUT`
 - 路径：`/api/v1/test-suites/{test_suite_id}/cases`

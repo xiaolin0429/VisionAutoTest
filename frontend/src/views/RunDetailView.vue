@@ -299,6 +299,71 @@ function selectCaseRun(caseRun: CaseRun) {
   selectedCaseRunId.value = caseRun.id
 }
 
+function buildRunSummaryText(detail: RunDetail): string {
+  const passRate = detail.summary.totalCases > 0
+    ? Math.round((detail.summary.passedCases / detail.summary.totalCases) * 100)
+    : 0
+
+  const lines: string[] = [
+    `[执行摘要] 批次 #${detail.id}`,
+    `套件: ${detail.suiteName}`,
+    `环境: ${detail.environmentName} | 设备: ${detail.deviceName}`,
+    `状态: ${detail.status} | 通过率: ${passRate}% (${detail.summary.passedCases}/${detail.summary.totalCases})`,
+    `耗时: ${detail.summary.durationSeconds}s | 创建: ${formatDateTime(detail.createdAt)}`
+  ]
+
+  const failedCases = detail.caseRuns.filter(
+    (c) => c.status === 'failed' || c.status === 'error'
+  )
+
+  if (failedCases.length > 0) {
+    lines.push('', `--- 失败用例 (${failedCases.length}) ---`)
+
+    for (const caseRun of failedCases) {
+      lines.push(``, `[${caseRun.status.toUpperCase()}] ${caseRun.name}`)
+      if (caseRun.failureSummary) {
+        lines.push(`  摘要: ${caseRun.failureSummary}`)
+      }
+
+      const failedSteps = caseRun.steps.filter(
+        (s) => s.status === 'failed' || s.status === 'error'
+      )
+      for (const step of failedSteps) {
+        lines.push(`  Step ${step.stepNo} [${step.type}] ${step.status}: ${step.message}`)
+      }
+    }
+  }
+
+  return lines.join('\n')
+}
+
+function formatDurationMs(ms: number | null): string {
+  if (ms === null || ms === 0) return '--'
+  if (ms < 1000) return `${ms}ms`
+  const seconds = Math.round(ms / 1000)
+  if (seconds < 60) return `${seconds}s`
+  const minutes = Math.floor(seconds / 60)
+  const remainSeconds = seconds % 60
+  return `${minutes}m ${remainSeconds}s`
+}
+
+function navigateBackToRuns() {
+  void router.push('/runs')
+}
+
+async function copyRunSummary() {
+  const detail = runDetail.value
+  if (!detail) return
+
+  const text = buildRunSummaryText(detail)
+  try {
+    await navigator.clipboard.writeText(text)
+    ElMessage.success('执行摘要已复制到剪贴板')
+  } catch {
+    ElMessage.error('复制失败，请手动复制')
+  }
+}
+
 async function handleRerun() {
   const detail = runDetail.value
   if (!detail) {
@@ -345,6 +410,16 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="space-y-6">
+    <div>
+      <el-button
+        link
+        type="primary"
+        @click="navigateBackToRuns"
+      >
+        &larr; 返回执行列表
+      </el-button>
+    </div>
+
     <SectionCard
       description="当前页面以 `test-runs`、`case-runs`、`step-results` 三层真实接口做聚合。"
       title="执行总览"
@@ -355,6 +430,14 @@ onBeforeUnmount(() => {
             v-if="runDetail"
             :status="runDetail.status"
           />
+          <el-button
+            v-if="runDetail"
+            plain
+            size="small"
+            @click="copyRunSummary"
+          >
+            复制摘要
+          </el-button>
           <el-button
             v-if="runDetail && !ACTIVE_RUN_STATUSES.has(runDetail.status)"
             :loading="rerunLoading"
@@ -590,17 +673,23 @@ onBeforeUnmount(() => {
         <el-table
           v-loading="loading"
           :data="runDetail?.caseRuns ?? []"
+          :default-sort="{ prop: 'durationMs', order: 'descending' }"
           highlight-current-row
           stripe
           @row-click="selectCaseRun"
         >
-          <el-table-column label="用例名称" min-width="220" prop="name" />
-          <el-table-column label="状态" width="110">
+          <el-table-column label="用例名称" min-width="180" prop="name" />
+          <el-table-column label="状态" width="100">
             <template #default="{ row }">
               <StatusTag :status="row.status" />
             </template>
           </el-table-column>
-          <el-table-column label="Diff" prop="diffCount" width="90" />
+          <el-table-column label="耗时" prop="durationMs" sortable width="110">
+            <template #default="{ row }">
+              {{ formatDurationMs(row.durationMs) }}
+            </template>
+          </el-table-column>
+          <el-table-column label="Diff" prop="diffCount" width="80" />
         </el-table>
       </SectionCard>
 
