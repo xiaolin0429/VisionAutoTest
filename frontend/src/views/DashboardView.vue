@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import MetricCard from '@/components/MetricCard.vue'
 import SectionCard from '@/components/SectionCard.vue'
@@ -35,6 +35,40 @@ const testSuites = ref<TestSuite[]>([])
 const testRuns = ref<TestRun[]>([])
 const environmentProfiles = ref<EnvironmentProfile[]>([])
 const executionReadiness = ref<ExecutionReadinessSummary | null>(null)
+
+async function loadDashboardData() {
+  if (!workspaceStore.currentWorkspace) {
+    templates.value = []
+    testCases.value = []
+    testSuites.value = []
+    testRuns.value = []
+    environmentProfiles.value = []
+    executionReadiness.value = null
+    return
+  }
+
+  loading.value = true
+  try {
+    const [templateItems, caseItems, suiteItems, runItems, environmentItems, readiness] =
+      await Promise.all([
+        listTemplates(),
+        listTestCases(),
+        listTestSuites(),
+        listTestRuns(),
+        listEnvironmentProfiles(),
+        getWorkspaceExecutionReadiness(workspaceStore.currentWorkspace.id)
+      ])
+
+    templates.value = templateItems
+    testCases.value = caseItems
+    testSuites.value = suiteItems
+    testRuns.value = runItems
+    environmentProfiles.value = environmentItems
+    executionReadiness.value = readiness
+  } finally {
+    loading.value = false
+  }
+}
 
 const summaryMetrics = computed(() => {
   const recentRun = testRuns.value[0]
@@ -166,31 +200,13 @@ const riskAlerts = computed(() => {
   return alerts
 })
 
-onMounted(async () => {
-  loading.value = true
-  try {
-    const [templateItems, caseItems, suiteItems, runItems, environmentItems, readiness] =
-      await Promise.all([
-        listTemplates(),
-        listTestCases(),
-        listTestSuites(),
-        listTestRuns(),
-        listEnvironmentProfiles(),
-        workspaceStore.currentWorkspace
-          ? getWorkspaceExecutionReadiness(workspaceStore.currentWorkspace.id)
-          : Promise.resolve(null)
-      ])
-
-    templates.value = templateItems
-    testCases.value = caseItems
-    testSuites.value = suiteItems
-    testRuns.value = runItems
-    environmentProfiles.value = environmentItems
-    executionReadiness.value = readiness
-  } finally {
-    loading.value = false
-  }
-})
+watch(
+  () => workspaceStore.currentWorkspaceId,
+  async () => {
+    await loadDashboardData()
+  },
+  { immediate: true }
+)
 
 function navigate(path: string) {
   void router.push(path)

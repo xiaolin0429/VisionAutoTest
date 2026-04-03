@@ -11,6 +11,7 @@ import TemplateDetailSummary from '@/components/template/TemplateDetailSummary.v
 import TemplateFormDialog from '@/components/template/TemplateFormDialog.vue'
 import TemplateListPanel from '@/components/template/TemplateListPanel.vue'
 import TemplateWorkbenchSection from '@/components/template/TemplateWorkbenchSection.vue'
+import { WORKSPACE_STORAGE_KEY } from '@/constants/storage'
 import {
   isTemplateThresholdValueValid,
   trimTemplateText,
@@ -492,7 +493,7 @@ async function loadTemplates(options: { preferredTemplateId?: number | null } = 
   try {
     const items = await listTemplates(buildTemplateFilters())
     templates.value = items
-    const workspaceId = Number(localStorage.getItem('visionautotest_workspace_id') ?? 0)
+    const workspaceId = Number(localStorage.getItem(WORKSPACE_STORAGE_KEY) ?? 0)
     const readiness = workspaceId
       ? await getWorkspaceExecutionReadiness(workspaceId).catch(() => null)
       : null
@@ -761,34 +762,53 @@ async function handleTriggerOcrAnalysis() {
     return
   }
 
+  const templateId = currentTemplate.value.id
+  const baselineRevisionId = currentBaselineRevision.value.id
+
   ocrPanelState.value = createIdleOcrState(
     '正在执行 OCR 分析，请稍候...',
-    currentBaselineRevision.value.id,
+    baselineRevisionId,
     'loading'
   )
 
   try {
-    const snapshot = await requestTemplateOcrAnalysis(
-      currentTemplate.value.id,
-      currentBaselineRevision.value.id
-    )
+    const snapshot = await requestTemplateOcrAnalysis(templateId, baselineRevisionId)
     ocrSnapshot.value = snapshot
     ocrPanelState.value = createIdleOcrState(
       snapshot.status === 'failed'
         ? snapshot.errorMessage || 'OCR 分析失败，请稍后重试。'
         : `OCR 分析完成，共识别 ${snapshot.blocks.length} 个结果。`,
-      currentBaselineRevision.value.id,
+      baselineRevisionId,
       snapshot.status === 'failed' ? 'error' : 'ready'
     )
     workbenchViewMode.value = 'ocr'
     ElMessage.success('OCR 分析完成。')
   } catch (error) {
+    try {
+      const latestSnapshot = await listTemplateOcrResults(templateId, baselineRevisionId)
+      if (
+        currentTemplate.value?.id === templateId &&
+        currentBaselineRevision.value?.id === baselineRevisionId &&
+        latestSnapshot.status !== 'not_generated'
+      ) {
+        ocrSnapshot.value = latestSnapshot
+        ocrPanelState.value = createIdleOcrState(
+          latestSnapshot.status === 'failed'
+            ? latestSnapshot.errorMessage || 'OCR 分析失败，请稍后重试。'
+            : `OCR 分析完成，共识别 ${latestSnapshot.blocks.length} 个结果。`,
+          baselineRevisionId,
+          latestSnapshot.status === 'failed' ? 'error' : 'ready'
+        )
+        workbenchViewMode.value = 'ocr'
+        ElMessage.success('OCR 分析完成。')
+        return
+      }
+    } catch {
+      // Ignore snapshot follow-up failures and fall back to the original error state.
+    }
+
     const message = error instanceof Error ? error.message : 'OCR 分析失败，请稍后重试。'
-    ocrPanelState.value = createIdleOcrState(
-      message,
-      currentBaselineRevision.value.id,
-      'error'
-    )
+    ocrPanelState.value = createIdleOcrState(message, baselineRevisionId, 'error')
 
     if (error instanceof ApiError && error.code === 'TEMPLATE_OCR_ANALYSIS_FAILED') {
       void loadOcrSnapshot()

@@ -1,4 +1,4 @@
-import type { App, Plugin } from 'vue'
+import type { App, Component, Plugin } from 'vue'
 import {
   Collection,
   DataBoard,
@@ -23,6 +23,8 @@ import {
   ElMenu,
   ElMenuItem,
   ElOption,
+  ElRadioButton,
+  ElRadioGroup,
   ElRow,
   ElScrollbar,
   ElSelect,
@@ -49,6 +51,8 @@ import 'element-plus/es/components/loading/style/css'
 import 'element-plus/es/components/menu/style/css'
 import 'element-plus/es/components/menu-item/style/css'
 import 'element-plus/es/components/option/style/css'
+import 'element-plus/es/components/radio-button/style/css'
+import 'element-plus/es/components/radio-group/style/css'
 import 'element-plus/es/components/row/style/css'
 import 'element-plus/es/components/scrollbar/style/css'
 import 'element-plus/es/components/select/style/css'
@@ -59,7 +63,7 @@ import 'element-plus/es/components/tag/style/css'
 import 'element-plus/es/components/timeline/style/css'
 import 'element-plus/es/components/timeline-item/style/css'
 
-const components: Plugin[] = [
+const components: Array<Plugin | Component> = [
   ElAvatar,
   ElButton,
   ElCheckbox,
@@ -74,6 +78,8 @@ const components: Plugin[] = [
   ElMenu,
   ElMenuItem,
   ElOption,
+  ElRadioButton,
+  ElRadioGroup,
   ElRow,
   ElScrollbar,
   ElSelect,
@@ -96,7 +102,16 @@ const icons = {
 
 export function installElementPlus(app: App) {
   components.forEach((component) => {
-    app.use(component)
+    const componentWithInstall = component as Plugin & { name?: string }
+
+    if (typeof componentWithInstall.install === 'function') {
+      app.use(componentWithInstall)
+      return
+    }
+
+    if (componentWithInstall.name) {
+      app.component(componentWithInstall.name, component as Component)
+    }
   })
 
   Object.entries(icons).forEach(([name, component]) => {

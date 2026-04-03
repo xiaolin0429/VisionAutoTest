@@ -258,19 +258,17 @@ async function openRunRepair(testRunId: number) {
         </el-button>
       </template>
 
-      <div class="mb-4">
-        <el-radio-group
-          v-model="statusFilter"
-          @change="handleStatusFilterChange"
+      <div class="mb-4 flex flex-wrap gap-2">
+        <el-button
+          v-for="option in statusFilterOptions"
+          :key="option.value || 'all'"
+          :plain="statusFilter !== option.value"
+          :type="statusFilter === option.value ? 'primary' : undefined"
+          size="small"
+          @click="statusFilter = option.value; handleStatusFilterChange()"
         >
-          <el-radio-button
-            v-for="option in statusFilterOptions"
-            :key="option.value"
-            :value="option.value"
-          >
-            {{ option.label }}
-          </el-radio-button>
-        </el-radio-group>
+          {{ option.label }}
+        </el-button>
       </div>
 
       <el-table

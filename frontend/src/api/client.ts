@@ -7,6 +7,7 @@ import {
 import type { ApiEnvelope, PaginatedEnvelope } from '@/types/backend'
 import { pinia } from '@/stores/pinia'
 import { useAuthStore } from '@/stores/auth'
+import { useWorkspaceStore } from '@/stores/workspace'
 import {
   redirectToLogin as redirectToLoginPage,
   resetClientSessionState,
@@ -49,7 +50,10 @@ function redirectToLoginWithNotice(message?: string) {
 
 http.interceptors.request.use((config) => {
   const authStore = useAuthStore(pinia)
-  const storedWorkspaceId = localStorage.getItem(WORKSPACE_STORAGE_KEY)
+  const workspaceStore = useWorkspaceStore(pinia)
+  const storedWorkspaceId = workspaceStore.currentWorkspaceId !== null
+    ? String(workspaceStore.currentWorkspaceId)
+    : localStorage.getItem(WORKSPACE_STORAGE_KEY)
   const headers = AxiosHeaders.from(config.headers)
 
   if (authStore.session?.accessToken) {

@@ -6,6 +6,7 @@ import MetricCard from '@/components/MetricCard.vue'
 import SectionCard from '@/components/SectionCard.vue'
 import StatusTag from '@/components/StatusTag.vue'
 import StepEditorDialog from '@/components/step/StepEditorDialog.vue'
+import { WORKSPACE_STORAGE_KEY } from '@/constants/storage'
 import {
   createComponent,
   getComponentDetail,
@@ -90,7 +91,7 @@ async function loadComponents() {
   loading.value = true
   try {
     components.value = await listComponents()
-    const workspaceId = Number(localStorage.getItem('visionautotest_workspace_id') ?? 0)
+    const workspaceId = Number(localStorage.getItem(WORKSPACE_STORAGE_KEY) ?? 0)
     const readiness = workspaceId
       ? await getWorkspaceExecutionReadiness(workspaceId).catch(() => null)
       : null

@@ -251,6 +251,15 @@ async function loadRunReport(testRunId: number) {
   }
 }
 
+async function syncRunReport(testRunId: number, detail: RunDetail) {
+  if (shouldPollRunDetail(detail) && runReport.value === null) {
+    reportArtifacts.value = []
+    return
+  }
+
+  await loadRunReport(testRunId)
+}
+
 async function loadRunDetail(options: { silent?: boolean } = {}) {
   if (!options.silent || runDetail.value === null) {
     loading.value = true
@@ -278,7 +287,7 @@ async function loadRunDetail(options: { silent?: boolean } = {}) {
       warmupCurrentCaseMedia(
         payload.caseRuns.find((item) => item.id === nextSelectedCaseRunId) ?? null
       ),
-      loadRunReport(testRunId)
+      syncRunReport(testRunId, payload)
     ])
 
     if (shouldPollRunDetail(payload)) {
