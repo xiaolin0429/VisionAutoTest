@@ -1,12 +1,15 @@
 <script setup lang="ts">
 import {
   LONG_PRESS_BUTTON_OPTIONS,
+  LOCATOR_TYPE_OPTIONS,
   NAVIGATE_WAIT_UNTIL_OPTIONS,
   OCR_MATCH_MODE_OPTIONS,
+  OCR_LOCATOR_MATCH_MODE_OPTIONS,
   SCROLL_BEHAVIOR_OPTIONS,
   SCROLL_DIRECTION_OPTIONS,
   SCROLL_TARGET_OPTIONS,
   STEP_TYPE_LABELS,
+  supportsOcrLocator,
   type StepDraft,
   type StepValidationErrors
 } from '@/utils/steps'
@@ -64,6 +67,14 @@ function formatComponentLabel(component: Component) {
 
 function handleClose() {
   emit('update:visible', false)
+}
+
+function showLocatorFields(step: StepDraft) {
+  if (!supportsOcrLocator(step.type)) {
+    return false
+  }
+
+  return step.type !== 'scroll' || step.scrollTarget === 'element'
 }
 </script>
 
@@ -162,13 +173,52 @@ function handleClose() {
 
           <!-- click -->
           <template v-if="step.type === 'click'">
-            <div class="col-span-2">
-              <label class="mb-2 block text-sm font-medium text-slate-700">选择器</label>
-              <el-input v-model="step.selector" placeholder="例如 [data-testid='submit-button']" />
-              <p v-if="getStepErrorFn(index, 'selector')" class="mt-2 text-xs text-rose-600">
-                {{ getStepErrorFn(index, 'selector') }}
-              </p>
+            <div v-if="showLocatorFields(step)">
+              <label class="mb-2 block text-sm font-medium text-slate-700">定位方式</label>
+              <el-select v-model="step.locator" class="!w-full">
+                <el-option v-for="option in LOCATOR_TYPE_OPTIONS" :key="option.value" :label="option.label" :value="option.value" />
+              </el-select>
             </div>
+            <div class="col-span-2">
+              <template v-if="step.locator === 'selector'">
+                <label class="mb-2 block text-sm font-medium text-slate-700">选择器</label>
+                <el-input v-model="step.selector" placeholder="例如 [data-testid='submit-button']" />
+                <p v-if="getStepErrorFn(index, 'selector')" class="mt-2 text-xs text-rose-600">
+                  {{ getStepErrorFn(index, 'selector') }}
+                </p>
+              </template>
+              <template v-else>
+                <label class="mb-2 block text-sm font-medium text-slate-700">OCR 文本</label>
+                <el-input v-model="step.ocrText" placeholder="请输入要识别的界面文本" />
+                <p v-if="getStepErrorFn(index, 'ocrText')" class="mt-2 text-xs text-rose-600">
+                  {{ getStepErrorFn(index, 'ocrText') }}
+                </p>
+              </template>
+            </div>
+            <template v-if="step.locator === 'ocr'">
+              <div>
+                <label class="mb-2 block text-sm font-medium text-slate-700">匹配模式</label>
+                <el-select v-model="step.ocrMatchMode" class="!w-full">
+                  <el-option v-for="option in OCR_LOCATOR_MATCH_MODE_OPTIONS" :key="option.value" :label="option.label" :value="option.value" />
+                </el-select>
+                <p v-if="getStepErrorFn(index, 'ocrMatchMode')" class="mt-2 text-xs text-rose-600">
+                  {{ getStepErrorFn(index, 'ocrMatchMode') }}
+                </p>
+              </div>
+              <div>
+                <label class="mb-2 block text-sm font-medium text-slate-700">匹配序号</label>
+                <el-input-number v-model="step.ocrOccurrence" :min="1" class="!w-full" />
+                <p v-if="getStepErrorFn(index, 'ocrOccurrence')" class="mt-2 text-xs text-rose-600">
+                  {{ getStepErrorFn(index, 'ocrOccurrence') }}
+                </p>
+              </div>
+              <div class="col-span-2">
+                <label class="mb-2 block text-sm font-medium text-slate-700">匹配选项</label>
+                <div class="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700">
+                  <el-checkbox v-model="step.ocrCaseSensitive">OCR 文本区分大小写</el-checkbox>
+                </div>
+              </div>
+            </template>
           </template>
 
           <!-- navigate -->
@@ -215,11 +265,50 @@ function handleClose() {
               </p>
             </div>
             <div v-if="step.scrollTarget === 'element'" class="col-span-2">
-              <label class="mb-2 block text-sm font-medium text-slate-700">目标元素选择器</label>
-              <el-input v-model="step.selector" placeholder="例如 .table-container" />
-              <p v-if="getStepErrorFn(index, 'selector')" class="mt-2 text-xs text-rose-600">
-                {{ getStepErrorFn(index, 'selector') }}
-              </p>
+              <template v-if="showLocatorFields(step)">
+                <label class="mb-2 block text-sm font-medium text-slate-700">定位方式</label>
+                <el-select v-model="step.locator" class="!w-full">
+                  <el-option v-for="option in LOCATOR_TYPE_OPTIONS" :key="option.value" :label="option.label" :value="option.value" />
+                </el-select>
+              </template>
+              <template v-if="step.locator === 'selector'">
+                <label class="mb-2 mt-4 block text-sm font-medium text-slate-700">目标元素选择器</label>
+                <el-input v-model="step.selector" placeholder="例如 .table-container" />
+                <p v-if="getStepErrorFn(index, 'selector')" class="mt-2 text-xs text-rose-600">
+                  {{ getStepErrorFn(index, 'selector') }}
+                </p>
+              </template>
+              <template v-else>
+                <label class="mb-2 mt-4 block text-sm font-medium text-slate-700">OCR 文本</label>
+                <el-input v-model="step.ocrText" placeholder="请输入要识别的滑动目标文本" />
+                <p v-if="getStepErrorFn(index, 'ocrText')" class="mt-2 text-xs text-rose-600">
+                  {{ getStepErrorFn(index, 'ocrText') }}
+                </p>
+              </template>
+              <div v-if="step.locator === 'ocr'" class="mt-4 grid grid-cols-2 gap-4">
+                <div>
+                  <label class="mb-2 block text-sm font-medium text-slate-700">匹配模式</label>
+                  <el-select v-model="step.ocrMatchMode" class="!w-full">
+                    <el-option v-for="option in OCR_LOCATOR_MATCH_MODE_OPTIONS" :key="option.value" :label="option.label" :value="option.value" />
+                  </el-select>
+                  <p v-if="getStepErrorFn(index, 'ocrMatchMode')" class="mt-2 text-xs text-rose-600">
+                    {{ getStepErrorFn(index, 'ocrMatchMode') }}
+                  </p>
+                </div>
+                <div>
+                  <label class="mb-2 block text-sm font-medium text-slate-700">匹配序号</label>
+                  <el-input-number v-model="step.ocrOccurrence" :min="1" class="!w-full" />
+                  <p v-if="getStepErrorFn(index, 'ocrOccurrence')" class="mt-2 text-xs text-rose-600">
+                    {{ getStepErrorFn(index, 'ocrOccurrence') }}
+                  </p>
+                </div>
+                <div class="col-span-2">
+                  <label class="mb-2 block text-sm font-medium text-slate-700">匹配选项</label>
+                  <div class="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700">
+                    <el-checkbox v-model="step.ocrCaseSensitive">OCR 文本区分大小写</el-checkbox>
+                  </div>
+                </div>
+              </div>
             </div>
             <div>
               <label class="mb-2 block text-sm font-medium text-slate-700">滑动距离(px)</label>
@@ -242,11 +331,10 @@ function handleClose() {
           <!-- long_press -->
           <template v-if="step.type === 'long_press'">
             <div>
-              <label class="mb-2 block text-sm font-medium text-slate-700">选择器</label>
-              <el-input v-model="step.selector" placeholder="例如 [data-testid='card']" />
-              <p v-if="getStepErrorFn(index, 'selector')" class="mt-2 text-xs text-rose-600">
-                {{ getStepErrorFn(index, 'selector') }}
-              </p>
+              <label class="mb-2 block text-sm font-medium text-slate-700">定位方式</label>
+              <el-select v-model="step.locator" class="!w-full">
+                <el-option v-for="option in LOCATOR_TYPE_OPTIONS" :key="option.value" :label="option.label" :value="option.value" />
+              </el-select>
             </div>
             <div>
               <label class="mb-2 block text-sm font-medium text-slate-700">长按时长(ms)</label>
@@ -255,6 +343,46 @@ function handleClose() {
                 {{ getStepErrorFn(index, 'durationMs') }}
               </p>
             </div>
+            <div class="col-span-2">
+              <template v-if="step.locator === 'selector'">
+                <label class="mb-2 block text-sm font-medium text-slate-700">选择器</label>
+                <el-input v-model="step.selector" placeholder="例如 [data-testid='card']" />
+                <p v-if="getStepErrorFn(index, 'selector')" class="mt-2 text-xs text-rose-600">
+                  {{ getStepErrorFn(index, 'selector') }}
+                </p>
+              </template>
+              <template v-else>
+                <label class="mb-2 block text-sm font-medium text-slate-700">OCR 文本</label>
+                <el-input v-model="step.ocrText" placeholder="请输入要识别的界面文本" />
+                <p v-if="getStepErrorFn(index, 'ocrText')" class="mt-2 text-xs text-rose-600">
+                  {{ getStepErrorFn(index, 'ocrText') }}
+                </p>
+              </template>
+            </div>
+            <template v-if="step.locator === 'ocr'">
+              <div>
+                <label class="mb-2 block text-sm font-medium text-slate-700">匹配模式</label>
+                <el-select v-model="step.ocrMatchMode" class="!w-full">
+                  <el-option v-for="option in OCR_LOCATOR_MATCH_MODE_OPTIONS" :key="option.value" :label="option.label" :value="option.value" />
+                </el-select>
+                <p v-if="getStepErrorFn(index, 'ocrMatchMode')" class="mt-2 text-xs text-rose-600">
+                  {{ getStepErrorFn(index, 'ocrMatchMode') }}
+                </p>
+              </div>
+              <div>
+                <label class="mb-2 block text-sm font-medium text-slate-700">匹配序号</label>
+                <el-input-number v-model="step.ocrOccurrence" :min="1" class="!w-full" />
+                <p v-if="getStepErrorFn(index, 'ocrOccurrence')" class="mt-2 text-xs text-rose-600">
+                  {{ getStepErrorFn(index, 'ocrOccurrence') }}
+                </p>
+              </div>
+              <div class="col-span-2">
+                <label class="mb-2 block text-sm font-medium text-slate-700">匹配选项</label>
+                <div class="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700">
+                  <el-checkbox v-model="step.ocrCaseSensitive">OCR 文本区分大小写</el-checkbox>
+                </div>
+              </div>
+            </template>
             <div class="col-span-2">
               <label class="mb-2 block text-sm font-medium text-slate-700">按钮类型</label>
               <el-select v-model="step.button" class="!w-full">
@@ -270,11 +398,10 @@ function handleClose() {
           <!-- input -->
           <template v-if="step.type === 'input'">
             <div>
-              <label class="mb-2 block text-sm font-medium text-slate-700">选择器</label>
-              <el-input v-model="step.selector" placeholder="例如 [data-testid='name-input']" />
-              <p v-if="getStepErrorFn(index, 'selector')" class="mt-2 text-xs text-rose-600">
-                {{ getStepErrorFn(index, 'selector') }}
-              </p>
+              <label class="mb-2 block text-sm font-medium text-slate-700">定位方式</label>
+              <el-select v-model="step.locator" class="!w-full">
+                <el-option v-for="option in LOCATOR_TYPE_OPTIONS" :key="option.value" :label="option.label" :value="option.value" />
+              </el-select>
             </div>
             <div>
               <label class="mb-2 block text-sm font-medium text-slate-700">输入文本</label>
@@ -283,6 +410,46 @@ function handleClose() {
                 {{ getStepErrorFn(index, 'text') }}
               </p>
             </div>
+            <div class="col-span-2">
+              <template v-if="step.locator === 'selector'">
+                <label class="mb-2 block text-sm font-medium text-slate-700">选择器</label>
+                <el-input v-model="step.selector" placeholder="例如 [data-testid='name-input']" />
+                <p v-if="getStepErrorFn(index, 'selector')" class="mt-2 text-xs text-rose-600">
+                  {{ getStepErrorFn(index, 'selector') }}
+                </p>
+              </template>
+              <template v-else>
+                <label class="mb-2 block text-sm font-medium text-slate-700">OCR 文本</label>
+                <el-input v-model="step.ocrText" placeholder="请输入要识别的输入框附近文本" />
+                <p v-if="getStepErrorFn(index, 'ocrText')" class="mt-2 text-xs text-rose-600">
+                  {{ getStepErrorFn(index, 'ocrText') }}
+                </p>
+              </template>
+            </div>
+            <template v-if="step.locator === 'ocr'">
+              <div>
+                <label class="mb-2 block text-sm font-medium text-slate-700">匹配模式</label>
+                <el-select v-model="step.ocrMatchMode" class="!w-full">
+                  <el-option v-for="option in OCR_LOCATOR_MATCH_MODE_OPTIONS" :key="option.value" :label="option.label" :value="option.value" />
+                </el-select>
+                <p v-if="getStepErrorFn(index, 'ocrMatchMode')" class="mt-2 text-xs text-rose-600">
+                  {{ getStepErrorFn(index, 'ocrMatchMode') }}
+                </p>
+              </div>
+              <div>
+                <label class="mb-2 block text-sm font-medium text-slate-700">匹配序号</label>
+                <el-input-number v-model="step.ocrOccurrence" :min="1" class="!w-full" />
+                <p v-if="getStepErrorFn(index, 'ocrOccurrence')" class="mt-2 text-xs text-rose-600">
+                  {{ getStepErrorFn(index, 'ocrOccurrence') }}
+                </p>
+              </div>
+              <div class="col-span-2">
+                <label class="mb-2 block text-sm font-medium text-slate-700">匹配选项</label>
+                <div class="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700">
+                  <el-checkbox v-model="step.ocrCaseSensitive">OCR 文本区分大小写</el-checkbox>
+                </div>
+              </div>
+            </template>
           </template>
 
           <!-- template_assert -->

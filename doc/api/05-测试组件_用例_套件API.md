@@ -131,13 +131,17 @@
 - 步骤中的变量占位符统一采用 `{{ variable_name }}` 语法。
 - MVP 首批真实浏览器执行支持以下步骤载荷约定：
   - `wait`：`payload_json.ms`
-  - `click`：`payload_json.selector`
-  - `input`：`payload_json.selector`、`payload_json.text`
+  - `click`：`payload_json.selector`（默认）或 OCR 定位模式
+  - `input`：`payload_json.selector`（默认）或 OCR 定位模式、`payload_json.text`
   - `navigate`：`payload_json.url`、可选 `payload_json.wait_until`
-  - `scroll`：`payload_json.target`、可选 `payload_json.selector`、`payload_json.direction`、`payload_json.distance`、可选 `payload_json.behavior`
-  - `long_press`：`payload_json.selector`、`payload_json.duration_ms`、可选 `payload_json.button`
+  - `scroll`：`payload_json.target`、可选 `payload_json.selector`（默认）或 OCR 定位模式、`payload_json.direction`、`payload_json.distance`、可选 `payload_json.behavior`
+  - `long_press`：`payload_json.selector`（默认）或 OCR 定位模式、`payload_json.duration_ms`、可选 `payload_json.button`
   - `template_assert`：`template_id`、可选 `payload_json.threshold`
   - `ocr_assert`：`payload_json.selector`、`payload_json.expected_text`、可选 `payload_json.match_mode`、`payload_json.case_sensitive`
+- 交互步骤（`click`、`input`、`scroll`（target=element）、`long_press`）支持两种元素定位模式，通过 `payload_json.locator` 切换：
+  - `selector`（默认）：基于 CSS 选择器定位，需提供 `payload_json.selector`。
+  - `ocr`：基于 OCR 文字识别定位，需提供 `payload_json.ocr_text`（目标文字）；可选 `payload_json.ocr_match_mode`（`exact` 或 `contains`，默认 `contains`）、`payload_json.ocr_case_sensitive`（布尔，默认 `false`）、`payload_json.ocr_occurrence`（正整数，默认 `1`，表示匹配第 N 个结果）。
+  - OCR 定位模式下执行引擎会先对当前页面截图做 OCR 识别，找到匹配文字的坐标后在该坐标执行操作。
 - `component_call` 为编排步骤，不直接映射浏览器动作；执行时会按组件步骤明细展开成真实执行序列。
 - 当前组件展开只支持一层复用，不支持组件内部继续嵌套组件调用。
 - `template_assert` 仅允许引用当前工作空间下存在已生效基准版本、且 `match_strategy=template` 的模板。

@@ -32,6 +32,8 @@ SUPPORTED_SCROLL_TARGETS = {"page", "element"}
 SUPPORTED_SCROLL_DIRECTIONS = {"up", "down", "left", "right"}
 SUPPORTED_SCROLL_BEHAVIORS = {"auto", "smooth"}
 SUPPORTED_LONG_PRESS_BUTTONS = {"left"}
+SUPPORTED_LOCATOR_TYPES = {"selector", "ocr"}
+SUPPORTED_OCR_MATCH_MODES = {"exact", "contains"}
 
 
 def _published_at_for_status(status: str, current_published_at=None):
@@ -604,6 +606,21 @@ def _validate_step_payload(
             )
         return
 
+    if step_type == "click":
+        _validate_interaction_locator(payload, step_type, require_selector=True)
+        return
+
+    if step_type == "input":
+        _validate_interaction_locator(payload, step_type, require_selector=True)
+        text = payload.get("text")
+        if not isinstance(text, str) or not text.strip():
+            raise ApiError(
+                code="STEP_CONFIGURATION_INVALID",
+                message="input step requires payload_json.text.",
+                status_code=422,
+            )
+        return
+
     if step_type == "navigate":
         _validate_navigate_payload(payload)
         return
@@ -657,13 +674,8 @@ def _validate_scroll_payload(payload: dict) -> None:
             status_code=422,
         )
 
-    selector = payload.get("selector")
-    if target == "element" and (not isinstance(selector, str) or not selector.strip()):
-        raise ApiError(
-            code="STEP_CONFIGURATION_INVALID",
-            message="scroll step requires payload_json.selector when target is `element`.",
-            status_code=422,
-        )
+    if target == "element":
+        _validate_interaction_locator(payload, "scroll", require_selector=True)
 
     direction = payload.get("direction")
     if direction not in SUPPORTED_SCROLL_DIRECTIONS:
@@ -695,13 +707,7 @@ def _validate_scroll_payload(payload: dict) -> None:
 
 
 def _validate_long_press_payload(payload: dict) -> None:
-    selector = payload.get("selector")
-    if not isinstance(selector, str) or not selector.strip():
-        raise ApiError(
-            code="STEP_CONFIGURATION_INVALID",
-            message="long_press step requires payload_json.selector.",
-            status_code=422,
-        )
+    _validate_interaction_locator(payload, "long_press", require_selector=True)
 
     duration_ms = payload.get("duration_ms")
     if (
@@ -722,3 +728,64 @@ def _validate_long_press_payload(payload: dict) -> None:
             message="long_press button currently only supports `left`.",
             status_code=422,
         )
+
+
+def _validate_interaction_locator(payload: dict, step_type: str, *, require_selector: bool) -> None:
+    """Validate locator fields for interaction steps (click, input, scroll element, long_press).
+
+    When locator is ``"ocr"`` the OCR-specific fields are validated.
+    Otherwise (default ``"selector"``) the CSS selector field is required.
+    """
+    locator_type = payload.get("locator", "selector")
+    if locator_type not in SUPPORTED_LOCATOR_TYPES:
+        raise ApiError(
+            code="STEP_CONFIGURATION_INVALID",
+            message=f"{step_type} locator must be `selector` or `ocr`.",
+            status_code=422,
+        )
+
+    if locator_type == "ocr":
+        _validate_ocr_locator_fields(payload, step_type)
+    elif require_selector:
+        selector = payload.get("selector")
+        if not isinstance(selector, str) or not selector.strip():
+            raise ApiError(
+                code="STEP_CONFIGURATION_INVALID",
+                message=f"{step_type} step requires payload_json.selector.",
+                status_code=422,
+            )
+
+
+def _validate_ocr_locator_fields(payload: dict, step_type: str) -> None:
+    ocr_text = payload.get("ocr_text")
+    if not isinstance(ocr_text, str) or not ocr_text.strip():
+        raise ApiError(
+            code="STEP_CONFIGURATION_INVALID",
+            message=f"{step_type} step with OCR locator requires payload_json.ocr_text.",
+            status_code=422,
+        )
+
+    ocr_match_mode = payload.get("ocr_match_mode")
+    if ocr_match_mode is not None and ocr_match_mode not in SUPPORTED_OCR_MATCH_MODES:
+        raise ApiError(
+            code="STEP_CONFIGURATION_INVALID",
+            message=f"{step_type} ocr_match_mode must be `exact` or `contains`.",
+            status_code=422,
+        )
+
+    ocr_case_sensitive = payload.get("ocr_case_sensitive")
+    if ocr_case_sensitive is not None and not isinstance(ocr_case_sensitive, bool):
+        raise ApiError(
+            code="STEP_CONFIGURATION_INVALID",
+            message=f"{step_type} ocr_case_sensitive must be boolean.",
+            status_code=422,
+        )
+
+    ocr_occurrence = payload.get("ocr_occurrence")
+    if ocr_occurrence is not None:
+        if isinstance(ocr_occurrence, bool) or not isinstance(ocr_occurrence, int) or ocr_occurrence < 1:
+            raise ApiError(
+                code="STEP_CONFIGURATION_INVALID",
+                message=f"{step_type} ocr_occurrence must be a positive integer.",
+                status_code=422,
+            )

@@ -44,6 +44,18 @@ class VisionAssertionOutcome:
     diff_artifact: VisionArtifact | None = None
 
 
+@dataclass(slots=True)
+class OcrLocateResult:
+    center_x: float
+    center_y: float
+    rect_x: int
+    rect_y: int
+    rect_width: int
+    rect_height: int
+    matched_text: str
+    confidence: float
+
+
 class VisionAssertionAdapter(Protocol):
     def assert_template(
         self,
@@ -76,6 +88,16 @@ class VisionAssertionAdapter(Protocol):
         image_png_bytes: bytes,
         mask_regions: list[MaskRegionRatio],
     ) -> dict: ...
+
+    def locate_by_ocr(
+        self,
+        *,
+        image_png_bytes: bytes,
+        target_text: str,
+        match_mode: str,
+        case_sensitive: bool,
+        occurrence: int,
+    ) -> OcrLocateResult: ...
 
 
 def build_vision_assertion_adapter() -> VisionAssertionAdapter:
@@ -232,6 +254,48 @@ class DefaultVisionAssertionAdapter:
             "overlay_png_bytes": self._encode_png(cv2, overlay_image),
             "processed_png_bytes": self._encode_png(cv2, processed_image),
         }
+
+    def locate_by_ocr(
+        self,
+        *,
+        image_png_bytes: bytes,
+        target_text: str,
+        match_mode: str = "contains",
+        case_sensitive: bool = False,
+        occurrence: int = 1,
+    ) -> OcrLocateResult:
+        analysis = self.analyze_ocr(image_png_bytes=image_png_bytes)
+        normalized_target = self._normalize_ocr_text(target_text, case_sensitive)
+        matched_count = 0
+        for block in analysis["blocks"]:
+            block_text = str(block["text"]).strip()
+            normalized_block = self._normalize_ocr_text(block_text, case_sensitive)
+            if match_mode == "exact":
+                is_match = normalized_block == normalized_target
+            else:
+                is_match = normalized_target in normalized_block
+            if is_match:
+                matched_count += 1
+                if matched_count == occurrence:
+                    rect = block["pixel_rect"]
+                    return OcrLocateResult(
+                        center_x=rect["x"] + rect["width"] / 2,
+                        center_y=rect["y"] + rect["height"] / 2,
+                        rect_x=rect["x"],
+                        rect_y=rect["y"],
+                        rect_width=rect["width"],
+                        rect_height=rect["height"],
+                        matched_text=block_text,
+                        confidence=float(block["confidence"]),
+                    )
+        if matched_count == 0:
+            raise RuntimeError(
+                f"OCR locate failed: text `{target_text}` not found on screen."
+            )
+        raise RuntimeError(
+            f"OCR locate failed: text `{target_text}` found {matched_count} time(s), "
+            f"but occurrence {occurrence} was requested."
+        )
 
     def _load_cv2(self):
         try:

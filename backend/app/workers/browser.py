@@ -9,6 +9,7 @@ from urllib.parse import urljoin, urlparse
 from app.core.config import get_settings
 from app.models import DeviceProfile, utc_now
 from app.workers.vision import (
+    OcrLocateResult,
     TemplateAssertionContext,
     VisionArtifact,
     VisionAssertionOutcome,
@@ -258,13 +259,22 @@ class PlaywrightBrowserExecutionAdapter:
             page.wait_for_timeout(wait_ms)
             return StepExecutionOutcome(status="passed", score_value=1.0)
         if step.step_type == "click":
-            selector = self._payload_str(payload, "selector")
-            page.locator(selector).click(timeout=timeout_ms)
+            if self._is_ocr_locator(payload):
+                loc = self._resolve_ocr_target(page, payload)
+                page.mouse.click(loc.center_x, loc.center_y)
+            else:
+                selector = self._payload_str(payload, "selector")
+                page.locator(selector).click(timeout=timeout_ms)
             return StepExecutionOutcome(status="passed", score_value=1.0)
         if step.step_type == "input":
-            selector = self._payload_str(payload, "selector")
             text = self._payload_str(payload, "text")
-            page.locator(selector).fill(text, timeout=timeout_ms)
+            if self._is_ocr_locator(payload):
+                loc = self._resolve_ocr_target(page, payload)
+                page.mouse.click(loc.center_x, loc.center_y)
+                page.keyboard.type(text)
+            else:
+                selector = self._payload_str(payload, "selector")
+                page.locator(selector).fill(text, timeout=timeout_ms)
             return StepExecutionOutcome(status="passed", score_value=1.0)
         if step.step_type == "navigate":
             return self._execute_navigate(page, step=step, base_url=base_url, timeout_ms=timeout_ms)
@@ -332,6 +342,13 @@ class PlaywrightBrowserExecutionAdapter:
                 raise RuntimeError("Page scroll did not move; ensure the page can scroll in the requested direction.")
             return StepExecutionOutcome(status="passed", score_value=1.0)
 
+        if self._is_ocr_locator(payload):
+            loc = self._resolve_ocr_target(page, payload)
+            page.mouse.move(loc.center_x, loc.center_y)
+            page.mouse.wheel(delta_x, delta_y)
+            self._settle_scroll(page, behavior)
+            return StepExecutionOutcome(status="passed", score_value=1.0)
+
         selector = self._payload_str(payload, "selector")
         locator = page.locator(selector)
         locator.wait_for(state="visible", timeout=timeout_ms)
@@ -350,7 +367,6 @@ class PlaywrightBrowserExecutionAdapter:
 
     def _execute_long_press(self, page, *, step: BrowserStep, timeout_ms: int) -> StepExecutionOutcome:
         payload = step.payload_json or {}
-        selector = self._payload_str(payload, "selector")
         duration_ms = self._payload_int(payload, "duration_ms")
         if duration_ms <= 0:
             raise ValueError("long_press `duration_ms` must be greater than 0.")
@@ -358,16 +374,23 @@ class PlaywrightBrowserExecutionAdapter:
         if button != "left":
             raise ValueError("long_press `button` currently only supports `left`.")
 
-        locator = page.locator(selector)
-        locator.wait_for(state="visible", timeout=timeout_ms)
-        element = locator.element_handle(timeout=timeout_ms)
-        if element is None:
-            raise RuntimeError("long_press target element was not found.")
-        element.scroll_into_view_if_needed(timeout=timeout_ms)
-        box = element.bounding_box()
-        if box is None or box["width"] <= 0 or box["height"] <= 0:
-            raise RuntimeError("long_press target element has no visible bounding box.")
-        page.mouse.move(box["x"] + (box["width"] / 2), box["y"] + (box["height"] / 2))
+        if self._is_ocr_locator(payload):
+            loc = self._resolve_ocr_target(page, payload)
+            cx, cy = loc.center_x, loc.center_y
+        else:
+            selector = self._payload_str(payload, "selector")
+            locator = page.locator(selector)
+            locator.wait_for(state="visible", timeout=timeout_ms)
+            element = locator.element_handle(timeout=timeout_ms)
+            if element is None:
+                raise RuntimeError("long_press target element was not found.")
+            element.scroll_into_view_if_needed(timeout=timeout_ms)
+            box = element.bounding_box()
+            if box is None or box["width"] <= 0 or box["height"] <= 0:
+                raise RuntimeError("long_press target element has no visible bounding box.")
+            cx, cy = box["x"] + (box["width"] / 2), box["y"] + (box["height"] / 2)
+
+        page.mouse.move(cx, cy)
         page.mouse.down(button=button)
         page.wait_for_timeout(duration_ms)
         page.mouse.up(button=button)
@@ -483,6 +506,25 @@ class PlaywrightBrowserExecutionAdapter:
         page.wait_for_timeout(50)
         if behavior == "smooth":
             page.wait_for_timeout(250)
+
+    def _is_ocr_locator(self, payload: dict) -> bool:
+        return payload.get("locator") == "ocr"
+
+    def _resolve_ocr_target(self, page, payload: dict) -> OcrLocateResult:
+        ocr_text = payload.get("ocr_text")
+        if not isinstance(ocr_text, str) or not ocr_text.strip():
+            raise ValueError("OCR locator requires `ocr_text` in payload.")
+        match_mode = payload.get("ocr_match_mode", "contains")
+        case_sensitive = payload.get("ocr_case_sensitive", False)
+        occurrence = payload.get("ocr_occurrence", 1)
+        screenshot_bytes = page.screenshot(type="png", full_page=False)
+        return self._vision_adapter.locate_by_ocr(
+            image_png_bytes=screenshot_bytes,
+            target_text=ocr_text.strip(),
+            match_mode=match_mode,
+            case_sensitive=bool(case_sensitive),
+            occurrence=int(occurrence),
+        )
 
     def _failure_code_for_assertion(self, step_type: str) -> str:
         if step_type == "template_assert":
