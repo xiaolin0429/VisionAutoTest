@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import MetricCard from '@/components/MetricCard.vue'
 import SectionCard from '@/components/SectionCard.vue'
 import StatusTag from '@/components/StatusTag.vue'
 import StepEditorDialog from '@/components/step/StepEditorDialog.vue'
+import { WORKSPACE_STORAGE_KEY } from '@/constants/storage'
 import {
   createComponent,
   getComponentDetail,
@@ -13,19 +15,29 @@ import {
   replaceComponentSteps,
   updateComponent
 } from '@/api/modules/components'
+import { getWorkspaceExecutionReadiness } from '@/api/modules/workspaces'
 import { listTemplates } from '@/api/modules/templates'
 import { formatDateTime } from '@/utils/format'
+import {
+  canResolveReadinessByNavigation,
+  getReadinessActionLabel,
+  getReadinessSuggestion
+} from '@/utils/readiness'
 import { STEP_TYPE_LABELS, type StepDraft } from '@/utils/steps'
 import { useStepEditor } from '@/composables/useStepEditor'
-import type { Component, StepType, Template } from '@/types/models'
+import type { Component, ExecutionReadinessIssue, StepType, Template } from '@/types/models'
 
 const loading = ref(false)
 const savingComponent = ref(false)
+const route = useRoute()
+const router = useRouter()
 
 const components = ref<Component[]>([])
 const templates = ref<Template[]>([])
 const selectedComponentId = ref<number | null>(null)
 const currentComponent = ref<Component | null>(null)
+const readinessIssuesByComponentId = ref<Record<number, ExecutionReadinessIssue[]>>({})
+const highlightedStepNo = ref<number | null>(null)
 
 const componentDialogVisible = ref(false)
 const stepDialogVisible = ref(false)
@@ -64,10 +76,39 @@ const metrics = computed(() => [
   }
 ])
 
+const currentComponentReadinessIssues = computed(() => {
+  if (!currentComponent.value) {
+    return []
+  }
+  return readinessIssuesByComponentId.value[currentComponent.value.id] ?? []
+})
+
+function resolveStepRowClassName(scope: { row: { stepNo: number } }) {
+  return scope.row.stepNo === highlightedStepNo.value ? 'vat-step-highlight' : ''
+}
+
 async function loadComponents() {
   loading.value = true
   try {
     components.value = await listComponents()
+    const workspaceId = Number(localStorage.getItem(WORKSPACE_STORAGE_KEY) ?? 0)
+    const readiness = workspaceId
+      ? await getWorkspaceExecutionReadiness(workspaceId).catch(() => null)
+      : null
+    readinessIssuesByComponentId.value = (readiness?.issues ?? [])
+      .filter((issue) => issue.resourceType === 'component' && issue.resourceId !== null)
+      .reduce<Record<number, ExecutionReadinessIssue[]>>((acc, issue) => {
+        const componentId = issue.resourceId as number
+        acc[componentId] = [...(acc[componentId] ?? []), issue]
+        return acc
+      }, {})
+    const routeComponentId = Number(route.query.componentId ?? NaN)
+    if (
+      selectedComponentId.value === null &&
+      components.value.some((item) => item.id === routeComponentId)
+    ) {
+      selectedComponentId.value = routeComponentId
+    }
   } catch {
     ElMessage.error('加载组件列表失败')
   } finally {
@@ -92,6 +133,15 @@ async function selectComponent(componentId: number) {
       getComponentSteps(componentId)
     ])
     currentComponent.value = { ...detail, steps }
+    const routeStepNo = Number(route.query.stepNo ?? NaN)
+    highlightedStepNo.value = Number.isNaN(routeStepNo) ? null : routeStepNo
+    if (
+      highlightedStepNo.value !== null &&
+      currentComponent.value.steps?.some((step) => step.stepNo === highlightedStepNo.value)
+    ) {
+      void router.replace({ query: { ...route.query, componentId: String(componentId) } })
+      openStepDialog()
+    }
   } catch {
     ElMessage.error('加载组件详情失败')
     currentComponent.value = null
@@ -218,13 +268,19 @@ onMounted(() => {
                 :key="component.id"
                 class="component-item"
                 :class="{ active: selectedComponentId === component.id }"
-                @click="selectComponent(component.id)"
+                @click="selectComponent(component.id); router.replace({ query: { ...route.query, componentId: String(component.id) } })"
               >
                 <div class="component-header">
                   <span class="component-name">{{ component.name }}</span>
                   <StatusTag :status="component.status" size="small" />
                 </div>
                 <div class="component-meta">{{ component.code }}</div>
+                <div
+                  v-if="readinessIssuesByComponentId[component.id]?.length"
+                  class="component-meta text-amber-700"
+                >
+                  {{ readinessIssuesByComponentId[component.id][0]?.message }}
+                </div>
               </div>
               <el-empty v-if="components.length === 0" description="暂无组件" />
             </div>
@@ -239,6 +295,34 @@ onMounted(() => {
             <el-button type="primary" size="small" @click="openStepDialog">编排步骤</el-button>
           </template>
           <div class="component-detail">
+            <div
+              v-if="currentComponentReadinessIssues.length"
+              class="mb-4 rounded-2xl border border-amber-200 bg-amber-50 p-4"
+            >
+              <p class="m-0 text-sm font-medium text-amber-900">当前组件会阻塞执行</p>
+              <ul class="mb-0 mt-3 list-disc space-y-2 pl-5 text-sm text-amber-800">
+                <li
+                  v-for="issue in currentComponentReadinessIssues"
+                  :key="`${issue.code}-${issue.resourceId ?? issue.message}`"
+                >
+                  <span class="block">{{ issue.message }}</span>
+                  <span class="mt-1 block text-xs text-amber-700">
+                    建议操作：{{ getReadinessSuggestion(issue) }}
+                  </span>
+                  <span class="mt-2 block">
+                    <el-button
+                      v-if="canResolveReadinessByNavigation(issue)"
+                      plain
+                      size="small"
+                      @click="issue.code === 'STEP_CONFIGURATION_INVALID' ? openStepDialog() : openEditComponentDialog()"
+                    >
+                      {{ issue.code === 'STEP_CONFIGURATION_INVALID' ? '去编排步骤' : getReadinessActionLabel(issue) }}
+                    </el-button>
+                  </span>
+                </li>
+              </ul>
+            </div>
+
             <div class="detail-row">
               <span class="label">组件编码：</span>
               <span>{{ currentComponent.code }}</span>
@@ -267,7 +351,11 @@ onMounted(() => {
 
           <div v-if="currentComponent.steps && currentComponent.steps.length > 0" class="steps-section">
             <h4>步骤列表</h4>
-            <el-table :data="currentComponent.steps" stripe>
+            <el-table
+              :data="currentComponent.steps"
+              :row-class-name="resolveStepRowClassName"
+              stripe
+            >
               <el-table-column prop="stepNo" label="序号" width="80" />
               <el-table-column prop="name" label="步骤名称" min-width="150" />
               <el-table-column label="类型" width="120">
@@ -434,5 +522,9 @@ onMounted(() => {
   margin-bottom: 12px;
   font-size: 16px;
   color: #303133;
+}
+
+:deep(.vat-step-highlight) {
+  --el-table-tr-bg-color: #fef3c7;
 }
 </style>

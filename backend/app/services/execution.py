@@ -30,11 +30,121 @@ from app.models import (
 )
 from app.services.helpers import count_total, require_workspace_access
 
-FINAL_TEST_RUN_STATUSES = {"queued", "running", "cancelling", "cancelled", "passed", "failed", "partial_failed", "error"}
-FINAL_CASE_RUN_STATUSES = {"pending", "running", "passed", "failed", "error", "cancelled"}
+FINAL_TEST_RUN_STATUSES = {
+    "queued",
+    "running",
+    "cancelling",
+    "cancelled",
+    "passed",
+    "failed",
+    "partial_failed",
+    "error",
+}
+FINAL_CASE_RUN_STATUSES = {
+    "pending",
+    "running",
+    "passed",
+    "failed",
+    "error",
+    "cancelled",
+}
 FINAL_STEP_RESULT_STATUSES = {"passed", "failed", "error"}
 EXECUTABLE_TEMPLATE_STATUS = "published"
 settings = get_settings()
+
+
+def get_workspace_execution_readiness(
+    db: Session,
+    *,
+    user: User,
+    workspace_id: int,
+) -> dict[str, Any]:
+    require_workspace_access(db, user, workspace_id)
+    active_environment_count = _count_active_environment_profiles(
+        db, workspace_id=workspace_id
+    )
+    active_suites = db.scalars(
+        select(TestSuite).where(
+            TestSuite.workspace_id == workspace_id,
+            TestSuite.is_deleted.is_(False),
+            TestSuite.status == "active",
+        )
+    ).all()
+
+    issues: list[dict[str, Any]] = []
+    if active_environment_count == 0:
+        issues.append(
+            _build_readiness_issue(
+                code="ENVIRONMENT_PROFILE_REQUIRED",
+                message="当前工作空间缺少可用环境，无法触发执行。",
+                resource_type="environment_profile",
+                route_path="/environments",
+            )
+        )
+    if not active_suites:
+        issues.append(
+            _build_readiness_issue(
+                code="TEST_SUITE_REQUIRED",
+                message="当前工作空间缺少活跃套件，至少需要一个 active 套件。",
+                resource_type="test_suite",
+                route_path="/suites",
+            )
+        )
+
+    for suite in active_suites:
+        issues.extend(_inspect_test_suite_execution_issues(db, suite=suite))
+
+    normalized_issues = _dedupe_readiness_issues(issues)
+    return {
+        "scope": "workspace",
+        "status": "ready" if not normalized_issues else "blocked",
+        "workspace_id": workspace_id,
+        "test_suite_id": None,
+        "active_environment_count": active_environment_count,
+        "active_test_suite_count": len(active_suites),
+        "blocking_issue_count": len(normalized_issues),
+        "issues": normalized_issues,
+    }
+
+
+def get_test_suite_execution_readiness(
+    db: Session,
+    *,
+    user: User,
+    test_suite: TestSuite,
+) -> dict[str, Any]:
+    require_workspace_access(db, user, test_suite.workspace_id)
+    active_environment_count = _count_active_environment_profiles(
+        db, workspace_id=test_suite.workspace_id
+    )
+    active_suite_stmt = select(TestSuite).where(
+        TestSuite.workspace_id == test_suite.workspace_id,
+        TestSuite.is_deleted.is_(False),
+        TestSuite.status == "active",
+    )
+    active_test_suite_count: int = count_total(db, active_suite_stmt)
+    issues = []
+    if active_environment_count == 0:
+        issues.append(
+            _build_readiness_issue(
+                code="ENVIRONMENT_PROFILE_REQUIRED",
+                message="当前工作空间缺少可用环境，无法触发执行。",
+                resource_type="environment_profile",
+                route_path="/environments",
+            )
+        )
+    issues.extend(_inspect_test_suite_execution_issues(db, suite=test_suite))
+    normalized_issues = _dedupe_readiness_issues(issues)
+    return {
+        "scope": "test_suite",
+        "status": "ready" if not normalized_issues else "blocked",
+        "workspace_id": test_suite.workspace_id,
+        "test_suite_id": test_suite.id,
+        "active_environment_count": active_environment_count,
+        "active_test_suite_count": int(active_test_suite_count or 0),
+        "blocking_issue_count": len(normalized_issues),
+        "issues": normalized_issues,
+    }
 
 
 @dataclass(slots=True)
@@ -77,7 +187,9 @@ def build_report_summary(
             "error": error_count,
             "cancelled": cancelled_count,
         },
-        "failure": None if failure_code is None and failure_summary is None else {
+        "failure": None
+        if failure_code is None and failure_summary is None
+        else {
             "code": failure_code,
             "summary": failure_summary,
         },
@@ -120,10 +232,18 @@ def create_test_run(
             )
         )
         if existing is not None:
-            raise ApiError(code="IDEMPOTENCY_KEY_CONFLICT", message="Idempotency key already exists.", status_code=409)
+            raise ApiError(
+                code="IDEMPOTENCY_KEY_CONFLICT",
+                message="Idempotency key already exists.",
+                status_code=409,
+            )
     suite = db.get(TestSuite, test_suite_id)
     if suite is None or suite.workspace_id != workspace_id or suite.is_deleted:
-        raise ApiError(code="TEST_SUITE_NOT_FOUND", message="Test suite not found.", status_code=404)
+        raise ApiError(
+            code="TEST_SUITE_NOT_FOUND",
+            message="Test suite not found.",
+            status_code=404,
+        )
     if suite.status != "active":
         raise ApiError(
             code="TEST_SUITE_NOT_ACTIVE",
@@ -131,15 +251,29 @@ def create_test_run(
             status_code=422,
         )
     environment = db.get(EnvironmentProfile, environment_profile_id)
-    if environment is None or environment.workspace_id != workspace_id or environment.is_deleted:
-        raise ApiError(code="ENVIRONMENT_PROFILE_NOT_FOUND", message="Environment profile not found.", status_code=404)
+    if (
+        environment is None
+        or environment.workspace_id != workspace_id
+        or environment.is_deleted
+    ):
+        raise ApiError(
+            code="ENVIRONMENT_PROFILE_NOT_FOUND",
+            message="Environment profile not found.",
+            status_code=404,
+        )
     if device_profile_id is not None:
         device = db.get(DeviceProfile, device_profile_id)
         if device is None or device.workspace_id != workspace_id or device.is_deleted:
-            raise ApiError(code="DEVICE_PROFILE_NOT_FOUND", message="Device profile not found.", status_code=404)
+            raise ApiError(
+                code="DEVICE_PROFILE_NOT_FOUND",
+                message="Device profile not found.",
+                status_code=404,
+            )
 
     suite_cases = db.scalars(
-        select(SuiteCase).where(SuiteCase.test_suite_id == test_suite_id).order_by(SuiteCase.sort_order.asc())
+        select(SuiteCase)
+        .where(SuiteCase.test_suite_id == test_suite_id)
+        .order_by(SuiteCase.sort_order.asc())
     ).all()
     if not suite_cases:
         raise ApiError(
@@ -148,7 +282,9 @@ def create_test_run(
             status_code=422,
         )
     for suite_case in suite_cases:
-        _validate_case_execution_readiness(db, workspace_id=workspace_id, test_case_id=suite_case.test_case_id)
+        _validate_case_execution_readiness(
+            db, workspace_id=workspace_id, test_case_id=suite_case.test_case_id
+        )
 
     test_run = TestRun(
         workspace_id=workspace_id,
@@ -177,13 +313,23 @@ def create_test_run(
     return test_run
 
 
-def build_execution_steps(db: Session, *, workspace_id: int, test_case_id: int) -> list[ResolvedExecutionStep]:
+def build_execution_steps(
+    db: Session, *, workspace_id: int, test_case_id: int
+) -> list[ResolvedExecutionStep]:
     test_case = db.get(TestCase, test_case_id)
-    if test_case is None or test_case.workspace_id != workspace_id or test_case.is_deleted:
-        raise ApiError(code="TEST_CASE_NOT_FOUND", message="Test case not found.", status_code=404)
+    if (
+        test_case is None
+        or test_case.workspace_id != workspace_id
+        or test_case.is_deleted
+    ):
+        raise ApiError(
+            code="TEST_CASE_NOT_FOUND", message="Test case not found.", status_code=404
+        )
 
     case_steps = db.scalars(
-        select(TestCaseStep).where(TestCaseStep.test_case_id == test_case_id).order_by(TestCaseStep.step_no.asc())
+        select(TestCaseStep)
+        .where(TestCaseStep.test_case_id == test_case_id)
+        .order_by(TestCaseStep.step_no.asc())
     ).all()
     resolved_steps: list[ResolvedExecutionStep] = []
 
@@ -203,9 +349,13 @@ def build_execution_steps(db: Session, *, workspace_id: int, test_case_id: int) 
             )
             continue
 
-        component = _get_component_in_workspace(db, workspace_id=workspace_id, component_id=case_step.component_id)
+        component = _get_component_in_workspace(
+            db, workspace_id=workspace_id, component_id=case_step.component_id
+        )
         component_steps = db.scalars(
-            select(ComponentStep).where(ComponentStep.component_id == component.id).order_by(ComponentStep.step_no.asc())
+            select(ComponentStep)
+            .where(ComponentStep.component_id == component.id)
+            .order_by(ComponentStep.step_no.asc())
         ).all()
         for component_step in component_steps:
             resolved_steps.append(
@@ -226,27 +376,45 @@ def build_execution_steps(db: Session, *, workspace_id: int, test_case_id: int) 
     return resolved_steps
 
 
-def list_test_runs(db: Session, *, user: User, workspace_id: int, page: int, page_size: int, status: str | None):
+def list_test_runs(
+    db: Session,
+    *,
+    user: User,
+    workspace_id: int,
+    page: int,
+    page_size: int,
+    status: str | None,
+):
     require_workspace_access(db, user, workspace_id)
     stmt = select(TestRun).where(TestRun.workspace_id == workspace_id)
     if status:
         stmt = stmt.where(TestRun.status == status)
     total = count_total(db, stmt)
-    items = db.scalars(stmt.order_by(TestRun.id.desc()).offset((page - 1) * page_size).limit(page_size)).all()
+    items = db.scalars(
+        stmt.order_by(TestRun.id.desc()).offset((page - 1) * page_size).limit(page_size)
+    ).all()
     return items, total
 
 
 def get_test_run(db: Session, test_run_id: int) -> TestRun:
     test_run = db.get(TestRun, test_run_id)
     if test_run is None:
-        raise ApiError(code="TEST_RUN_NOT_FOUND", message="Test run not found.", status_code=404)
+        raise ApiError(
+            code="TEST_RUN_NOT_FOUND", message="Test run not found.", status_code=404
+        )
     return test_run
 
 
-def update_test_run_status(db: Session, *, user: User, test_run: TestRun, status: str) -> TestRun:
+def update_test_run_status(
+    db: Session, *, user: User, test_run: TestRun, status: str
+) -> TestRun:
     require_workspace_access(db, user, test_run.workspace_id)
     if status != "cancelling" or test_run.status not in {"queued", "running"}:
-        raise ApiError(code="TEST_RUN_STATUS_CONFLICT", message="Invalid test run status transition.", status_code=409)
+        raise ApiError(
+            code="TEST_RUN_STATUS_CONFLICT",
+            message="Invalid test run status transition.",
+            status_code=409,
+        )
     test_run.status = "cancelling"
     db.commit()
     db.refresh(test_run)
@@ -258,7 +426,9 @@ def finalize_cancelled_test_run(db: Session, test_run: TestRun) -> TestRun:
     cancellation_code = "TEST_RUN_CANCELLED"
     cancellation_summary = "Test run was cancelled."
     case_runs = db.scalars(
-        select(TestCaseRun).where(TestCaseRun.test_run_id == test_run.id).order_by(TestCaseRun.sort_order.asc())
+        select(TestCaseRun)
+        .where(TestCaseRun.test_run_id == test_run.id)
+        .order_by(TestCaseRun.sort_order.asc())
     ).all()
     cancelled_count = 0
     passed_count = 0
@@ -278,8 +448,15 @@ def finalize_cancelled_test_run(db: Session, test_run: TestRun) -> TestRun:
             case_run.status = "cancelled"
             case_run.finished_at = case_run.finished_at or now
             if case_run.started_at is not None and case_run.duration_ms is None:
-                case_run.duration_ms = max(1, int((case_run.finished_at - case_run.started_at).total_seconds() * 1000))
-            case_run.failure_reason_code = case_run.failure_reason_code or cancellation_code
+                finished_at = case_run.finished_at
+                assert finished_at is not None
+                case_run.duration_ms = max(
+                    1,
+                    int((finished_at - case_run.started_at).total_seconds() * 1000),
+                )
+            case_run.failure_reason_code = (
+                case_run.failure_reason_code or cancellation_code
+            )
             case_run.failure_summary = case_run.failure_summary or cancellation_summary
         cancelled_count += 1
 
@@ -338,11 +515,17 @@ def finalize_completed_test_run(
         final_status = "passed"
     else:
         final_status = "partial_failed"
-    case_runs = db.scalars(
-        select(TestCaseRun).where(TestCaseRun.test_run_id == test_run.id).order_by(TestCaseRun.sort_order.asc())
-    ).all()
-    failure_code, failure_summary = _resolve_run_failure(case_runs=case_runs, final_status=final_status)
-    update_result = db.execute(
+    case_runs: list[TestCaseRun] = list(
+        db.scalars(
+            select(TestCaseRun)
+            .where(TestCaseRun.test_run_id == test_run.id)
+            .order_by(TestCaseRun.sort_order.asc())
+        ).all()
+    )
+    failure_code, failure_summary = _resolve_run_failure(
+        case_runs=case_runs, final_status=final_status
+    )
+    update_result: Any = db.execute(
         update(TestRun)
         .where(TestRun.id == test_run.id, TestRun.status == "running")
         .values(
@@ -353,13 +536,17 @@ def finalize_completed_test_run(
             status=final_status,
         )
     )
-    if update_result.rowcount == 0:
+    if not update_result.rowcount:
         db.expire_all()
         latest_test_run = db.get(TestRun, test_run.id)
         if latest_test_run is not None and latest_test_run.status == "cancelling":
             return finalize_cancelled_test_run(db, latest_test_run)
         if latest_test_run is None:
-            raise ApiError(code="TEST_RUN_NOT_FOUND", message="Test run not found.", status_code=404)
+            raise ApiError(
+                code="TEST_RUN_NOT_FOUND",
+                message="Test run not found.",
+                status_code=404,
+            )
         return latest_test_run
 
     report = db.scalar(select(RunReport).where(RunReport.test_run_id == test_run.id))
@@ -391,7 +578,9 @@ def finalize_completed_test_run(
     db.commit()
     latest_test_run = db.get(TestRun, test_run.id)
     if latest_test_run is None:
-        raise ApiError(code="TEST_RUN_NOT_FOUND", message="Test run not found.", status_code=404)
+        raise ApiError(
+            code="TEST_RUN_NOT_FOUND", message="Test run not found.", status_code=404
+        )
     return latest_test_run
 
 
@@ -404,7 +593,9 @@ def finalize_errored_test_run(
 ) -> TestRun:
     now = utc_now()
     case_runs = db.scalars(
-        select(TestCaseRun).where(TestCaseRun.test_run_id == test_run.id).order_by(TestCaseRun.sort_order.asc())
+        select(TestCaseRun)
+        .where(TestCaseRun.test_run_id == test_run.id)
+        .order_by(TestCaseRun.sort_order.asc())
     ).all()
     error_count = 0
     passed_count = 0
@@ -465,27 +656,87 @@ def finalize_errored_test_run(
 def list_case_runs(db: Session, *, user: User, test_run: TestRun):
     require_workspace_access(db, user, test_run.workspace_id)
     return db.scalars(
-        select(TestCaseRun).where(TestCaseRun.test_run_id == test_run.id).order_by(TestCaseRun.sort_order.asc())
+        select(TestCaseRun)
+        .where(TestCaseRun.test_run_id == test_run.id)
+        .order_by(TestCaseRun.sort_order.asc())
     ).all()
 
 
 def get_case_run(db: Session, case_run_id: int) -> TestCaseRun:
     case_run = db.get(TestCaseRun, case_run_id)
     if case_run is None:
-        raise ApiError(code="CASE_RUN_NOT_FOUND", message="Case run not found.", status_code=404)
+        raise ApiError(
+            code="CASE_RUN_NOT_FOUND", message="Case run not found.", status_code=404
+        )
     return case_run
 
 
 def list_step_results(db: Session, case_run_id: int):
-    return db.scalars(
-        select(StepResult).where(StepResult.case_run_id == case_run_id).order_by(StepResult.step_no.asc())
+    case_run = get_case_run(db, case_run_id)
+    test_case = db.get(TestCase, case_run.test_case_id)
+    steps = db.scalars(
+        select(StepResult)
+        .where(StepResult.case_run_id == case_run_id)
+        .order_by(StepResult.step_no.asc())
     ).all()
+
+    enriched_items = []
+    for step in steps:
+        repair_resource_type = "test_case"
+        repair_resource_id = case_run.test_case_id
+        repair_route_path = "/cases"
+
+        source_case_step = None
+        if test_case is not None:
+            source_case_step = db.scalar(
+                select(TestCaseStep).where(
+                    TestCaseStep.test_case_id == test_case.id,
+                    TestCaseStep.step_no == step.step_no,
+                )
+            )
+
+        if source_case_step is not None and source_case_step.template_id is not None:
+            repair_resource_type = "template"
+            repair_resource_id = source_case_step.template_id
+            repair_route_path = "/templates"
+        elif source_case_step is not None and source_case_step.component_id is not None:
+            repair_resource_type = "component"
+            repair_resource_id = source_case_step.component_id
+            repair_route_path = "/components"
+
+        enriched_items.append(
+            {
+                "id": step.id,
+                "case_run_id": step.case_run_id,
+                "step_no": step.step_no,
+                "step_type": step.step_type,
+                "status": step.status,
+                "score_value": float(step.score_value)
+                if step.score_value is not None
+                else None,
+                "expected_media_object_id": step.expected_media_object_id,
+                "actual_media_object_id": step.actual_media_object_id,
+                "diff_media_object_id": step.diff_media_object_id,
+                "error_message": step.error_message,
+                "started_at": step.started_at,
+                "finished_at": step.finished_at,
+                "duration_ms": step.duration_ms,
+                "repair_resource_type": repair_resource_type,
+                "repair_resource_id": repair_resource_id,
+                "repair_route_path": repair_route_path,
+                "repair_step_no": step.step_no,
+                "created_at": step.created_at,
+            }
+        )
+    return enriched_items
 
 
 def get_report(db: Session, report_id: int) -> RunReport:
     report = db.get(RunReport, report_id)
     if report is None:
-        raise ApiError(code="REPORT_NOT_FOUND", message="Report not found.", status_code=404)
+        raise ApiError(
+            code="REPORT_NOT_FOUND", message="Report not found.", status_code=404
+        )
     return report
 
 
@@ -495,7 +746,9 @@ def get_report_by_test_run(db: Session, test_run_id: int) -> RunReport | None:
 
 def list_report_artifacts(db: Session, report_id: int):
     return db.scalars(
-        select(ReportArtifact).where(ReportArtifact.report_id == report_id).order_by(ReportArtifact.id.asc())
+        select(ReportArtifact)
+        .where(ReportArtifact.report_id == report_id)
+        .order_by(ReportArtifact.id.asc())
     ).all()
 
 
@@ -539,7 +792,9 @@ def refresh_report_artifact_summary(db: Session, report: RunReport) -> None:
     db.refresh(report)
 
 
-def _resolve_run_failure(*, case_runs: list[TestCaseRun], final_status: str) -> tuple[str | None, str | None]:
+def _resolve_run_failure(
+    *, case_runs: list[TestCaseRun], final_status: str
+) -> tuple[str | None, str | None]:
     if final_status == "passed":
         return None, None
     if final_status == "cancelled":
@@ -553,7 +808,10 @@ def _resolve_run_failure(*, case_runs: list[TestCaseRun], final_status: str) -> 
             failure_summary=case_run.failure_summary,
         )
     if final_status == "partial_failed":
-        return "TEST_RUN_PARTIAL_FAILED", "Test run completed with failed or errored cases."
+        return (
+            "TEST_RUN_PARTIAL_FAILED",
+            "Test run completed with failed or errored cases.",
+        )
     if final_status == "failed":
         return "TEST_RUN_FAILED", "Test run completed with failed cases."
     if final_status == "error":
@@ -586,10 +844,18 @@ def _media_content_url(media_object_id: int) -> str:
     return f"{settings.api_v1_prefix}/media-objects/{media_object_id}/content"
 
 
-def _validate_case_execution_readiness(db: Session, *, workspace_id: int, test_case_id: int) -> None:
+def _validate_case_execution_readiness(
+    db: Session, *, workspace_id: int, test_case_id: int
+) -> None:
     test_case = db.get(TestCase, test_case_id)
-    if test_case is None or test_case.workspace_id != workspace_id or test_case.is_deleted:
-        raise ApiError(code="TEST_CASE_NOT_FOUND", message="Test case not found.", status_code=404)
+    if (
+        test_case is None
+        or test_case.workspace_id != workspace_id
+        or test_case.is_deleted
+    ):
+        raise ApiError(
+            code="TEST_CASE_NOT_FOUND", message="Test case not found.", status_code=404
+        )
     if test_case.status != "published":
         raise ApiError(
             code="PUBLISHED_VERSION_REQUIRED",
@@ -598,13 +864,17 @@ def _validate_case_execution_readiness(db: Session, *, workspace_id: int, test_c
         )
 
     case_steps = db.scalars(
-        select(TestCaseStep).where(TestCaseStep.test_case_id == test_case_id).order_by(TestCaseStep.step_no.asc())
+        select(TestCaseStep)
+        .where(TestCaseStep.test_case_id == test_case_id)
+        .order_by(TestCaseStep.step_no.asc())
     ).all()
     for case_step in case_steps:
         _validate_visual_step_readiness(db, workspace_id=workspace_id, step=case_step)
         if case_step.component_id is None:
             continue
-        component = _get_component_in_workspace(db, workspace_id=workspace_id, component_id=case_step.component_id)
+        component = _get_component_in_workspace(
+            db, workspace_id=workspace_id, component_id=case_step.component_id
+        )
         if component.status != "published":
             raise ApiError(
                 code="PUBLISHED_VERSION_REQUIRED",
@@ -612,18 +882,32 @@ def _validate_case_execution_readiness(db: Session, *, workspace_id: int, test_c
                 status_code=422,
             )
         component_steps = db.scalars(
-            select(ComponentStep).where(ComponentStep.component_id == component.id).order_by(ComponentStep.step_no.asc())
+            select(ComponentStep)
+            .where(ComponentStep.component_id == component.id)
+            .order_by(ComponentStep.step_no.asc())
         ).all()
         for component_step in component_steps:
-            _validate_visual_step_readiness(db, workspace_id=workspace_id, step=component_step)
+            _validate_visual_step_readiness(
+                db, workspace_id=workspace_id, step=component_step
+            )
 
 
-def _get_component_in_workspace(db: Session, *, workspace_id: int, component_id: int | None) -> Component:
+def _get_component_in_workspace(
+    db: Session, *, workspace_id: int, component_id: int | None
+) -> Component:
     if component_id is None:
-        raise ApiError(code="COMPONENT_NOT_FOUND", message="Component not found.", status_code=404)
+        raise ApiError(
+            code="COMPONENT_NOT_FOUND", message="Component not found.", status_code=404
+        )
     component = db.get(Component, component_id)
-    if component is None or component.workspace_id != workspace_id or component.is_deleted:
-        raise ApiError(code="COMPONENT_NOT_FOUND", message="Component not found.", status_code=404)
+    if (
+        component is None
+        or component.workspace_id != workspace_id
+        or component.is_deleted
+    ):
+        raise ApiError(
+            code="COMPONENT_NOT_FOUND", message="Component not found.", status_code=404
+        )
     return component
 
 
@@ -642,7 +926,12 @@ def _validate_visual_step_readiness(db: Session, *, workspace_id: int, step) -> 
         payload = step.payload_json or {}
         selector = payload.get("selector")
         expected_text = payload.get("expected_text")
-        if not isinstance(selector, str) or not selector.strip() or not isinstance(expected_text, str) or not expected_text.strip():
+        if (
+            not isinstance(selector, str)
+            or not selector.strip()
+            or not isinstance(expected_text, str)
+            or not expected_text.strip()
+        ):
             raise ApiError(
                 code="STEP_CONFIGURATION_INVALID",
                 message="ocr_assert step requires selector and expected_text.",
@@ -654,7 +943,9 @@ def _validate_visual_step_readiness(db: Session, *, workspace_id: int, step) -> 
 
     template = db.get(Template, step.template_id)
     if template is None or template.workspace_id != workspace_id or template.is_deleted:
-        raise ApiError(code="TEMPLATE_NOT_FOUND", message="Template not found.", status_code=404)
+        raise ApiError(
+            code="TEMPLATE_NOT_FOUND", message="Template not found.", status_code=404
+        )
     if template.status != EXECUTABLE_TEMPLATE_STATUS:
         raise ApiError(
             code="PUBLISHED_VERSION_REQUIRED",
@@ -684,3 +975,281 @@ def _validate_visual_step_readiness(db: Session, *, workspace_id: int, step) -> 
             message=f"{step.step_type} step requires template match_strategy `{expected_strategy}`.",
             status_code=422,
         )
+
+
+def _inspect_test_suite_execution_issues(
+    db: Session, *, suite: TestSuite
+) -> list[dict[str, Any]]:
+    issues: list[dict[str, Any]] = []
+    if suite.status != "active":
+        issues.append(
+            _build_readiness_issue(
+                code="TEST_SUITE_NOT_ACTIVE",
+                message="当前套件状态不是 active，不能直接触发执行。",
+                resource_type="test_suite",
+                resource_id=suite.id,
+                resource_name=suite.suite_name,
+                route_path="/suites",
+            )
+        )
+
+    suite_cases = db.scalars(
+        select(SuiteCase)
+        .where(SuiteCase.test_suite_id == suite.id)
+        .order_by(SuiteCase.sort_order.asc())
+    ).all()
+    if not suite_cases:
+        issues.append(
+            _build_readiness_issue(
+                code="TEST_SUITE_EMPTY",
+                message="当前套件为空，至少需要一个可执行用例。",
+                resource_type="test_suite",
+                resource_id=suite.id,
+                resource_name=suite.suite_name,
+                route_path="/suites",
+            )
+        )
+        return issues
+
+    for suite_case in suite_cases:
+        test_case = db.get(TestCase, suite_case.test_case_id)
+        if (
+            test_case is None
+            or test_case.workspace_id != suite.workspace_id
+            or test_case.is_deleted
+        ):
+            issues.append(
+                _build_readiness_issue(
+                    code="TEST_CASE_NOT_FOUND",
+                    message=f"套件引用了不存在的测试用例 #{suite_case.test_case_id}。",
+                    resource_type="test_case",
+                    resource_id=suite_case.test_case_id,
+                    route_path="/cases",
+                )
+            )
+            continue
+        if test_case.status != "published":
+            issues.append(
+                _build_readiness_issue(
+                    code="PUBLISHED_VERSION_REQUIRED",
+                    message=f"测试用例 {test_case.case_name} 尚未发布，无法执行。",
+                    resource_type="test_case",
+                    resource_id=test_case.id,
+                    resource_name=test_case.case_name,
+                    route_path="/cases",
+                )
+            )
+        issues.extend(
+            _inspect_test_case_execution_issues(
+                db,
+                workspace_id=suite.workspace_id,
+                test_case=test_case,
+            )
+        )
+    return issues
+
+
+def _inspect_test_case_execution_issues(
+    db: Session,
+    *,
+    workspace_id: int,
+    test_case: TestCase,
+) -> list[dict[str, Any]]:
+    issues: list[dict[str, Any]] = []
+    case_steps = db.scalars(
+        select(TestCaseStep)
+        .where(TestCaseStep.test_case_id == test_case.id)
+        .order_by(TestCaseStep.step_no.asc())
+    ).all()
+    for case_step in case_steps:
+        issues.extend(
+            _inspect_execution_step_issues(
+                db,
+                workspace_id=workspace_id,
+                step=case_step,
+                route_path="/cases",
+            )
+        )
+        if case_step.component_id is None:
+            continue
+        component = _get_component_in_workspace(
+            db,
+            workspace_id=workspace_id,
+            component_id=case_step.component_id,
+        )
+        if component.status != "published":
+            issues.append(
+                _build_readiness_issue(
+                    code="PUBLISHED_VERSION_REQUIRED",
+                    message=f"组件 {component.component_name} 尚未发布，无法执行。",
+                    resource_type="component",
+                    resource_id=component.id,
+                    resource_name=component.component_name,
+                    route_path="/components",
+                )
+            )
+        component_steps = db.scalars(
+            select(ComponentStep)
+            .where(ComponentStep.component_id == component.id)
+            .order_by(ComponentStep.step_no.asc())
+        ).all()
+        for component_step in component_steps:
+            issues.extend(
+                _inspect_execution_step_issues(
+                    db,
+                    workspace_id=workspace_id,
+                    step=component_step,
+                    route_path="/components",
+                )
+            )
+    return issues
+
+
+def _inspect_execution_step_issues(
+    db: Session,
+    *,
+    workspace_id: int,
+    step,
+    route_path: str,
+) -> list[dict[str, Any]]:
+    issues: list[dict[str, Any]] = []
+    if step.step_type == "template_assert" and step.template_id is None:
+        issues.append(
+            _build_readiness_issue(
+                code="STEP_CONFIGURATION_INVALID",
+                message=f"步骤 {step.step_name} 缺少 template_id 配置。",
+                resource_type="step",
+                route_path=route_path,
+            )
+        )
+        return issues
+
+    if step.step_type == "ocr_assert":
+        payload = step.payload_json or {}
+        selector = payload.get("selector")
+        expected_text = payload.get("expected_text")
+        if (
+            not isinstance(selector, str)
+            or not selector.strip()
+            or not isinstance(expected_text, str)
+            or not expected_text.strip()
+        ):
+            issues.append(
+                _build_readiness_issue(
+                    code="STEP_CONFIGURATION_INVALID",
+                    message=f"步骤 {step.step_name} 缺少 OCR 断言所需的 selector 或 expected_text。",
+                    resource_type="step",
+                    route_path=route_path,
+                )
+            )
+    if step.template_id is None:
+        return issues
+
+    template = db.get(Template, step.template_id)
+    if template is None or template.workspace_id != workspace_id or template.is_deleted:
+        issues.append(
+            _build_readiness_issue(
+                code="TEMPLATE_NOT_FOUND",
+                message=f"步骤 {step.step_name} 引用了不存在的模板 #{step.template_id}。",
+                resource_type="template",
+                resource_id=step.template_id,
+                route_path="/templates",
+            )
+        )
+        return issues
+    if template.status != EXECUTABLE_TEMPLATE_STATUS:
+        issues.append(
+            _build_readiness_issue(
+                code="PUBLISHED_VERSION_REQUIRED",
+                message=f"模板 {template.template_name} 尚未发布，无法执行。",
+                resource_type="template",
+                resource_id=template.id,
+                resource_name=template.template_name,
+                route_path="/templates",
+            )
+        )
+    if template.current_baseline_revision_id is None:
+        issues.append(
+            _build_readiness_issue(
+                code="BASELINE_REVISION_REQUIRED",
+                message=f"模板 {template.template_name} 缺少当前基准版本。",
+                resource_type="template",
+                resource_id=template.id,
+                resource_name=template.template_name,
+                route_path="/templates",
+            )
+        )
+    else:
+        baseline = db.get(BaselineRevision, template.current_baseline_revision_id)
+        if baseline is None or baseline.template_id != template.id:
+            issues.append(
+                _build_readiness_issue(
+                    code="BASELINE_REVISION_REQUIRED",
+                    message=f"模板 {template.template_name} 的当前基准版本无效。",
+                    resource_type="template",
+                    resource_id=template.id,
+                    resource_name=template.template_name,
+                    route_path="/templates",
+                )
+            )
+    expected_strategy = "template" if step.step_type == "template_assert" else "ocr"
+    if (
+        step.step_type in {"template_assert", "ocr_assert"}
+        and template.match_strategy != expected_strategy
+    ):
+        issues.append(
+            _build_readiness_issue(
+                code="STEP_CONFIGURATION_INVALID",
+                message=f"模板 {template.template_name} 与步骤 {step.step_name} 的断言策略不兼容。",
+                resource_type="template",
+                resource_id=template.id,
+                resource_name=template.template_name,
+                route_path="/templates",
+            )
+        )
+    return issues
+
+
+def _count_active_environment_profiles(db: Session, *, workspace_id: int) -> int:
+    stmt = select(EnvironmentProfile).where(
+        EnvironmentProfile.workspace_id == workspace_id,
+        EnvironmentProfile.is_deleted.is_(False),
+        EnvironmentProfile.status == "active",
+    )
+    return count_total(db, stmt)
+
+
+def _build_readiness_issue(
+    *,
+    code: str,
+    message: str,
+    resource_type: str,
+    resource_id: int | None = None,
+    resource_name: str | None = None,
+    route_path: str | None = None,
+) -> dict[str, Any]:
+    return {
+        "code": code,
+        "message": message,
+        "resource_type": resource_type,
+        "resource_id": resource_id,
+        "resource_name": resource_name,
+        "route_path": route_path,
+    }
+
+
+def _dedupe_readiness_issues(issues: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    seen: set[tuple[Any, ...]] = set()
+    normalized: list[dict[str, Any]] = []
+    for issue in issues:
+        identity = (
+            issue["code"],
+            issue["resource_type"],
+            issue.get("resource_id"),
+            issue.get("route_path"),
+        )
+        if identity in seen:
+            continue
+        seen.add(identity)
+        normalized.append(issue)
+    return normalized

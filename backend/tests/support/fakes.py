@@ -13,13 +13,33 @@ from tests.support.constants import (
     TINY_PNG_BYTES,
 )
 
+
 def _install_fake_browser_adapter(monkeypatch) -> None:
-    from app.workers.browser import BrowserArtifact, BrowserStepResult, CaseExecutionResult
+    from app.workers.browser import (
+        BrowserArtifact,
+        BrowserStepResult,
+        CaseExecutionResult,
+    )
 
     class FakeBrowserAdapter:
-        supported_step_types = {"wait", "click", "input", "navigate", "scroll", "long_press"}
+        supported_step_types = {
+            "wait",
+            "click",
+            "input",
+            "navigate",
+            "scroll",
+            "long_press",
+        }
 
-        def execute_case(self, *, base_url: str, case_run_id: int, device_profile, steps, template_contexts):
+        def execute_case(
+            self,
+            *,
+            base_url: str,
+            case_run_id: int,
+            device_profile,
+            steps,
+            template_contexts,
+        ):
             _ = (base_url, case_run_id, device_profile, template_contexts)
             step_results: list[BrowserStepResult] = []
             for step in steps:
@@ -71,13 +91,18 @@ def _install_fake_browser_adapter(monkeypatch) -> None:
                 ),
             )
 
-    monkeypatch.setattr("app.workers.execution.build_browser_execution_adapter", lambda: FakeBrowserAdapter())
+    monkeypatch.setattr(
+        "app.workers.execution.build_browser_execution_adapter",
+        lambda: FakeBrowserAdapter(),
+    )
+
 
 def _write_browser_steps_fixture() -> Path:
     fixture_dir = Path(tempfile.mkdtemp(prefix="browser_steps_"))
     fixture_path = fixture_dir / "fixture.html"
     fixture_path.write_text(BROWSER_STEPS_HTML, encoding="utf-8")
     return fixture_path
+
 
 def _make_browser_step(
     *,
@@ -95,12 +120,27 @@ def _make_browser_step(
         template_id=template_id,
     )
 
-def _install_visual_browser_adapter(monkeypatch, *, template_status: str = "passed", ocr_status: str = "passed") -> None:
-    from app.workers.browser import BrowserArtifact, BrowserStepResult, CaseExecutionResult
+
+def _install_visual_browser_adapter(
+    monkeypatch, *, template_status: str = "passed", ocr_status: str = "passed"
+) -> None:
+    from app.workers.browser import (
+        BrowserArtifact,
+        BrowserStepResult,
+        CaseExecutionResult,
+    )
     from app.workers.vision import VisionArtifact
 
     class FakeVisualBrowserAdapter:
-        def execute_case(self, *, base_url: str, case_run_id: int, device_profile, steps, template_contexts):
+        def execute_case(
+            self,
+            *,
+            base_url: str,
+            case_run_id: int,
+            device_profile,
+            steps,
+            template_contexts,
+        ):
             _ = (base_url, case_run_id, device_profile)
             step_results: list[BrowserStepResult] = []
             failure_reason_code: str | None = None
@@ -195,16 +235,88 @@ def _install_visual_browser_adapter(monkeypatch, *, template_status: str = "pass
                 ),
             )
 
-    monkeypatch.setattr("app.workers.execution.build_browser_execution_adapter", lambda: FakeVisualBrowserAdapter())
+    monkeypatch.setattr(
+        "app.workers.execution.build_browser_execution_adapter",
+        lambda: FakeVisualBrowserAdapter(),
+    )
+
 
 def _install_noop_dispatcher(monkeypatch) -> None:
     class NoopDispatcher:
         def dispatch_test_run(self, test_run_id: int) -> None:
             _ = test_run_id
 
-    monkeypatch.setattr("app.api.v1.executions.get_test_run_dispatcher", lambda _background_tasks: NoopDispatcher())
+    monkeypatch.setattr(
+        "app.api.v1.executions.get_test_run_dispatcher",
+        lambda _background_tasks: NoopDispatcher(),
+    )
 
-def _install_template_workbench_adapter(monkeypatch, *, analyses: list[dict] | None = None, ocr_error: str | None = None) -> None:
+
+def _install_counting_browser_adapter(
+    monkeypatch, *, call_counter: dict[str, int]
+) -> None:
+    from app.workers.browser import (
+        BrowserArtifact,
+        BrowserStepResult,
+        CaseExecutionResult,
+    )
+
+    class CountingBrowserAdapter:
+        supported_step_types = {
+            "wait",
+            "click",
+            "input",
+            "navigate",
+            "scroll",
+            "long_press",
+        }
+
+        def execute_case(
+            self,
+            *,
+            base_url: str,
+            case_run_id: int,
+            device_profile,
+            steps,
+            template_contexts,
+        ):
+            _ = (base_url, case_run_id, device_profile, template_contexts)
+            call_counter["execute_case"] = call_counter.get("execute_case", 0) + 1
+            step_results: list[BrowserStepResult] = []
+            for step in steps:
+                started_at = datetime.now(timezone.utc)
+                finished_at = datetime.now(timezone.utc)
+                step_results.append(
+                    BrowserStepResult(
+                        step_no=step.step_no,
+                        step_type=step.step_type,
+                        status="passed",
+                        started_at=started_at,
+                        finished_at=finished_at,
+                        duration_ms=1,
+                        score_value=1.0,
+                    )
+                )
+
+            return CaseExecutionResult(
+                status="passed",
+                step_results=step_results,
+                artifact=BrowserArtifact(
+                    file_name=f"case-run-{case_run_id}.png",
+                    content_type="image/png",
+                    content_bytes=TINY_PNG_BYTES,
+                ),
+            )
+
+    monkeypatch.setattr(
+        "app.workers.execution.build_browser_execution_adapter",
+        lambda: CountingBrowserAdapter(),
+    )
+
+
+def _install_template_workbench_adapter(
+    monkeypatch, *, analyses: list[dict] | None = None, ocr_error: str | None = None
+) -> None:
     queue = list(analyses or [])
 
     class FakeVisionAdapter:
@@ -229,9 +341,19 @@ def _install_template_workbench_adapter(monkeypatch, *, analyses: list[dict] | N
                         "order_no": 1,
                         "text": "VisionAutoTest",
                         "confidence": 0.98,
-                        "polygon_points": [{"x": 20, "y": 10}, {"x": 90, "y": 10}, {"x": 90, "y": 32}, {"x": 20, "y": 32}],
+                        "polygon_points": [
+                            {"x": 20, "y": 10},
+                            {"x": 90, "y": 10},
+                            {"x": 90, "y": 32},
+                            {"x": 20, "y": 32},
+                        ],
                         "pixel_rect": {"x": 20, "y": 10, "width": 70, "height": 22},
-                        "ratio_rect": {"x_ratio": 0.1, "y_ratio": 0.1, "width_ratio": 0.35, "height_ratio": 0.22},
+                        "ratio_rect": {
+                            "x_ratio": 0.1,
+                            "y_ratio": 0.1,
+                            "width_ratio": 0.35,
+                            "height_ratio": 0.22,
+                        },
                     }
                 ],
             }
@@ -245,4 +367,7 @@ def _install_template_workbench_adapter(monkeypatch, *, analyses: list[dict] | N
                 "processed_png_bytes": TINY_PNG_BYTES + b"-processed",
             }
 
-    monkeypatch.setattr("app.services.assets.build_vision_assertion_adapter", lambda: FakeVisionAdapter())
+    monkeypatch.setattr(
+        "app.services.assets.build_vision_assertion_adapter",
+        lambda: FakeVisionAdapter(),
+    )

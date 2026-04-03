@@ -67,6 +67,8 @@ vim .env
 - `VAT_DEMO_TARGET_BASE_URL`：默认演示环境指向的内置被测页地址
 - `VAT_PLAYWRIGHT_HEADLESS`：是否启用无头浏览器
 - `VAT_PLAYWRIGHT_NAVIGATION_TIMEOUT_MS`：浏览器页面导航超时
+- `VAT_EXECUTION_DISPATCH_BACKEND`：执行调度后端，默认 `background_tasks`，可切到 `deferred`
+- `VAT_EXECUTION_WORKER_BATCH_SIZE`：`deferred` 模式下单次 worker 扫描的 queued 批次数
 - `VAT_DATABASE_AUTO_CREATE` / `VAT_DATABASE_AUTO_MIGRATE`：仅建议本地开发启用
 
 安全说明：
@@ -96,6 +98,8 @@ vim .env
 - 当前后端已扩展 `template_assert`、`ocr_assert` 执行链路；前端步骤编辑与联调仍可按后续节奏接入
 - 用例执行完成后会产出真实截图，并写入 `media-objects` 与 `report-artifacts`
 - 本地运行视觉断言前请确认已安装 OpenCV / PaddleOCR 相关依赖
+- 默认执行调度后端为 `BackgroundTasks`；若需要把执行与 API 进程解耦，可设置 `VAT_EXECUTION_DISPATCH_BACKEND=deferred`
+- `deferred` 模式下，`POST /api/v1/test-runs` 只创建 queued 资源，不会在请求进程内启动执行；需要单独运行 `vat-worker-run-queued`
 
 视觉断言本地依赖补充说明：
 

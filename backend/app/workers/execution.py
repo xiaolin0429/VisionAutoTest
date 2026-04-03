@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import logging
+from datetime import datetime
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from app.core.config import get_settings
 from app.core.storage import get_storage_backend
@@ -39,6 +41,7 @@ from app.workers.vision import MaskRegionRatio, TemplateAssertionContext
 
 settings = get_settings()
 storage_backend = get_storage_backend()
+logger = logging.getLogger(__name__)
 
 
 @dataclass(slots=True)
@@ -53,29 +56,56 @@ def process_test_run(test_run_id: int) -> None:
     with SessionLocal() as db:
         test_run = db.get(TestRun, test_run_id)
         if test_run is None:
+            logger.warning(
+                "Skipping missing test run during dispatch",
+                extra={"test_run_id": test_run_id},
+            )
             return
         if test_run.status == "cancelling":
             latest = finalize_cancelled_test_run(db, test_run)
             _persist_report_artifacts(db, latest.id, [])
             return
         if test_run.status != "queued":
+            logger.info(
+                "Skipping test run dispatch because status is not queued",
+                extra={"test_run_id": test_run_id, "status": test_run.status},
+            )
             return
 
-        started_at = utc_now()
-        test_run.status = "running"
-        test_run.started_at = started_at
-        db.commit()
+        test_run = _claim_test_run(db, test_run_id)
+        if test_run is None:
+            logger.info(
+                "Test run was claimed by another worker",
+                extra={"test_run_id": test_run_id},
+            )
+            return
 
-        environment_profile = db.get(EnvironmentProfile, test_run.environment_profile_id)
-        device_profile = db.get(DeviceProfile, test_run.device_profile_id) if test_run.device_profile_id is not None else None
-        triggered_user = db.get(User, test_run.triggered_by) if test_run.triggered_by is not None else None
+        environment_profile = db.get(
+            EnvironmentProfile, test_run.environment_profile_id
+        )
+        device_profile = (
+            db.get(DeviceProfile, test_run.device_profile_id)
+            if test_run.device_profile_id is not None
+            else None
+        )
+        triggered_user = (
+            db.get(User, test_run.triggered_by)
+            if test_run.triggered_by is not None
+            else None
+        )
         captured_artifacts: list[CapturedArtifactRecord] = []
 
         try:
             browser_adapter = build_browser_execution_adapter()
+            logger.info(
+                "Started test run execution",
+                extra={"test_run_id": test_run_id, "status": test_run.status},
+            )
 
             case_runs = db.scalars(
-                select(TestCaseRun).where(TestCaseRun.test_run_id == test_run_id).order_by(TestCaseRun.sort_order.asc())
+                select(TestCaseRun)
+                .where(TestCaseRun.test_run_id == test_run_id)
+                .order_by(TestCaseRun.sort_order.asc())
             ).all()
 
             passed_count = 0
@@ -99,7 +129,9 @@ def process_test_run(test_run_id: int) -> None:
                     workspace_id=test_run.workspace_id,
                     test_case_id=case_run.test_case_id,
                 )
-                template_contexts = _build_template_contexts(db, workspace_id=test_run.workspace_id, steps=steps)
+                template_contexts = _build_template_contexts(
+                    db, workspace_id=test_run.workspace_id, steps=steps
+                )
 
                 for _ in steps:
                     db.refresh(test_run)
@@ -109,7 +141,9 @@ def process_test_run(test_run_id: int) -> None:
                         return
 
                 execution_result = browser_adapter.execute_case(
-                    base_url=environment_profile.base_url if environment_profile is not None else "about:blank",
+                    base_url=environment_profile.base_url
+                    if environment_profile is not None
+                    else "about:blank",
                     case_run_id=case_run.id,
                     device_profile=device_profile,
                     steps=steps,
@@ -147,7 +181,9 @@ def process_test_run(test_run_id: int) -> None:
                         captured_artifacts.append(
                             CapturedArtifactRecord(
                                 media=actual_media,
-                                artifact_type="step_ocr" if step_result.step_type == "ocr_assert" else "step_actual",
+                                artifact_type="step_ocr"
+                                if step_result.step_type == "ocr_assert"
+                                else "step_actual",
                                 case_run_id=case_run.id,
                                 step_result_id=persisted.id,
                             )
@@ -192,12 +228,20 @@ def process_test_run(test_run_id: int) -> None:
                             case_run_id=case_run.id,
                         )
                     )
-                    if persisted_step_results and persisted_step_results[-1].actual_media_object_id is None:
+                    if (
+                        persisted_step_results
+                        and persisted_step_results[-1].actual_media_object_id is None
+                    ):
                         persisted_step_results[-1].actual_media_object_id = media.id
 
                 case_run.status = execution_result.status
-                case_run.finished_at = utc_now()
-                case_run.duration_ms = max(1, int((case_run.finished_at - case_started_at).total_seconds() * 1000))
+                case_finished_at: datetime = utc_now()
+                case_run.finished_at = case_finished_at
+                elapsed_seconds = (case_finished_at - case_started_at).total_seconds()
+                case_run.duration_ms = max(
+                    1,
+                    int(elapsed_seconds * 1000),
+                )
                 if execution_result.status in {"failed", "error"}:
                     failure_code, failure_summary = _normalize_failure_payload(
                         status=execution_result.status,
@@ -251,6 +295,10 @@ def process_test_run(test_run_id: int) -> None:
                 error_count=error_count,
             )
             _persist_report_artifacts(db, latest_test_run.id, captured_artifacts)
+            logger.info(
+                "Completed test run execution",
+                extra={"test_run_id": test_run_id, "status": latest_test_run.status},
+            )
         except Exception as exc:  # noqa: BLE001
             db.rollback()
             latest = finalize_errored_test_run(
@@ -260,9 +308,29 @@ def process_test_run(test_run_id: int) -> None:
                 error_message=f"{type(exc).__name__}: {str(exc).strip() or 'unexpected execution error'}",
             )
             _persist_report_artifacts(db, latest.id, captured_artifacts)
+            logger.exception(
+                "Test run execution failed",
+                extra={"test_run_id": test_run_id, "status": latest.status},
+            )
 
 
-def _persist_report_artifacts(db, test_run_id: int, captured_artifacts: list[CapturedArtifactRecord]) -> None:
+def _claim_test_run(db, test_run_id: int) -> TestRun | None:
+    started_at = utc_now()
+    claimed = db.execute(
+        update(TestRun)
+        .where(TestRun.id == test_run_id, TestRun.status == "queued")
+        .values(status="running", started_at=started_at)
+    )
+    if claimed.rowcount == 0:
+        db.rollback()
+        return None
+    db.commit()
+    return db.get(TestRun, test_run_id)
+
+
+def _persist_report_artifacts(
+    db, test_run_id: int, captured_artifacts: list[CapturedArtifactRecord]
+) -> None:
     if not captured_artifacts:
         return
     report = get_report_by_test_run(db, test_run_id)
@@ -275,7 +343,9 @@ def _persist_report_artifacts(db, test_run_id: int, captured_artifacts: list[Cap
             artifact.case_run_id,
             artifact.step_result_id,
         )
-        for artifact in db.scalars(select(ReportArtifact).where(ReportArtifact.report_id == report.id)).all()
+        for artifact in db.scalars(
+            select(ReportArtifact).where(ReportArtifact.report_id == report.id)
+        ).all()
     }
     for captured_artifact in captured_artifacts:
         artifact_identity = (
@@ -298,16 +368,23 @@ def _persist_report_artifacts(db, test_run_id: int, captured_artifacts: list[Cap
     refresh_report_artifact_summary(db, report)
 
 
-def _build_template_contexts(db, *, workspace_id: int, steps) -> dict[int, TemplateAssertionContext]:
+def _build_template_contexts(
+    db, *, workspace_id: int, steps
+) -> dict[int, TemplateAssertionContext]:
     template_ids = {
         step.template_id
         for step in steps
-        if step.template_id is not None and step.step_type in {"template_assert", "ocr_assert"}
+        if step.template_id is not None
+        and step.step_type in {"template_assert", "ocr_assert"}
     }
     contexts: dict[int, TemplateAssertionContext] = {}
     for template_id in template_ids:
         template = db.get(Template, template_id)
-        if template is None or template.workspace_id != workspace_id or template.is_deleted:
+        if (
+            template is None
+            or template.workspace_id != workspace_id
+            or template.is_deleted
+        ):
             continue
         if template.current_baseline_revision_id is None:
             continue

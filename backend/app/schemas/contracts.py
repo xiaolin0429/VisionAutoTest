@@ -64,6 +64,26 @@ class WorkspaceRead(ORMModel):
     updated_at: datetime
 
 
+class ExecutionReadinessIssueRead(BaseModel):
+    code: str
+    message: str
+    resource_type: str
+    resource_id: int | None = None
+    resource_name: str | None = None
+    route_path: str | None = None
+
+
+class ExecutionReadinessSummaryRead(BaseModel):
+    scope: Literal["workspace", "test_suite"]
+    status: Literal["ready", "blocked"]
+    workspace_id: int
+    test_suite_id: int | None = None
+    active_environment_count: int = 0
+    active_test_suite_count: int = 0
+    blocking_issue_count: int = 0
+    issues: list[ExecutionReadinessIssueRead] = Field(default_factory=list)
+
+
 class WorkspaceCreate(BaseModel):
     workspace_code: str
     workspace_name: str
@@ -518,6 +538,10 @@ class StepResultRead(ORMModel):
     started_at: datetime | None = None
     finished_at: datetime | None = None
     duration_ms: int | None = None
+    repair_resource_type: Literal["template", "component", "test_case"] | None = None
+    repair_resource_id: int | None = None
+    repair_route_path: str | None = None
+    repair_step_no: int | None = None
     created_at: datetime
 
 

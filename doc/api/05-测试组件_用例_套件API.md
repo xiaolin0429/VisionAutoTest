@@ -112,6 +112,16 @@
 - 方法：`PUT`
 - 路径：`/api/v1/test-suites/{test_suite_id}/cases`
 
+### 3.20 查询套件执行就绪状态
+
+- 方法：`GET`
+- 路径：`/api/v1/test-suites/{test_suite_id}/execution-readiness`
+
+说明：
+
+- 返回指定套件是否满足创建 `test-runs` 的前置条件。
+- 阻塞项需落到具体资源或步骤配置问题，供前端直接提示修复。
+
 ## 4. 业务规则
 
 - 步骤顺序必须连续，`step_no` 从 1 开始。
@@ -133,6 +143,7 @@
 - `template_assert` 仅允许引用当前工作空间下存在已生效基准版本、且 `match_strategy=template` 的模板。
 - `ocr_assert` 默认直接对页面元素截图做 OCR 断言；若显式传入 `template_id`，则该模板必须属于当前工作空间且 `match_strategy=ocr`。
 - 断言不通过记为 `failed`，依赖缺失、载荷非法、OCR/视觉引擎异常记为 `error`。
+- 套件执行就绪检查需要提前暴露以下阻塞项：套件为空、套件未激活、无可用环境、未发布用例、未发布组件、未发布模板、模板缺少当前基准、步骤配置不兼容。
 
 ## 5. 推荐错误码
 

@@ -1,10 +1,12 @@
 import { requestData, requestPage } from '@/api/client'
 import type {
+  ExecutionReadinessSummaryReadDTO,
   SuiteCaseDTO,
   TestCaseReadDTO,
   TestSuiteReadDTO
 } from '@/types/backend'
 import type {
+  ExecutionReadinessSummary,
   SuiteCaseWritePayload,
   TestSuite,
   TestSuiteCreatePayload,
@@ -21,6 +23,28 @@ function mapTestSuiteSummary(item: TestSuiteReadDTO): TestSuite {
     createdAt: item.created_at,
     updatedAt: item.updated_at,
     cases: []
+  }
+}
+
+function mapExecutionReadiness(
+  item: ExecutionReadinessSummaryReadDTO
+): ExecutionReadinessSummary {
+  return {
+    scope: item.scope,
+    status: item.status,
+    workspaceId: item.workspace_id,
+    testSuiteId: item.test_suite_id,
+    activeEnvironmentCount: item.active_environment_count,
+    activeTestSuiteCount: item.active_test_suite_count,
+    blockingIssueCount: item.blocking_issue_count,
+    issues: item.issues.map((issue) => ({
+      code: issue.code,
+      message: issue.message,
+      resourceType: issue.resource_type,
+      resourceId: issue.resource_id,
+      resourceName: issue.resource_name ?? '',
+      routePath: issue.route_path
+    }))
   }
 }
 
@@ -123,4 +147,15 @@ export async function replaceSuiteCases(
       sort_order: item.sortOrder
     }))
   })
+}
+
+export async function getTestSuiteExecutionReadiness(
+  testSuiteId: number
+): Promise<ExecutionReadinessSummary> {
+  const response = await requestData<ExecutionReadinessSummaryReadDTO>({
+    method: 'get',
+    url: `/test-suites/${testSuiteId}/execution-readiness`
+  })
+
+  return mapExecutionReadiness(response)
 }

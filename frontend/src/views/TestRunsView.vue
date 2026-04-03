@@ -5,15 +5,21 @@ import { ElMessage } from 'element-plus'
 import MetricCard from '@/components/MetricCard.vue'
 import SectionCard from '@/components/SectionCard.vue'
 import StatusTag from '@/components/StatusTag.vue'
-import { createTestRun, listTestRuns } from '@/api/modules/testRuns'
+import { createTestRun, getRunDetail, listTestRuns } from '@/api/modules/testRuns'
 import { listDeviceProfiles, listEnvironmentProfiles } from '@/api/modules/environments'
 import { listTestSuites } from '@/api/modules/testSuites'
 import { formatDateTime } from '@/utils/format'
+import {
+  getRunFailureSuggestion,
+  isAttentionRunStatus,
+  resolveRunRepairTarget
+} from '@/utils/runFailures'
 import type { DeviceProfile, EnvironmentProfile, TestRun, TestSuite } from '@/types/models'
 
 const router = useRouter()
 const loading = ref(false)
 const testRuns = ref<TestRun[]>([])
+const repairingRunId = ref<number | null>(null)
 let pollTimer: number | null = null
 
 const ACTIVE_RUN_STATUSES = new Set(['queued', 'running', 'cancelling'])
@@ -205,6 +211,26 @@ onBeforeUnmount(() => {
 function openRunDetail(testRunId: number) {
   void router.push(`/runs/${testRunId}`)
 }
+
+async function openRunRepair(testRunId: number) {
+  repairingRunId.value = testRunId
+  try {
+    const detail = await getRunDetail(testRunId)
+    const repairTarget = resolveRunRepairTarget(detail)
+    if (!repairTarget) {
+      ElMessage.warning('当前批次没有可定位的失败资源，请查看执行详情。')
+      void router.push(`/runs/${testRunId}`)
+      return
+    }
+
+    void router.push({ path: repairTarget.path, query: repairTarget.query })
+  } catch {
+    ElMessage.error('定位失败资源失败，请先进入执行详情查看。')
+    void router.push(`/runs/${testRunId}`)
+  } finally {
+    repairingRunId.value = null
+  }
+}
 </script>
 
 <template>
@@ -232,19 +258,17 @@ function openRunDetail(testRunId: number) {
         </el-button>
       </template>
 
-      <div class="mb-4">
-        <el-radio-group
-          v-model="statusFilter"
-          @change="handleStatusFilterChange"
+      <div class="mb-4 flex flex-wrap gap-2">
+        <el-button
+          v-for="option in statusFilterOptions"
+          :key="option.value || 'all'"
+          :plain="statusFilter !== option.value"
+          :type="statusFilter === option.value ? 'primary' : undefined"
+          size="small"
+          @click="statusFilter = option.value; handleStatusFilterChange()"
         >
-          <el-radio-button
-            v-for="option in statusFilterOptions"
-            :key="option.value"
-            :value="option.value"
-          >
-            {{ option.label }}
-          </el-radio-button>
-        </el-radio-group>
+          {{ option.label }}
+        </el-button>
       </div>
 
       <el-table
@@ -321,6 +345,27 @@ function openRunDetail(testRunId: number) {
         >
           <template #default="{ row }">
             {{ formatDateTime(row.createdAt) }}
+          </template>
+        </el-table-column>
+        <el-table-column
+          label="修复建议"
+          min-width="260"
+        >
+          <template #default="{ row }">
+            <div v-if="isAttentionRunStatus(row.status)" class="space-y-2">
+              <p class="m-0 text-xs leading-5 text-amber-700">
+                {{ getRunFailureSuggestion(row) }}
+              </p>
+              <el-button
+                plain
+                size="small"
+                :loading="repairingRunId === row.id"
+                @click="openRunRepair(row.id)"
+              >
+                去定位失败资源
+              </el-button>
+            </div>
+            <span v-else class="text-xs text-slate-400">--</span>
           </template>
         </el-table-column>
         <el-table-column

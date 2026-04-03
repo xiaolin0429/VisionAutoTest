@@ -60,6 +60,26 @@ export interface WorkspaceReadDTO {
   updated_at: string
 }
 
+export interface ExecutionReadinessIssueReadDTO {
+  code: string
+  message: string
+  resource_type: string
+  resource_id: number | null
+  resource_name: string | null
+  route_path: string | null
+}
+
+export interface ExecutionReadinessSummaryReadDTO {
+  scope: 'workspace' | 'test_suite'
+  status: 'ready' | 'blocked'
+  workspace_id: number
+  test_suite_id: number | null
+  active_environment_count: number
+  active_test_suite_count: number
+  blocking_issue_count: number
+  issues: ExecutionReadinessIssueReadDTO[]
+}
+
 export interface WorkspaceMemberReadDTO {
   id: number
   workspace_id: number
@@ -341,6 +361,10 @@ export interface StepResultReadDTO {
   started_at: string | null
   finished_at: string | null
   duration_ms: number | null
+  repair_resource_type: 'template' | 'component' | 'test_case' | null
+  repair_resource_id: number | null
+  repair_route_path: string | null
+  repair_step_no: number | null
   created_at: string
 }
 

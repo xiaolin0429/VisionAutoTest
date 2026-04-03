@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import MetricCard from '@/components/MetricCard.vue'
 import SectionCard from '@/components/SectionCard.vue'
@@ -9,9 +9,16 @@ import { listTemplates } from '@/api/modules/templates'
 import { listTestCases } from '@/api/modules/testCases'
 import { listTestRuns } from '@/api/modules/testRuns'
 import { listTestSuites } from '@/api/modules/testSuites'
+import { getWorkspaceExecutionReadiness } from '@/api/modules/workspaces'
 import { useWorkspaceStore } from '@/stores/workspace'
+import {
+  canResolveReadinessByNavigation,
+  getReadinessActionLabel,
+  getReadinessSuggestion
+} from '@/utils/readiness'
 import { formatDateTime } from '@/utils/format'
 import type {
+  ExecutionReadinessSummary,
   EnvironmentProfile,
   Template,
   TestCase,
@@ -27,6 +34,41 @@ const testCases = ref<TestCase[]>([])
 const testSuites = ref<TestSuite[]>([])
 const testRuns = ref<TestRun[]>([])
 const environmentProfiles = ref<EnvironmentProfile[]>([])
+const executionReadiness = ref<ExecutionReadinessSummary | null>(null)
+
+async function loadDashboardData() {
+  if (!workspaceStore.currentWorkspace) {
+    templates.value = []
+    testCases.value = []
+    testSuites.value = []
+    testRuns.value = []
+    environmentProfiles.value = []
+    executionReadiness.value = null
+    return
+  }
+
+  loading.value = true
+  try {
+    const [templateItems, caseItems, suiteItems, runItems, environmentItems, readiness] =
+      await Promise.all([
+        listTemplates(),
+        listTestCases(),
+        listTestSuites(),
+        listTestRuns(),
+        listEnvironmentProfiles(),
+        getWorkspaceExecutionReadiness(workspaceStore.currentWorkspace.id)
+      ])
+
+    templates.value = templateItems
+    testCases.value = caseItems
+    testSuites.value = suiteItems
+    testRuns.value = runItems
+    environmentProfiles.value = environmentItems
+    executionReadiness.value = readiness
+  } finally {
+    loading.value = false
+  }
+}
 
 const summaryMetrics = computed(() => {
   const recentRun = testRuns.value[0]
@@ -87,31 +129,28 @@ const quickActions = [
 ] as const
 
 const releaseReadiness = computed(() => {
-  const publishedCases = testCases.value.filter((item) => item.status === 'published').length
-  const draftCases = testCases.value.length - publishedCases
-  const publishedTemplates = templates.value.filter((item) => item.status === 'published').length
-  const activeEnvironments = environmentProfiles.value.filter((item) => item.status === 'active').length
+  const readiness = executionReadiness.value
 
   return [
     {
-      label: '激活模板',
-      value: `${publishedTemplates}/${templates.value.length || 0}`,
-      hint: '当前以前端可见状态汇总模板可用性。'
+      label: '执行状态',
+      value: readiness?.status === 'ready' ? '可执行' : '存在阻塞',
+      hint: '统一以后端 readiness 规则判断当前工作空间是否满足执行条件。'
     },
     {
-      label: '已发布用例',
-      value: `${publishedCases}/${testCases.value.length || 0}`,
-      hint: '当前展示仍以 `published` 作为稳定执行近似口径。'
-    },
-    {
-      label: '草稿用例',
-      value: draftCases,
-      hint: '需要继续补齐断言或组件复用。'
+      label: '阻塞项数',
+      value: readiness?.blockingIssueCount ?? '--',
+      hint: '结构化汇总环境、套件、模板、组件、用例与步骤配置问题。'
     },
     {
       label: '可用环境',
-      value: activeEnvironments,
-      hint: '至少保留一个稳定联调环境。'
+      value: readiness?.activeEnvironmentCount ?? '--',
+      hint: '至少保留一个 active 环境供执行链路使用。'
+    },
+    {
+      label: '活跃套件',
+      value: readiness?.activeTestSuiteCount ?? '--',
+      hint: '活跃套件将纳入工作空间执行就绪检查。'
     }
   ]
 })
@@ -161,30 +200,33 @@ const riskAlerts = computed(() => {
   return alerts
 })
 
-onMounted(async () => {
-  loading.value = true
-  try {
-    const [templateItems, caseItems, suiteItems, runItems, environmentItems] =
-      await Promise.all([
-        listTemplates(),
-        listTestCases(),
-        listTestSuites(),
-        listTestRuns(),
-        listEnvironmentProfiles()
-      ])
-
-    templates.value = templateItems
-    testCases.value = caseItems
-    testSuites.value = suiteItems
-    testRuns.value = runItems
-    environmentProfiles.value = environmentItems
-  } finally {
-    loading.value = false
-  }
-})
+watch(
+  () => workspaceStore.currentWorkspaceId,
+  async () => {
+    await loadDashboardData()
+  },
+  { immediate: true }
+)
 
 function navigate(path: string) {
   void router.push(path)
+}
+
+function navigateReadinessIssue(routePath: string | null, resourceType: string, resourceId: number | null) {
+  if (!routePath) {
+    return
+  }
+
+  const query =
+    resourceType === 'template' && resourceId
+      ? { templateId: String(resourceId) }
+      : resourceType === 'test_case' && resourceId
+        ? { testCaseId: String(resourceId) }
+        : resourceType === 'component' && resourceId
+          ? { componentId: String(resourceId) }
+          : {}
+
+  void router.push({ path: routePath, query })
 }
 </script>
 
@@ -347,8 +389,8 @@ function navigate(path: string) {
 
     <div class="grid grid-cols-[minmax(0,1fr)_360px] gap-6">
       <SectionCard
-        description="面向 MVP 上线前的基础 readiness 检查。"
-        title="发布就绪度"
+        description="统一汇总当前工作空间的执行门禁与阻塞项。"
+        title="执行就绪中心"
       >
         <div class="grid grid-cols-4 gap-4">
           <div
@@ -365,6 +407,36 @@ function navigate(path: string) {
             <p class="mb-0 mt-2 text-sm text-slate-400">
               {{ item.hint }}
             </p>
+          </div>
+        </div>
+        <div
+          v-if="executionReadiness?.issues.length"
+          class="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4"
+        >
+          <p class="m-0 text-sm font-medium text-amber-900">当前阻塞项</p>
+          <div class="mt-3 space-y-2">
+            <button
+              v-for="issue in executionReadiness.issues.slice(0, 5)"
+              :key="`${issue.code}-${issue.resourceId ?? issue.message}`"
+              class="block w-full rounded-xl border border-amber-100 bg-white px-3 py-2 text-left text-sm text-amber-900 transition hover:border-amber-300"
+              type="button"
+              @click="navigateReadinessIssue(issue.routePath, issue.resourceType, issue.resourceId)"
+            >
+              <span class="block">{{ issue.message }}</span>
+              <span class="mt-1 block text-xs text-amber-700">
+                建议操作：{{ getReadinessSuggestion(issue) }}
+              </span>
+              <span class="mt-2 block">
+                <el-button
+                  v-if="canResolveReadinessByNavigation(issue)"
+                  plain
+                  size="small"
+                  @click.stop="navigateReadinessIssue(issue.routePath, issue.resourceType, issue.resourceId)"
+                >
+                  {{ getReadinessActionLabel(issue) }}
+                </el-button>
+              </span>
+            </button>
           </div>
         </div>
       </SectionCard>

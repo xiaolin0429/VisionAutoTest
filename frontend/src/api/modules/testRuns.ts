@@ -102,6 +102,10 @@ function mapStepResult(item: StepResultReadDTO) {
     expectedMediaObjectId: item.expected_media_object_id,
     actualMediaObjectId: item.actual_media_object_id,
     diffMediaObjectId: item.diff_media_object_id,
+    repairResourceType: item.repair_resource_type,
+    repairResourceId: item.repair_resource_id,
+    repairRoutePath: item.repair_route_path,
+    repairStepNo: item.repair_step_no,
     artifactLabel: item.diff_media_object_id
       ? `diff-media-object #${item.diff_media_object_id}`
       : item.actual_media_object_id

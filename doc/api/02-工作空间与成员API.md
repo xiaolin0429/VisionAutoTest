@@ -10,6 +10,7 @@
 |---|---|
 | `workspaces` | 工作空间 |
 | `members` | 工作空间成员 |
+| `execution-readiness` | 工作空间执行就绪总览 |
 
 ## 3. 接口定义
 
@@ -75,12 +76,24 @@
 - 方法：`DELETE`
 - 路径：`/api/v1/workspaces/{workspace_id}/members/{member_id}`
 
+### 3.9 查询工作空间执行就绪状态
+
+- 方法：`GET`
+- 路径：`/api/v1/workspaces/{workspace_id}/execution-readiness`
+
+说明：
+
+- 返回当前工作空间是否具备执行条件。
+- 聚合环境、活跃套件、模板、组件、用例等阻塞项。
+- 阻塞项需返回结构化字段，供前端展示与跳转修复。
+
 ## 4. 业务规则
 
 - 工作空间编码 `workspace_code` 全局唯一。
 - 至少保留 1 名 `workspace_admin`，不得移除最后一个管理员。
 - 工作空间内的所有业务资源必须通过 `X-Workspace-Id` 或路径参数强绑定空间。
 - 非系统管理员只能看到自己有成员关系的工作空间。
+- 工作空间执行就绪检查只聚合当前空间内资源，不跨空间计算阻塞项。
 
 ## 5. 推荐错误码
 

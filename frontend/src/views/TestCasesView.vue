@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import MetricCard from '@/components/MetricCard.vue'
 import SectionCard from '@/components/SectionCard.vue'
 import StatusTag from '@/components/StatusTag.vue'
 import StepEditorDialog from '@/components/step/StepEditorDialog.vue'
+import { WORKSPACE_STORAGE_KEY } from '@/constants/storage'
 import { listComponents } from '@/api/modules/components'
 import {
   cloneTestCase,
@@ -14,11 +16,17 @@ import {
   replaceTestCaseSteps,
   updateTestCase
 } from '@/api/modules/testCases'
+import { getWorkspaceExecutionReadiness } from '@/api/modules/workspaces'
 import { listTemplates } from '@/api/modules/templates'
 import { formatDateTime } from '@/utils/format'
+import {
+  canResolveReadinessByNavigation,
+  getReadinessActionLabel,
+  getReadinessSuggestion
+} from '@/utils/readiness'
 import { STEP_TYPE_LABELS, type StepDraft } from '@/utils/steps'
 import { useStepEditor } from '@/composables/useStepEditor'
-import type { Component, StepType, Template, TestCase } from '@/types/models'
+import type { Component, ExecutionReadinessIssue, StepType, Template, TestCase } from '@/types/models'
 
 interface StepTemplateOption {
   id: number
@@ -26,6 +34,8 @@ interface StepTemplateOption {
 }
 
 const stepEditor = useStepEditor({ allowComponentCall: true })
+const route = useRoute()
+const router = useRouter()
 
 const loading = ref(false)
 const savingCase = ref(false)
@@ -35,6 +45,8 @@ const components = ref<Component[]>([])
 const templates = ref<Template[]>([])
 const selectedCaseId = ref<number | null>(null)
 const currentCase = ref<TestCase | null>(null)
+const readinessIssuesByCaseId = ref<Record<number, ExecutionReadinessIssue[]>>({})
+const highlightedStepNo = ref<number | null>(null)
 
 const searchKeyword = ref('')
 const filterStatus = ref('')
@@ -102,6 +114,17 @@ const metrics = computed(() => [
     hint: '步骤顺序在保存时会自动重排为连续编号。'
   }
 ])
+
+const currentCaseReadinessIssues = computed(() => {
+  if (!currentCase.value) {
+    return []
+  }
+  return readinessIssuesByCaseId.value[currentCase.value.id] ?? []
+})
+
+function resolveStepRowClassName(scope: { row: { stepNo: number } }) {
+  return scope.row.stepNo === highlightedStepNo.value ? 'vat-step-highlight' : ''
+}
 
 function getStepTemplateOptions(step: StepDraft): StepTemplateOption[] {
   if (step.type !== 'template_assert' && step.type !== 'ocr_assert') {
@@ -182,15 +205,30 @@ async function loadCaseList() {
   testCases.value = await listTestCases(
     Object.keys(options).length > 0 ? options : undefined
   )
+  const workspaceId = Number(localStorage.getItem(WORKSPACE_STORAGE_KEY) ?? 0)
+  const readiness = workspaceId
+    ? await getWorkspaceExecutionReadiness(workspaceId).catch(() => null)
+    : null
+  readinessIssuesByCaseId.value = (readiness?.issues ?? [])
+    .filter((issue) => issue.resourceType === 'test_case' && issue.resourceId !== null)
+    .reduce<Record<number, ExecutionReadinessIssue[]>>((acc, issue) => {
+      const testCaseId = issue.resourceId as number
+      acc[testCaseId] = [...(acc[testCaseId] ?? []), issue]
+      return acc
+    }, {})
 
   if (!testCases.value.some((item) => item.id === selectedCaseId.value)) {
-    selectedCaseId.value = testCases.value[0]?.id ?? null
+    const routeTestCaseId = Number(route.query.testCaseId ?? NaN)
+    selectedCaseId.value = testCases.value.some((item) => item.id === routeTestCaseId)
+      ? routeTestCaseId
+      : testCases.value[0]?.id ?? null
   }
 }
 
 async function loadCaseDetail(testCaseId: number | null) {
   if (!testCaseId) {
     currentCase.value = null
+    highlightedStepNo.value = null
     return
   }
 
@@ -198,6 +236,15 @@ async function loadCaseDetail(testCaseId: number | null) {
 
   try {
     currentCase.value = await getTestCaseDetail(testCaseId)
+    const routeStepNo = Number(route.query.stepNo ?? NaN)
+    highlightedStepNo.value = Number.isNaN(routeStepNo) ? null : routeStepNo
+    if (
+      highlightedStepNo.value !== null &&
+      currentCase.value.steps.some((step) => step.stepNo === highlightedStepNo.value)
+    ) {
+      void router.replace({ query: { ...route.query, testCaseId: String(testCaseId) } })
+      openStepDialog()
+    }
   } finally {
     loading.value = false
   }
@@ -415,7 +462,7 @@ onMounted(async () => {
                 : 'border-slate-200 bg-slate-50 hover:border-slate-300'
             ]"
             type="button"
-            @click="selectedCaseId = item.id"
+            @click="selectedCaseId = item.id; router.replace({ query: { ...route.query, testCaseId: String(item.id) } })"
           >
             <div class="flex items-start justify-between gap-3">
               <div>
@@ -430,6 +477,12 @@ onMounted(async () => {
             </div>
             <p class="mb-0 mt-3 text-xs text-slate-400">
               {{ formatDateTime(item.updatedAt) }}
+            </p>
+            <p
+              v-if="readinessIssuesByCaseId[item.id]?.length"
+              class="mb-0 mt-2 text-xs text-amber-700"
+            >
+              {{ readinessIssuesByCaseId[item.id][0]?.message }}
             </p>
           </button>
         </div>
@@ -465,6 +518,34 @@ onMounted(async () => {
             v-if="currentCase"
             class="space-y-6"
           >
+            <div
+              v-if="currentCaseReadinessIssues.length"
+              class="rounded-2xl border border-amber-200 bg-amber-50 p-4"
+            >
+              <p class="m-0 text-sm font-medium text-amber-900">当前用例会阻塞执行</p>
+              <ul class="mb-0 mt-3 list-disc space-y-2 pl-5 text-sm text-amber-800">
+                <li
+                  v-for="issue in currentCaseReadinessIssues"
+                  :key="`${issue.code}-${issue.resourceId ?? issue.message}`"
+                >
+                  <span class="block">{{ issue.message }}</span>
+                  <span class="mt-1 block text-xs text-amber-700">
+                    建议操作：{{ getReadinessSuggestion(issue) }}
+                  </span>
+                  <span class="mt-2 block">
+                    <el-button
+                      v-if="canResolveReadinessByNavigation(issue)"
+                      plain
+                      size="small"
+                      @click="issue.code === 'STEP_CONFIGURATION_INVALID' ? openStepDialog() : openEditCaseDialog()"
+                    >
+                      {{ issue.code === 'STEP_CONFIGURATION_INVALID' ? '去编排步骤' : getReadinessActionLabel(issue) }}
+                    </el-button>
+                  </span>
+                </li>
+              </ul>
+            </div>
+
             <div class="grid grid-cols-4 gap-4">
               <div class="rounded-2xl border border-slate-200 bg-slate-50 p-4">
                 <p class="m-0 text-sm text-slate-500">用例编码</p>
@@ -518,12 +599,13 @@ onMounted(async () => {
             </el-button>
           </template>
 
-          <el-table
-            v-loading="loading"
-            :data="currentCase?.steps ?? []"
-            empty-text="当前用例暂无步骤"
-            stripe
-          >
+            <el-table
+              v-loading="loading"
+              :data="currentCase?.steps ?? []"
+              empty-text="当前用例暂无步骤"
+              :row-class-name="resolveStepRowClassName"
+              stripe
+            >
             <el-table-column label="Step No" prop="stepNo" width="90" />
             <el-table-column label="步骤名称" min-width="220" prop="name" />
             <el-table-column label="类型" min-width="150">
@@ -634,3 +716,9 @@ onMounted(async () => {
     />
   </div>
 </template>
+
+<style scoped>
+:deep(.vat-step-highlight) {
+  --el-table-tr-bg-color: #fef3c7;
+}
+</style>

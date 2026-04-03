@@ -3,30 +3,32 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { ApiError } from '@/api/client'
-import { getComponentSteps, listComponents } from '@/api/modules/components'
 import SectionCard from '@/components/SectionCard.vue'
 import StatusTag from '@/components/StatusTag.vue'
 import SuiteCaseDialog from '@/components/suite/SuiteCaseDialog.vue'
 import SuiteFormDialog from '@/components/suite/SuiteFormDialog.vue'
 import { listDeviceProfiles, listEnvironmentProfiles } from '@/api/modules/environments'
-import { getTestCaseDetail, listTestCases } from '@/api/modules/testCases'
-import { listTemplates } from '@/api/modules/templates'
+import { listTestCases } from '@/api/modules/testCases'
 import {
   createTestSuite,
+  getTestSuiteExecutionReadiness,
   getTestSuiteDetail,
   listTestSuites,
   replaceSuiteCases,
   updateTestSuite
 } from '@/api/modules/testSuites'
+import {
+  canResolveReadinessByNavigation,
+  getReadinessActionLabel,
+  getReadinessSuggestion
+} from '@/utils/readiness'
 import { createTestRun } from '@/api/modules/testRuns'
 import { formatDateTime } from '@/utils/format'
 import type {
-  Component,
   DeviceProfile,
   EnvironmentProfile,
-  Step,
+  ExecutionReadinessSummary,
   SuiteCaseWritePayload,
-  Template,
   TestCase,
   TestSuite
 } from '@/types/models'
@@ -52,7 +54,7 @@ const deviceProfiles = ref<DeviceProfile[]>([])
 
 const selectedSuiteId = ref<number | null>(null)
 const currentSuite = ref<TestSuite | null>(null)
-const readinessIssues = ref<string[]>([])
+const readinessSummary = ref<ExecutionReadinessSummary | null>(null)
 
 const suiteDialogVisible = ref(false)
 const caseDialogVisible = ref(false)
@@ -80,9 +82,10 @@ const suiteStatusOptions = [
   { label: '归档', value: 'archived' }
 ]
 
+const readinessIssues = computed(() => readinessSummary.value?.issues ?? [])
 const hasBlockingIssues = computed(() => readinessIssues.value.length > 0)
 const hasSuiteSelected = computed(() => currentSuite.value !== null)
-const primaryReadinessMessage = computed(() => readinessIssues.value[0] ?? '')
+const primaryReadinessMessage = computed(() => readinessIssues.value[0]?.message ?? '')
 
 const availableCasesToAdd = computed(() => {
   const selectedIds = new Set(suiteCaseDrafts.value.map((item) => item.testCaseId))
@@ -125,111 +128,32 @@ function formatRunCreationError(error: unknown) {
   return errorMessageMap[error.code] ?? error.message
 }
 
-function collectVisualReadinessIssues(
-  steps: Step[],
-  templateMap: Map<number, Template>,
-  issues: Set<string>
-) {
-  for (const step of steps) {
-    if (
-      (step.type !== 'template_assert' && step.type !== 'ocr_assert') ||
-      step.templateId === null
-    ) {
-      continue
-    }
-
-    const template = templateMap.get(step.templateId)
-    if (!template) {
-      issues.add('套件引用了不存在的模板，请重新保存用例或组件。')
-      continue
-    }
-
-    if (template.status !== 'published') {
-      issues.add('套件引用了未发布模板，请先发布模板后再执行。')
-    }
-
-    if (template.currentBaselineRevisionId === null) {
-      issues.add('套件引用的模板缺少当前基准版本，请先补齐。')
-    }
-
-    if (step.type === 'template_assert' && template.matchStrategy !== 'template') {
-      issues.add('存在 template_assert 步骤引用了非 template 策略模板。')
-    }
-
-    if (step.type === 'ocr_assert' && template.matchStrategy !== 'ocr') {
-      issues.add('存在 ocr_assert 步骤引用了非 ocr 策略模板。')
-    }
-  }
-}
-
 async function inspectSuiteReadiness(suite: TestSuite) {
   readinessLoading.value = true
-  readinessIssues.value = []
+  readinessSummary.value = null
 
   try {
-    const issues = new Set<string>()
-
-    if (suite.status !== 'active') {
-      issues.add('当前套件状态不是 active，不能直接触发执行。')
-    }
-
-    const unpublishedCases = suite.cases.filter((item) => item.status !== 'published')
-    if (unpublishedCases.length > 0) {
-      issues.add('套件内存在未发布用例，请先将所有用例发布后再执行。')
-    }
-
-    if (suite.cases.length === 0) {
-      issues.add('当前套件为空，至少需要一个可执行用例。')
-    }
-
-    if (suite.cases.length > 0) {
-      const [caseDetails, components, templates] = await Promise.all([
-        Promise.all(suite.cases.map((item) => getTestCaseDetail(item.testCaseId))),
-        listComponents(),
-        listTemplates()
-      ])
-
-      const componentMap = new Map<number, Component>(components.map((item) => [item.id, item]))
-      const templateMap = new Map<number, Template>(templates.map((item) => [item.id, item]))
-      const nonPublishedComponentIds = new Set<number>()
-      const referencedComponentIds = new Set<number>()
-
-      for (const testCase of caseDetails) {
-        collectVisualReadinessIssues(testCase.steps, templateMap, issues)
-
-        for (const step of testCase.steps) {
-          if (step.componentId === null) {
-            continue
-          }
-
-          referencedComponentIds.add(step.componentId)
-          const component = componentMap.get(step.componentId)
-          if (!component || component.status !== 'published') {
-            nonPublishedComponentIds.add(step.componentId)
-          }
-        }
-      }
-
-      if (nonPublishedComponentIds.size > 0) {
-        issues.add('套件引用了未发布组件，component_call 对应组件需先发布。')
-      }
-
-      if (referencedComponentIds.size > 0) {
-        const componentStepsList = await Promise.all(
-          [...referencedComponentIds].map((componentId) => getComponentSteps(componentId))
-        )
-
-        for (const componentSteps of componentStepsList) {
-          collectVisualReadinessIssues(componentSteps, templateMap, issues)
-        }
-      }
-    }
-
-    readinessIssues.value = [...issues]
+    readinessSummary.value = await getTestSuiteExecutionReadiness(suite.id)
   } catch (error) {
-    readinessIssues.value = [
-      error instanceof Error ? error.message : '执行门禁检查失败，请稍后重试。'
-    ]
+    readinessSummary.value = {
+      scope: 'test_suite',
+      status: 'blocked',
+      workspaceId: 0,
+      testSuiteId: suite.id,
+      activeEnvironmentCount: 0,
+      activeTestSuiteCount: 0,
+      blockingIssueCount: 1,
+      issues: [
+        {
+          code: 'READINESS_LOAD_FAILED',
+          message: error instanceof Error ? error.message : '执行门禁检查失败，请稍后重试。',
+          resourceType: 'test_suite',
+          resourceId: suite.id,
+          resourceName: suite.name,
+          routePath: '/suites'
+        }
+      ]
+    }
   } finally {
     readinessLoading.value = false
   }
@@ -424,7 +348,7 @@ async function handleSaveSuiteCases() {
 async function loadSuiteDetail(suiteId: number | null) {
   if (!suiteId) {
     currentSuite.value = null
-    readinessIssues.value = []
+    readinessSummary.value = null
     runForm.testSuiteId = 0
     return
   }
@@ -643,9 +567,44 @@ onMounted(async () => {
           <ul class="mb-0 mt-3 list-disc space-y-2 pl-5 text-sm text-amber-800">
             <li
               v-for="issue in readinessIssues"
-              :key="issue"
+              :key="`${issue.code}-${issue.resourceId ?? issue.message}`"
             >
-              {{ issue }}
+              <button
+                v-if="issue.routePath"
+                class="cursor-pointer border-none bg-transparent p-0 text-left text-amber-800 underline-offset-2 hover:underline"
+                type="button"
+                @click="router.push({ path: issue.routePath, query: issue.resourceType === 'template' && issue.resourceId ? { templateId: String(issue.resourceId) } : issue.resourceType === 'test_case' && issue.resourceId ? { testCaseId: String(issue.resourceId) } : issue.resourceType === 'component' && issue.resourceId ? { componentId: String(issue.resourceId) } : {} })"
+              >
+                <span class="block">{{ issue.message }}</span>
+                <span class="mt-1 block text-xs text-amber-700">
+                  建议操作：{{ getReadinessSuggestion(issue) }}
+                </span>
+                <span class="mt-2 block">
+                  <el-button
+                    v-if="canResolveReadinessByNavigation(issue)"
+                    plain
+                    size="small"
+                    @click.stop="router.push({ path: issue.routePath, query: issue.resourceType === 'template' && issue.resourceId ? { templateId: String(issue.resourceId) } : issue.resourceType === 'test_case' && issue.resourceId ? { testCaseId: String(issue.resourceId) } : issue.resourceType === 'component' && issue.resourceId ? { componentId: String(issue.resourceId) } : {} })"
+                  >
+                    {{ getReadinessActionLabel(issue) }}
+                  </el-button>
+                </span>
+              </button>
+              <span v-else>
+                <span class="block">{{ issue.message }}</span>
+                <span class="mt-1 block text-xs text-amber-700">
+                  建议操作：{{ getReadinessSuggestion(issue) }}
+                </span>
+                <span class="mt-2 block">
+                  <el-button
+                    v-if="canResolveReadinessByNavigation(issue)"
+                    plain
+                    size="small"
+                  >
+                    {{ getReadinessActionLabel(issue) }}
+                  </el-button>
+                </span>
+              </span>
             </li>
           </ul>
         </div>

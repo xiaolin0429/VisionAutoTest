@@ -68,44 +68,80 @@ def list_test_runs(
         page_size=page_size,
         status=status,
     )
-    return paginated_response(request, dump_list(TestRunRead, items), page=page, page_size=page_size, total=total)
+    return paginated_response(
+        request,
+        dump_list(TestRunRead, items),
+        page=page,
+        page_size=page_size,
+        total=total,
+    )
 
 
 @router.get("/test-runs/{test_run_id}")
-def get_test_run(test_run_id: int, request: Request, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+def get_test_run(
+    test_run_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
     test_run = execution.get_test_run(db, test_run_id)
     execution.require_workspace_access(db, current_user, test_run.workspace_id)
     return success_response(request, dump_model(TestRunRead, test_run))
 
 
 @router.get("/test-runs/{test_run_id}/report")
-def get_test_run_report(test_run_id: int, request: Request, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+def get_test_run_report(
+    test_run_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
     test_run = execution.get_test_run(db, test_run_id)
     execution.require_workspace_access(db, current_user, test_run.workspace_id)
     report = execution.get_report_by_test_run(db, test_run_id)
     if report is None:
         from app.core.http import ApiError
 
-        raise ApiError(code="REPORT_NOT_FOUND", message="Report not found.", status_code=404)
+        raise ApiError(
+            code="REPORT_NOT_FOUND", message="Report not found.", status_code=404
+        )
     return success_response(request, dump_model(RunReportRead, report))
 
 
 @router.patch("/test-runs/{test_run_id}")
-def patch_test_run(test_run_id: int, payload: TestRunUpdate, request: Request, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+def patch_test_run(
+    test_run_id: int,
+    payload: TestRunUpdate,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
     test_run = execution.get_test_run(db, test_run_id)
-    updated = execution.update_test_run_status(db, user=current_user, test_run=test_run, status=payload.status)
+    updated = execution.update_test_run_status(
+        db, user=current_user, test_run=test_run, status=payload.status
+    )
     return success_response(request, dump_model(TestRunRead, updated))
 
 
 @router.get("/test-runs/{test_run_id}/case-runs")
-def list_case_runs(test_run_id: int, request: Request, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+def list_case_runs(
+    test_run_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
     test_run = execution.get_test_run(db, test_run_id)
     items = execution.list_case_runs(db, user=current_user, test_run=test_run)
     return success_response(request, dump_list(TestCaseRunRead, items))
 
 
 @router.get("/case-runs/{case_run_id}")
-def get_case_run(case_run_id: int, request: Request, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+def get_case_run(
+    case_run_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
     case_run = execution.get_case_run(db, case_run_id)
     test_run = execution.get_test_run(db, case_run.test_run_id)
     execution.require_workspace_access(db, current_user, test_run.workspace_id)
@@ -113,16 +149,29 @@ def get_case_run(case_run_id: int, request: Request, db: Session = Depends(get_d
 
 
 @router.get("/case-runs/{case_run_id}/step-results")
-def list_step_results(case_run_id: int, request: Request, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+def list_step_results(
+    case_run_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
     case_run = execution.get_case_run(db, case_run_id)
     test_run = execution.get_test_run(db, case_run.test_run_id)
     execution.require_workspace_access(db, current_user, test_run.workspace_id)
     items = execution.list_step_results(db, case_run_id)
-    return success_response(request, dump_list(StepResultRead, items))
+    return success_response(
+        request,
+        [StepResultRead.model_validate(item).model_dump(mode="json") for item in items],
+    )
 
 
 @router.get("/reports/{report_id}")
-def get_report(report_id: int, request: Request, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+def get_report(
+    report_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
     report = execution.get_report(db, report_id)
     test_run = execution.get_test_run(db, report.test_run_id)
     execution.require_workspace_access(db, current_user, test_run.workspace_id)
@@ -130,7 +179,12 @@ def get_report(report_id: int, request: Request, db: Session = Depends(get_db), 
 
 
 @router.get("/reports/{report_id}/artifacts")
-def list_report_artifacts(report_id: int, request: Request, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+def list_report_artifacts(
+    report_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
     report = execution.get_report(db, report_id)
     test_run = execution.get_test_run(db, report.test_run_id)
     execution.require_workspace_access(db, current_user, test_run.workspace_id)
