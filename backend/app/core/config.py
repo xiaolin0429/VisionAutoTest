@@ -23,6 +23,10 @@ class Settings(BaseSettings):
     database_auto_migrate: bool = False
     local_storage_path: Path = Path(".data/media")
     demo_target_base_url: str = "http://127.0.0.1:8000/demo/acceptance-target"
+    execution_dispatch_backend: Literal["background_tasks", "deferred"] = (
+        "background_tasks"
+    )
+    execution_worker_batch_size: int = 10
     playwright_headless: bool = True
     playwright_navigation_timeout_ms: int = 15000
     # 认证生命周期：access_token 2小时，refresh_token 7天
@@ -46,29 +50,51 @@ class Settings(BaseSettings):
     def validate_security_defaults(self) -> "Settings":
         placeholder_markers = ("<db-user>", "<db-password>")
         if any(marker in self.database_url for marker in placeholder_markers):
-            raise ValueError("VAT_DATABASE_URL contains placeholder values. Please set real local credentials.")
-        if self.database_admin_url and any(marker in self.database_admin_url for marker in placeholder_markers):
-            raise ValueError("VAT_DATABASE_ADMIN_URL contains placeholder values. Please set real local credentials.")
+            raise ValueError(
+                "VAT_DATABASE_URL contains placeholder values. Please set real local credentials."
+            )
+        if self.database_admin_url and any(
+            marker in self.database_admin_url for marker in placeholder_markers
+        ):
+            raise ValueError(
+                "VAT_DATABASE_ADMIN_URL contains placeholder values. Please set real local credentials."
+            )
         if self.app_env in {"staging", "production"}:
             if self.database_auto_create:
-                raise ValueError("VAT_DATABASE_AUTO_CREATE must be false outside development or test.")
+                raise ValueError(
+                    "VAT_DATABASE_AUTO_CREATE must be false outside development or test."
+                )
             if self.database_auto_migrate:
-                raise ValueError("VAT_DATABASE_AUTO_MIGRATE must be false outside development or test.")
-        if (self.default_admin_username is None) != (self.default_admin_password is None):
+                raise ValueError(
+                    "VAT_DATABASE_AUTO_MIGRATE must be false outside development or test."
+                )
+        if (self.default_admin_username is None) != (
+            self.default_admin_password is None
+        ):
             raise ValueError(
                 "VAT_DEFAULT_ADMIN_USERNAME and VAT_DEFAULT_ADMIN_PASSWORD must either both be set or both be omitted."
             )
         if self.default_admin_password == PLACEHOLDER_DEFAULT_ADMIN_PASSWORD:
-            raise ValueError("VAT_DEFAULT_ADMIN_PASSWORD must be changed from the placeholder value before startup.")
+            raise ValueError(
+                "VAT_DEFAULT_ADMIN_PASSWORD must be changed from the placeholder value before startup."
+            )
         if self.jwt_secret_key == PLACEHOLDER_JWT_SECRET_KEY:
-            raise ValueError("VAT_JWT_SECRET_KEY must be changed from the placeholder value before startup.")
+            raise ValueError(
+                "VAT_JWT_SECRET_KEY must be changed from the placeholder value before startup."
+            )
         if self.data_encryption_key == PLACEHOLDER_DATA_ENCRYPTION_KEY:
-            raise ValueError("VAT_DATA_ENCRYPTION_KEY must be changed from the placeholder value before startup.")
+            raise ValueError(
+                "VAT_DATA_ENCRYPTION_KEY must be changed from the placeholder value before startup."
+            )
         if self.jwt_algorithm != "HS256":
             raise ValueError("VAT_JWT_ALGORITHM currently only supports HS256.")
+        if self.execution_worker_batch_size <= 0:
+            raise ValueError(
+                "VAT_EXECUTION_WORKER_BATCH_SIZE must be greater than zero."
+            )
         return self
 
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
-    return Settings()
+    return Settings()  # pyright: ignore[reportCallIssue]

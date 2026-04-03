@@ -13,6 +13,9 @@ import {
   listReportArtifacts
 } from '@/api/modules/testRuns'
 import { formatDateTime } from '@/utils/format'
+import {
+  resolveRunRepairTarget
+} from '@/utils/runFailures'
 import type {
   CaseRun,
   MediaObject,
@@ -48,6 +51,21 @@ const ACTIVE_RUN_STATUSES = new Set(['queued', 'running', 'cancelling'])
 
 const currentCaseRun = computed(() => {
   return runDetail.value?.caseRuns.find((item) => item.id === selectedCaseRunId.value) ?? null
+})
+
+const repairSummary = computed(() => {
+  const repairTarget = resolveRunRepairTarget(runDetail.value)
+  if (!repairTarget) {
+    return null
+  }
+
+  return {
+    title: `优先修复：${repairTarget.caseRunName}`,
+    summary: repairTarget.failureSummary,
+    actionLabel: repairTarget.label,
+    path: repairTarget.path,
+    query: repairTarget.query
+  }
 })
 
 const metrics = computed(() => {
@@ -351,6 +369,10 @@ function navigateBackToRuns() {
   void router.push('/runs')
 }
 
+function navigateToRepairTarget(path: string, query: Record<string, string | undefined>) {
+  void router.push({ path, query })
+}
+
 async function copyRunSummary() {
   const detail = runDetail.value
   if (!detail) return
@@ -484,6 +506,29 @@ onBeforeUnmount(() => {
             </p>
           </div>
         </div>
+
+        <div
+          v-if="repairSummary"
+          class="rounded-2xl border border-amber-200 bg-amber-50 p-4"
+        >
+          <div class="flex items-start justify-between gap-4">
+            <div>
+              <p class="m-0 text-sm font-medium text-amber-900">{{ repairSummary.title }}</p>
+              <p class="mb-0 mt-2 text-sm leading-6 text-amber-800">
+                {{ repairSummary.summary }}
+              </p>
+              <p class="mb-0 mt-2 text-xs text-amber-700">
+                建议动作：返回测试用例页，优先检查失败步骤、断言配置和被引用资源状态。
+              </p>
+            </div>
+            <el-button
+              plain
+              @click="navigateToRepairTarget(repairSummary.path, repairSummary.query)"
+            >
+              {{ repairSummary.actionLabel }}
+            </el-button>
+          </div>
+        </div>
       </div>
     </SectionCard>
 
@@ -552,6 +597,15 @@ onBeforeUnmount(() => {
             <p class="mb-0 mt-3 text-sm font-medium text-slate-900 break-all">
               {{ runReport.summary.failure?.summary ?? runReport.summary.message ?? '--' }}
             </p>
+            <el-button
+              v-if="repairSummary"
+              class="!mt-3"
+              plain
+              size="small"
+              @click="navigateToRepairTarget(repairSummary.path, repairSummary.query)"
+            >
+              {{ repairSummary.actionLabel }}
+            </el-button>
           </div>
           <div class="rounded-2xl border border-slate-200 bg-slate-50 p-4">
             <p class="m-0 text-sm text-slate-500">开始时间</p>

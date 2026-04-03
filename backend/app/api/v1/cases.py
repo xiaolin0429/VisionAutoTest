@@ -11,6 +11,7 @@ from app.schemas.contracts import (
     ComponentCreate,
     ComponentRead,
     ComponentUpdate,
+    ExecutionReadinessSummaryRead,
     StepWrite,
     SuiteCaseWrite,
     TestCaseCreate,
@@ -21,6 +22,7 @@ from app.schemas.contracts import (
     TestSuiteUpdate,
 )
 from app.services import cases
+from app.services import execution as execution_service
 from app.services.helpers import page_bounds, require_workspace_id
 
 router = APIRouter(tags=["cases"])
@@ -37,12 +39,26 @@ def list_components(
 ):
     page, page_size = page_bounds(page, page_size)
     workspace_id = require_workspace_id(workspace_id)
-    items, total = cases.list_components(db, user=current_user, workspace_id=workspace_id, page=page, page_size=page_size)
-    return paginated_response(request, dump_list(ComponentRead, items), page=page, page_size=page_size, total=total)
+    items, total = cases.list_components(
+        db, user=current_user, workspace_id=workspace_id, page=page, page_size=page_size
+    )
+    return paginated_response(
+        request,
+        dump_list(ComponentRead, items),
+        page=page,
+        page_size=page_size,
+        total=total,
+    )
 
 
 @router.post("/components", status_code=201)
-def create_component(payload: ComponentCreate, request: Request, workspace_id: int | None = Depends(get_workspace_header), db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+def create_component(
+    payload: ComponentCreate,
+    request: Request,
+    workspace_id: int | None = Depends(get_workspace_header),
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
     workspace_id = require_workspace_id(workspace_id)
     component = cases.create_component(
         db,
@@ -53,18 +69,31 @@ def create_component(payload: ComponentCreate, request: Request, workspace_id: i
         status=payload.status,
         description=payload.description,
     )
-    return success_response(request, dump_model(ComponentRead, component), status_code=201)
+    return success_response(
+        request, dump_model(ComponentRead, component), status_code=201
+    )
 
 
 @router.get("/components/{component_id}")
-def get_component(component_id: int, request: Request, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+def get_component(
+    component_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
     component = cases.get_component(db, component_id)
     cases.require_workspace_access(db, current_user, component.workspace_id)
     return success_response(request, dump_model(ComponentRead, component))
 
 
 @router.patch("/components/{component_id}")
-def patch_component(component_id: int, payload: ComponentUpdate, request: Request, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+def patch_component(
+    component_id: int,
+    payload: ComponentUpdate,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
     component = cases.get_component(db, component_id)
     updated = cases.update_component(
         db,
@@ -78,16 +107,32 @@ def patch_component(component_id: int, payload: ComponentUpdate, request: Reques
 
 
 @router.get("/components/{component_id}/steps")
-def list_component_steps(component_id: int, request: Request, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+def list_component_steps(
+    component_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
     component = cases.get_component(db, component_id)
     items = cases.list_component_steps(db, user=current_user, component=component)
     return success_response(request, dump_plain_list(items))
 
 
 @router.put("/components/{component_id}/steps")
-def put_component_steps(component_id: int, payload: list[StepWrite], request: Request, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+def put_component_steps(
+    component_id: int,
+    payload: list[StepWrite],
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
     component = cases.get_component(db, component_id)
-    items = cases.replace_component_steps(db, user=current_user, component=component, steps=[item.model_dump() for item in payload])
+    items = cases.replace_component_steps(
+        db,
+        user=current_user,
+        component=component,
+        steps=[item.model_dump() for item in payload],
+    )
     return success_response(request, dump_plain_list(items))
 
 
@@ -113,11 +158,23 @@ def list_test_cases(
         status=status,
         keyword=keyword,
     )
-    return paginated_response(request, dump_list(TestCaseRead, items), page=page, page_size=page_size, total=total)
+    return paginated_response(
+        request,
+        dump_list(TestCaseRead, items),
+        page=page,
+        page_size=page_size,
+        total=total,
+    )
 
 
 @router.post("/test-cases", status_code=201)
-def create_test_case(payload: TestCaseCreate, request: Request, workspace_id: int | None = Depends(get_workspace_header), db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+def create_test_case(
+    payload: TestCaseCreate,
+    request: Request,
+    workspace_id: int | None = Depends(get_workspace_header),
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
     workspace_id = require_workspace_id(workspace_id)
     test_case = cases.create_test_case(
         db,
@@ -129,18 +186,31 @@ def create_test_case(payload: TestCaseCreate, request: Request, workspace_id: in
         priority=payload.priority,
         description=payload.description,
     )
-    return success_response(request, dump_model(TestCaseRead, test_case), status_code=201)
+    return success_response(
+        request, dump_model(TestCaseRead, test_case), status_code=201
+    )
 
 
 @router.get("/test-cases/{test_case_id}")
-def get_test_case(test_case_id: int, request: Request, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+def get_test_case(
+    test_case_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
     test_case = cases.get_test_case(db, test_case_id)
     cases.require_workspace_access(db, current_user, test_case.workspace_id)
     return success_response(request, dump_model(TestCaseRead, test_case))
 
 
 @router.patch("/test-cases/{test_case_id}")
-def patch_test_case(test_case_id: int, payload: TestCaseUpdate, request: Request, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+def patch_test_case(
+    test_case_id: int,
+    payload: TestCaseUpdate,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
     test_case = cases.get_test_case(db, test_case_id)
     updated = cases.update_test_case(
         db,
@@ -155,23 +225,44 @@ def patch_test_case(test_case_id: int, payload: TestCaseUpdate, request: Request
 
 
 @router.post("/test-cases/{test_case_id}/clone", status_code=201)
-def clone_test_case(test_case_id: int, request: Request, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+def clone_test_case(
+    test_case_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
     test_case = cases.get_test_case(db, test_case_id)
     cloned = cases.clone_test_case(db, user=current_user, test_case=test_case)
     return success_response(request, dump_model(TestCaseRead, cloned), status_code=201)
 
 
 @router.get("/test-cases/{test_case_id}/steps")
-def list_test_case_steps(test_case_id: int, request: Request, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+def list_test_case_steps(
+    test_case_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
     test_case = cases.get_test_case(db, test_case_id)
     items = cases.list_test_case_steps(db, user=current_user, test_case=test_case)
     return success_response(request, dump_plain_list(items))
 
 
 @router.put("/test-cases/{test_case_id}/steps")
-def put_test_case_steps(test_case_id: int, payload: list[StepWrite], request: Request, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+def put_test_case_steps(
+    test_case_id: int,
+    payload: list[StepWrite],
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
     test_case = cases.get_test_case(db, test_case_id)
-    items = cases.replace_test_case_steps(db, user=current_user, test_case=test_case, steps=[item.model_dump() for item in payload])
+    items = cases.replace_test_case_steps(
+        db,
+        user=current_user,
+        test_case=test_case,
+        steps=[item.model_dump() for item in payload],
+    )
     return success_response(request, dump_plain_list(items))
 
 
@@ -186,12 +277,26 @@ def list_test_suites(
 ):
     page, page_size = page_bounds(page, page_size)
     workspace_id = require_workspace_id(workspace_id)
-    items, total = cases.list_test_suites(db, user=current_user, workspace_id=workspace_id, page=page, page_size=page_size)
-    return paginated_response(request, dump_list(TestSuiteRead, items), page=page, page_size=page_size, total=total)
+    items, total = cases.list_test_suites(
+        db, user=current_user, workspace_id=workspace_id, page=page, page_size=page_size
+    )
+    return paginated_response(
+        request,
+        dump_list(TestSuiteRead, items),
+        page=page,
+        page_size=page_size,
+        total=total,
+    )
 
 
 @router.post("/test-suites", status_code=201)
-def create_test_suite(payload: TestSuiteCreate, request: Request, workspace_id: int | None = Depends(get_workspace_header), db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+def create_test_suite(
+    payload: TestSuiteCreate,
+    request: Request,
+    workspace_id: int | None = Depends(get_workspace_header),
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
     workspace_id = require_workspace_id(workspace_id)
     suite = cases.create_test_suite(
         db,
@@ -206,14 +311,44 @@ def create_test_suite(payload: TestSuiteCreate, request: Request, workspace_id: 
 
 
 @router.get("/test-suites/{test_suite_id}")
-def get_test_suite(test_suite_id: int, request: Request, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+def get_test_suite(
+    test_suite_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
     suite = cases.get_test_suite(db, test_suite_id)
     cases.require_workspace_access(db, current_user, suite.workspace_id)
     return success_response(request, dump_model(TestSuiteRead, suite))
 
 
+@router.get("/test-suites/{test_suite_id}/execution-readiness")
+def get_test_suite_execution_readiness(
+    test_suite_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    suite = cases.get_test_suite(db, test_suite_id)
+    readiness = execution_service.get_test_suite_execution_readiness(
+        db,
+        user=current_user,
+        test_suite=suite,
+    )
+    return success_response(
+        request,
+        ExecutionReadinessSummaryRead.model_validate(readiness).model_dump(mode="json"),
+    )
+
+
 @router.patch("/test-suites/{test_suite_id}")
-def patch_test_suite(test_suite_id: int, payload: TestSuiteUpdate, request: Request, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+def patch_test_suite(
+    test_suite_id: int,
+    payload: TestSuiteUpdate,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
     suite = cases.get_test_suite(db, test_suite_id)
     updated = cases.update_test_suite(
         db,
@@ -227,14 +362,30 @@ def patch_test_suite(test_suite_id: int, payload: TestSuiteUpdate, request: Requ
 
 
 @router.get("/test-suites/{test_suite_id}/cases")
-def list_suite_cases(test_suite_id: int, request: Request, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+def list_suite_cases(
+    test_suite_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
     suite = cases.get_test_suite(db, test_suite_id)
     items = cases.list_suite_cases(db, user=current_user, suite=suite)
     return success_response(request, dump_plain_list(items))
 
 
 @router.put("/test-suites/{test_suite_id}/cases")
-def put_suite_cases(test_suite_id: int, payload: list[SuiteCaseWrite], request: Request, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+def put_suite_cases(
+    test_suite_id: int,
+    payload: list[SuiteCaseWrite],
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
     suite = cases.get_test_suite(db, test_suite_id)
-    items = cases.replace_suite_cases(db, user=current_user, suite=suite, items=[item.model_dump() for item in payload])
+    items = cases.replace_suite_cases(
+        db,
+        user=current_user,
+        suite=suite,
+        items=[item.model_dump() for item in payload],
+    )
     return success_response(request, dump_plain_list(items))

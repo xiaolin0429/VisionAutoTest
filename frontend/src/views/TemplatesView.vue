@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
-import { onBeforeRouteLeave } from 'vue-router'
+import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { ApiError, requestBlob } from '@/api/client'
 import BaselineRevisionDialog from '@/components/template/BaselineRevisionDialog.vue'
@@ -31,8 +31,15 @@ import {
   updateTemplate,
   type ListTemplatesParams
 } from '@/api/modules/templates'
+import { getWorkspaceExecutionReadiness } from '@/api/modules/workspaces'
+import {
+  canResolveReadinessByNavigation,
+  getReadinessActionLabel,
+  getReadinessSuggestion
+} from '@/utils/readiness'
 import type {
   BaselineRevision,
+  ExecutionReadinessIssue,
   MaskRegion,
   Template,
   TemplateOcrBlock,
@@ -52,6 +59,7 @@ const editSubmitting = ref(false)
 const baselineSubmitting = ref(false)
 const listError = ref('')
 const detailError = ref('')
+const readinessIssuesByTemplateId = ref<Record<number, ExecutionReadinessIssue[]>>({})
 
 const templates = ref<Template[]>([])
 const selectedTemplateId = ref<number | null>(null)
@@ -126,6 +134,9 @@ const processedPreviewState = ref<TemplatePreviewState>({
 })
 const ocrSnapshot = ref<TemplateOcrResult | null>(null)
 const selectedOcrResultId = ref<string | null>(null)
+const route = useRoute()
+const router = useRouter()
+const highlightedTemplateFocus = ref<'baseline' | 'workbench' | null>(null)
 
 function createIdlePreviewState(message: string, baselineRevisionId: number | null): TemplatePreviewState {
   return {
@@ -256,6 +267,13 @@ const selectedDraftMask = computed(() => {
 
 const selectedMask = computed(() => {
   return activeMaskRegions.value.find((item) => item.id === selectedMaskId.value) ?? null
+})
+
+const currentTemplateReadinessIssues = computed(() => {
+  if (!currentTemplate.value) {
+    return []
+  }
+  return readinessIssuesByTemplateId.value[currentTemplate.value.id] ?? []
 })
 
 const hasUnsavedChanges = computed(() => {
@@ -474,6 +492,17 @@ async function loadTemplates(options: { preferredTemplateId?: number | null } = 
   try {
     const items = await listTemplates(buildTemplateFilters())
     templates.value = items
+    const workspaceId = Number(localStorage.getItem('visionautotest_workspace_id') ?? 0)
+    const readiness = workspaceId
+      ? await getWorkspaceExecutionReadiness(workspaceId).catch(() => null)
+      : null
+    readinessIssuesByTemplateId.value = (readiness?.issues ?? [])
+      .filter((issue) => issue.resourceType === 'template' && issue.resourceId !== null)
+      .reduce<Record<number, ExecutionReadinessIssue[]>>((acc, issue) => {
+        const templateId = issue.resourceId as number
+        acc[templateId] = [...(acc[templateId] ?? []), issue]
+        return acc
+      }, {})
 
     if (items.length === 0) {
       selectedTemplateId.value = null
@@ -486,7 +515,8 @@ async function loadTemplates(options: { preferredTemplateId?: number | null } = 
       return items
     }
 
-    const preferredTemplateId = options.preferredTemplateId ?? null
+    const routeTemplateId = Number(route.query.templateId ?? NaN)
+    const preferredTemplateId = options.preferredTemplateId ?? (!Number.isNaN(routeTemplateId) ? routeTemplateId : null)
     const nextSelectedTemplateId = items.some((item) => item.id === preferredTemplateId)
       ? preferredTemplateId
       : items.some((item) => item.id === selectedTemplateId.value)
@@ -526,6 +556,14 @@ async function loadTemplateDetail(templateId: number) {
     resetEditorState(detail)
     syncSelectedBaselineRevision(detail)
     resetDerivedWorkbenchState()
+    const focus = route.query.focus
+    highlightedTemplateFocus.value = focus === 'baseline' || focus === 'workbench' ? focus : null
+    if (highlightedTemplateFocus.value === 'baseline') {
+      openBaselineDialog()
+    }
+    if (highlightedTemplateFocus.value === 'workbench') {
+      workbenchViewMode.value = route.query.stepNo ? 'mask' : 'ocr'
+    }
   } catch (error) {
     detailError.value = error instanceof Error ? error.message : '模板详情加载失败，请稍后重试。'
     currentTemplate.value = null
@@ -815,6 +853,7 @@ function handleSelectTemplate(templateId: number) {
   }
 
   selectedTemplateId.value = templateId
+  void router.replace({ query: { ...route.query, templateId: String(templateId) } })
 }
 
 async function handleSearchTemplates() {
@@ -1128,6 +1167,7 @@ onBeforeUnmount(() => {
       :list-empty-description="listEmptyDescription"
       :list-error="listError"
       :list-loading="listLoading"
+      :readiness-issues-by-template-id="readinessIssuesByTemplateId"
       :selected-template-id="selectedTemplateId"
       :status="listFilters.status"
       :template-type="listFilters.templateType"
@@ -1234,48 +1274,92 @@ onBeforeUnmount(() => {
           v-else
           class="space-y-6"
         >
+          <div
+            v-if="currentTemplateReadinessIssues.length"
+            class="rounded-2xl border border-amber-200 bg-amber-50 p-4"
+          >
+            <p class="m-0 text-sm font-medium text-amber-900">当前模板会阻塞执行</p>
+            <ul class="mb-0 mt-3 list-disc space-y-2 pl-5 text-sm text-amber-800">
+              <li
+                v-for="issue in currentTemplateReadinessIssues"
+                :key="`${issue.code}-${issue.resourceId ?? issue.message}`"
+              >
+                <span class="block">{{ issue.message }}</span>
+                <span class="mt-1 block text-xs text-amber-700">
+                  建议操作：{{ getReadinessSuggestion(issue) }}
+                </span>
+                <span class="mt-2 block">
+                  <el-button
+                    v-if="canResolveReadinessByNavigation(issue)"
+                    plain
+                    size="small"
+                    @click="issue.code === 'BASELINE_REVISION_REQUIRED' ? openBaselineDialog() : openEditDialog()"
+                  >
+                    {{ issue.code === 'BASELINE_REVISION_REQUIRED' ? '去补基准' : getReadinessActionLabel(issue) }}
+                  </el-button>
+                </span>
+              </li>
+            </ul>
+          </div>
+
           <TemplateDetailSummary
             :current-template="currentTemplate"
             :detail-baseline-version-label="detailBaselineVersionLabel"
           />
 
-          <TemplateBaselineSection
-            :baseline-revisions="baselineRevisions"
-            :media-object-name-cache="mediaObjectNameCache"
-            :selected-baseline-revision-id="selectedBaselineRevisionId"
-            @select="handleSelectBaselineRevision"
-          />
+          <div
+            :class="[
+              highlightedTemplateFocus === 'baseline'
+                ? 'rounded-3xl border border-amber-200 bg-amber-50 p-2'
+                : ''
+            ]"
+          >
+            <TemplateBaselineSection
+              :baseline-revisions="baselineRevisions"
+              :media-object-name-cache="mediaObjectNameCache"
+              :selected-baseline-revision-id="selectedBaselineRevisionId"
+              @select="handleSelectBaselineRevision"
+            />
+          </div>
 
-          <TemplateWorkbenchSection
-            :active-mask-regions="activeMaskRegions"
-            :baseline-preview-error="baselinePreviewError"
-            :baseline-preview-loading="baselinePreviewLoading"
-            :baseline-preview-url="baselinePreviewUrl || null"
-            :can-trigger-ocr="canTriggerOcr"
-            :current-baseline-revision="currentBaselineRevision"
-            :editor-mode="editorMode"
-            :has-pending-mask-draft="hasPendingMaskDraft"
-            :ocr-blocks="ocrBlocks"
-            :ocr-panel-state="ocrPanelState"
-            :ocr-snapshot="ocrSnapshot"
-            :preview-state="processedPreviewState"
-            :selected-mask="selectedMask"
-            :selected-mask-id="selectedMaskId"
-            :selected-mask-name="selectedMaskName"
-            :selected-ocr-result-id="selectedOcrResultId"
-            :template-type="currentTemplate.templateType"
-            :workbench-image-label="workbenchImageLabel"
-            :workbench-view-mode="workbenchViewMode"
-            :workbench-view-options="workbenchViewOptions"
-            @convert-ocr-result-to-mask="handleConvertOcrResultToMask"
-            @delete-selected-mask="handleDeleteSelectedMask"
-            @select-mask="selectedMaskId = $event"
-            @select-ocr-block="handleSelectOcrBlock"
-            @select-view-mode="handleSelectWorkbenchViewMode"
-            @trigger-ocr="handleTriggerOcrAnalysis"
-            @update:regions="handleCanvasRegionsUpdate"
-            @update:selected-mask-name="selectedMaskName = $event"
-          />
+          <div
+            :class="[
+              highlightedTemplateFocus === 'workbench'
+                ? 'rounded-3xl border border-amber-200 bg-amber-50 p-2'
+                : ''
+            ]"
+          >
+            <TemplateWorkbenchSection
+              :active-mask-regions="activeMaskRegions"
+              :baseline-preview-error="baselinePreviewError"
+              :baseline-preview-loading="baselinePreviewLoading"
+              :baseline-preview-url="baselinePreviewUrl || null"
+              :can-trigger-ocr="canTriggerOcr"
+              :current-baseline-revision="currentBaselineRevision"
+              :editor-mode="editorMode"
+              :has-pending-mask-draft="hasPendingMaskDraft"
+              :ocr-blocks="ocrBlocks"
+              :ocr-panel-state="ocrPanelState"
+              :ocr-snapshot="ocrSnapshot"
+              :preview-state="processedPreviewState"
+              :selected-mask="selectedMask"
+              :selected-mask-id="selectedMaskId"
+              :selected-mask-name="selectedMaskName"
+              :selected-ocr-result-id="selectedOcrResultId"
+              :template-type="currentTemplate.templateType"
+              :workbench-image-label="workbenchImageLabel"
+              :workbench-view-mode="workbenchViewMode"
+              :workbench-view-options="workbenchViewOptions"
+              @convert-ocr-result-to-mask="handleConvertOcrResultToMask"
+              @delete-selected-mask="handleDeleteSelectedMask"
+              @select-mask="selectedMaskId = $event"
+              @select-ocr-block="handleSelectOcrBlock"
+              @select-view-mode="handleSelectWorkbenchViewMode"
+              @trigger-ocr="handleTriggerOcrAnalysis"
+              @update:regions="handleCanvasRegionsUpdate"
+              @update:selected-mask-name="selectedMaskName = $event"
+            />
+          </div>
         </div>
       </SectionCard>
     </div>

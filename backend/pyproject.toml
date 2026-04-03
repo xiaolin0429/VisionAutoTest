@@ -44,3 +44,4 @@ include = ["app*"]
 
 [project.scripts]
 vat-db-bootstrap = "app.db.bootstrap:main"
+vat-worker-run-queued = "app.workers.runner:main"

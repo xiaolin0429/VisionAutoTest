@@ -114,6 +114,8 @@
 - MVP 首批浏览器执行闭环会产出真实截图证据；执行截图通过 `step-results.actual_media_object_id` 和 `report_artifacts` 关联。
 - `template_assert` 会在 `step-results` 中写入 `expected_media_object_id / actual_media_object_id / diff_media_object_id`，用于定位基准图、实际截图和差异图。
 - `ocr_assert` 会在 `step-results` 中写入 `actual_media_object_id`，用于回溯 OCR 截图证据。
+- `step-results` 额外返回执行后修复定位元信息：`repair_resource_type / repair_resource_id / repair_route_path / repair_step_no`。
+- 修复定位优先级建议为：`template` > `component` > `test_case`，用于前端在失败后直接回跳到最合适的修复资源。
 - `report.summary_status` 必须与 `test-run.status` 保持一致；报告摘要中的结构化状态不得与执行终态冲突。
 - 报告摘要 `summary_json` 当前固定包含：
   - `status`

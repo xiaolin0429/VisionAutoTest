@@ -4,7 +4,7 @@ import SectionCard from '@/components/SectionCard.vue'
 import StatusTag from '@/components/StatusTag.vue'
 import { templateStatusOptions, templateTypeOptions } from '@/composables/useTemplateDialogs'
 import { formatDateTime } from '@/utils/format'
-import type { Template } from '@/types/models'
+import type { ExecutionReadinessIssue, Template } from '@/types/models'
 
 const props = defineProps<{
   templates: Template[]
@@ -15,6 +15,7 @@ const props = defineProps<{
   keyword: string
   status: string
   templateType: string
+  readinessIssuesByTemplateId: Record<number, ExecutionReadinessIssue[]>
 }>()
 
 const emit = defineEmits<{
@@ -124,6 +125,12 @@ const templateTypeModel = computed({
         </div>
         <p class="mb-0 mt-3 text-sm text-slate-400">
           {{ formatDateTime(template.updatedAt) }}
+        </p>
+        <p
+          v-if="props.readinessIssuesByTemplateId[template.id]?.length"
+          class="mb-0 mt-2 text-xs text-amber-700"
+        >
+          {{ props.readinessIssuesByTemplateId[template.id][0]?.message }}
         </p>
       </button>
     </div>

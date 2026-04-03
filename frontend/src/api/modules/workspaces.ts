@@ -1,10 +1,11 @@
 import { AUTH_USER_STORAGE_KEY } from '@/constants/storage'
 import { requestData, requestPage } from '@/api/client'
 import type {
+  ExecutionReadinessSummaryReadDTO,
   WorkspaceMemberReadDTO,
   WorkspaceReadDTO
 } from '@/types/backend'
-import type { Workspace } from '@/types/models'
+import type { ExecutionReadinessSummary, Workspace } from '@/types/models'
 
 function getStoredUserId() {
   const raw = localStorage.getItem(AUTH_USER_STORAGE_KEY)
@@ -52,4 +53,35 @@ export async function listWorkspaces(): Promise<Workspace[]> {
       }
     })
   )
+}
+
+function mapExecutionReadiness(summary: ExecutionReadinessSummaryReadDTO): ExecutionReadinessSummary {
+  return {
+    scope: summary.scope,
+    status: summary.status,
+    workspaceId: summary.workspace_id,
+    testSuiteId: summary.test_suite_id,
+    activeEnvironmentCount: summary.active_environment_count,
+    activeTestSuiteCount: summary.active_test_suite_count,
+    blockingIssueCount: summary.blocking_issue_count,
+    issues: summary.issues.map((issue) => ({
+      code: issue.code,
+      message: issue.message,
+      resourceType: issue.resource_type,
+      resourceId: issue.resource_id,
+      resourceName: issue.resource_name ?? '',
+      routePath: issue.route_path
+    }))
+  }
+}
+
+export async function getWorkspaceExecutionReadiness(
+  workspaceId: number
+): Promise<ExecutionReadinessSummary> {
+  const response = await requestData<ExecutionReadinessSummaryReadDTO>({
+    method: 'get',
+    url: `/workspaces/${workspaceId}/execution-readiness`
+  })
+
+  return mapExecutionReadiness(response)
 }

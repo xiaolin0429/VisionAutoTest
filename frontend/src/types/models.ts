@@ -64,6 +64,26 @@ export interface Workspace {
   updatedAt: string
 }
 
+export interface ExecutionReadinessIssue {
+  code: string
+  message: string
+  resourceType: string
+  resourceId: number | null
+  resourceName: string
+  routePath: string | null
+}
+
+export interface ExecutionReadinessSummary {
+  scope: 'workspace' | 'test_suite'
+  status: 'ready' | 'blocked'
+  workspaceId: number
+  testSuiteId: number | null
+  activeEnvironmentCount: number
+  activeTestSuiteCount: number
+  blockingIssueCount: number
+  issues: ExecutionReadinessIssue[]
+}
+
 export interface EnvironmentProfile {
   id: number
   workspaceId: number
@@ -499,6 +519,10 @@ export interface StepResult {
   actualMediaObjectId: number | null
   diffMediaObjectId: number | null
   artifactLabel?: string
+  repairResourceType: 'template' | 'component' | 'test_case' | null
+  repairResourceId: number | null
+  repairRoutePath: string | null
+  repairStepNo: number | null
 }
 
 export interface ReportArtifact {
