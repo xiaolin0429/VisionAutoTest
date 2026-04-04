@@ -174,6 +174,34 @@ const helperText = computed(() => {
   return '原图视图用于核对当前工作基准图。'
 })
 
+function isSelectedRegion(regionId: number) {
+  return props.selectedMaskId === regionId
+}
+
+function createRegionClass(regionId: number) {
+  if (isSelectedRegion(regionId)) {
+    return 'border-cyan-300 bg-cyan-300/18 shadow-[0_0_0_1px_rgba(34,211,238,0.45),0_20px_45px_rgba(8,47,73,0.35)] backdrop-blur-[1px]'
+  }
+
+  return 'border-amber-200/80 bg-slate-950/10 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.05)] hover:border-amber-200 hover:bg-amber-200/10'
+}
+
+function createRegionLabelClass(regionId: number) {
+  if (isSelectedRegion(regionId)) {
+    return 'bg-cyan-300 text-slate-950 shadow-lg shadow-cyan-950/30'
+  }
+
+  return 'bg-slate-950/78 text-slate-100 ring-1 ring-white/10'
+}
+
+function createRegionMetaClass(regionId: number) {
+  if (isSelectedRegion(regionId)) {
+    return 'absolute inset-x-0 bottom-0 rounded-b-xl bg-slate-950/78 px-2 py-1 text-[11px] text-cyan-50'
+  }
+
+  return 'absolute inset-x-0 bottom-0 rounded-b-xl bg-slate-950/55 px-2 py-1 text-[11px] text-slate-200'
+}
+
 function roundRatio(value: number) {
   return Number(value.toFixed(4))
 }
@@ -659,6 +687,11 @@ onBeforeUnmount(() => {
             class="absolute inset-0 bg-[radial-gradient(circle_at_top_left,_rgba(96,165,250,0.45),_rgba(15,23,42,1)_58%)]"
           />
 
+          <div
+            v-if="viewMode === 'mask' && regions.length > 0"
+            class="pointer-events-none absolute inset-0 bg-slate-950/16"
+          />
+
           <button
             v-for="result in resolvedOcrResults"
             v-show="viewMode === 'ocr'"
@@ -691,38 +724,37 @@ onBeforeUnmount(() => {
             :key="region.id"
             :style="createRegionStyle(region)"
             :class="[
-              'absolute rounded-xl border-2 text-left transition',
-              selectedMaskId === region.id
-                ? 'border-brand-400 bg-brand-400/20 shadow-lg shadow-brand-950/20'
-                : 'border-amber-300 bg-amber-300/20 shadow-lg shadow-amber-950/10'
+              'absolute overflow-hidden rounded-2xl border-2 text-left transition duration-200',
+              createRegionClass(region.id)
             ]"
             type="button"
             @mousedown="startMove(region, $event)"
           >
             <span
+              v-if="!isSelectedRegion(region.id)"
+              class="pointer-events-none absolute inset-0 bg-[linear-gradient(135deg,rgba(255,255,255,0.06),rgba(255,255,255,0)_45%,rgba(251,191,36,0.10))]"
+            />
+            <span
               :class="[
-                'absolute -top-7 left-0 rounded-lg px-2 py-1 text-xs font-medium',
-                selectedMaskId === region.id
-                  ? 'bg-brand-400 text-white'
-                  : 'bg-amber-300 text-slate-900'
+                'absolute left-2 top-2 rounded-full px-2.5 py-1 text-xs font-semibold tracking-[0.01em]',
+                createRegionLabelClass(region.id)
               ]"
             >
               {{ region.name }}
             </span>
 
             <span
-              v-if="selectedMaskId === region.id"
-              class="absolute inset-x-0 bottom-0 rounded-b-xl bg-slate-950/70 px-2 py-1 text-[11px] text-white"
+              :class="createRegionMetaClass(region.id)"
             >
               {{ formatRatio(region.xRatio) }} / {{ formatRatio(region.yRatio) }}
             </span>
 
             <span
               v-for="handle in ['nw', 'ne', 'sw', 'se']"
-              v-if="editable && selectedMaskId === region.id"
+              v-if="editable && isSelectedRegion(region.id)"
               :key="handle"
               :style="createHandleStyle(handle as ResizeHandle)"
-              class="absolute h-3 w-3 rounded-full border-2 border-white bg-brand-500"
+              class="absolute h-3 w-3 rounded-full border-2 border-white bg-cyan-400 shadow-lg shadow-cyan-950/30"
               @mousedown="startResize(region, handle as ResizeHandle, $event)"
             />
           </button>

@@ -141,7 +141,9 @@
 - 交互步骤（`click`、`input`、`scroll`（target=element）、`long_press`）支持两种元素定位模式，通过 `payload_json.locator` 切换：
   - `selector`（默认）：基于 CSS 选择器定位，需提供 `payload_json.selector`。
   - `ocr`：基于 OCR 文字识别定位，需提供 `payload_json.ocr_text`（目标文字）；可选 `payload_json.ocr_match_mode`（`exact` 或 `contains`，默认 `contains`）、`payload_json.ocr_case_sensitive`（布尔，默认 `false`）、`payload_json.ocr_occurrence`（正整数，默认 `1`，表示匹配第 N 个结果）。
+  - `visual`：基于视觉模板定位，需提供 `payload_json.template_id`；可选 `payload_json.threshold`（覆盖模板默认阈值）、`payload_json.anchor_x_ratio` / `payload_json.anchor_y_ratio`（0 到 1 之间，表示命中区域内的相对点击锚点，默认均为 `0.5`，即中心点）。
   - OCR 定位模式下执行引擎会先对当前页面截图做 OCR 识别，找到匹配文字的坐标后在该坐标执行操作。
+  - visual 定位模式下执行引擎会先在当前截图中匹配模板区域，再按锚点比例换算最终交互坐标；适合验证码框、图标按钮、无稳定文本的输入区域等场景。
 - `input` 步骤支持通用输入策略，通过 `payload_json.input_mode` 切换：
   - `fill`（默认）：适合普通输入框；selector 定位时优先使用元素填充，OCR 定位时在目标位置聚焦后直接输入文本。
   - `type`：适合需要键盘事件驱动的输入组件；聚焦目标后按字符逐位输入。

@@ -64,6 +64,12 @@ class StepExecutionOutcome:
     diff_artifact: VisionArtifact | None = None
 
 
+@dataclass(slots=True)
+class InteractionPoint:
+    x: float
+    y: float
+
+
 class BrowserStep(Protocol):
     step_no: int
     step_type: str
@@ -280,7 +286,8 @@ class PlaywrightBrowserExecutionAdapter:
                 loc = self._resolve_interaction_target(
                     page, payload, template_contexts=template_contexts
                 )
-                page.mouse.click(loc.center_x, loc.center_y)
+                point = self._resolve_visual_anchor_point(payload, loc)
+                page.mouse.click(point.x, point.y)
             else:
                 selector = self._payload_str(payload, "selector")
                 page.locator(selector).click(timeout=timeout_ms)
@@ -297,7 +304,8 @@ class PlaywrightBrowserExecutionAdapter:
                 loc = self._resolve_interaction_target(
                     page, payload, template_contexts=template_contexts
                 )
-                page.mouse.click(loc.center_x, loc.center_y)
+                point = self._resolve_visual_anchor_point(payload, loc)
+                page.mouse.click(point.x, point.y)
                 self._prepare_input_focus(page, input_mode=input_mode)
                 self._input_via_keyboard(
                     page,
@@ -440,7 +448,8 @@ class PlaywrightBrowserExecutionAdapter:
             loc = self._resolve_interaction_target(
                 page, payload, template_contexts=template_contexts
             )
-            page.mouse.move(loc.center_x, loc.center_y)
+            point = self._resolve_visual_anchor_point(payload, loc)
+            page.mouse.move(point.x, point.y)
             page.mouse.wheel(delta_x, delta_y)
             self._settle_scroll(page, behavior)
             return StepExecutionOutcome(status="passed", score_value=1.0)
@@ -487,7 +496,8 @@ class PlaywrightBrowserExecutionAdapter:
             loc = self._resolve_interaction_target(
                 page, payload, template_contexts=template_contexts
             )
-            cx, cy = loc.center_x, loc.center_y
+            point = self._resolve_visual_anchor_point(payload, loc)
+            cx, cy = point.x, point.y
         else:
             selector = self._payload_str(payload, "selector")
             locator = page.locator(selector)
@@ -690,6 +700,19 @@ class PlaywrightBrowserExecutionAdapter:
             threshold_override=threshold_override,
         )
 
+    def _resolve_visual_anchor_point(
+        self, payload: dict, target: OcrLocateResult | TemplateLocateResult
+    ) -> InteractionPoint:
+        if isinstance(target, OcrLocateResult):
+            return InteractionPoint(x=target.center_x, y=target.center_y)
+
+        anchor_x_ratio = self._optional_ratio(payload, "anchor_x_ratio", default=0.5)
+        anchor_y_ratio = self._optional_ratio(payload, "anchor_y_ratio", default=0.5)
+        return InteractionPoint(
+            x=target.rect_x + (target.rect_width * anchor_x_ratio),
+            y=target.rect_y + (target.rect_height * anchor_y_ratio),
+        )
+
     def _input_via_keyboard(
         self,
         page,
@@ -804,6 +827,17 @@ class PlaywrightBrowserExecutionAdapter:
             raise ValueError(
                 f"Step payload `{key}` must be greater than or equal to 0."
             )
+        return parsed
+
+    def _optional_ratio(self, payload: dict, key: str, *, default: float) -> float:
+        value = payload.get(key)
+        if value is None:
+            return default
+        if isinstance(value, bool) or not isinstance(value, (int, float, Decimal)):
+            raise ValueError(f"Step payload `{key}` must be numeric.")
+        parsed = float(value)
+        if parsed < 0 or parsed > 1:
+            raise ValueError(f"Step payload `{key}` must be between 0 and 1.")
         return parsed
 
     def _failure_code_for_assertion(self, step_type: str) -> str:

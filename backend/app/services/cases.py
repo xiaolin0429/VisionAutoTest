@@ -882,3 +882,20 @@ def _validate_visual_locator_fields(payload: dict, step_type: str) -> None:
             message=f"{step_type} visual locator threshold must be between 0 and 1.",
             status_code=422,
         )
+
+    for key in ("anchor_x_ratio", "anchor_y_ratio"):
+        value = payload.get(key)
+        if value is None:
+            continue
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise ApiError(
+                code="STEP_CONFIGURATION_INVALID",
+                message=f"{step_type} visual locator {key} must be numeric.",
+                status_code=422,
+            )
+        if not (0 <= float(value) <= 1):
+            raise ApiError(
+                code="STEP_CONFIGURATION_INVALID",
+                message=f"{step_type} visual locator {key} must be between 0 and 1.",
+                status_code=422,
+            )
