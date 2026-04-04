@@ -43,6 +43,10 @@ class BrowserStepResult:
     expected_media_object_id: int | None = None
     actual_artifact: VisionArtifact | None = None
     diff_artifact: VisionArtifact | None = None
+    parent_step_no: int | None = None
+    branch_key: str | None = None
+    branch_name: str | None = None
+    branch_step_index: int | None = None
 
 
 @dataclass(slots=True)
@@ -76,6 +80,10 @@ class BrowserStep(Protocol):
     payload_json: dict
     timeout_ms: int
     template_id: int | None
+    parent_step_no: int | None
+    branch_key: str | None
+    branch_name: str | None
+    branch_step_index: int | None
 
 
 class BrowserExecutionAdapter(Protocol):
@@ -129,6 +137,14 @@ class PlaywrightBrowserExecutionAdapter:
                 )
 
                 for step in steps:
+                    if step.parent_step_no is not None:
+                        if not self._should_execute_branch_step(
+                            page,
+                            step=step,
+                            steps=steps,
+                            template_contexts=template_contexts,
+                        ):
+                            continue
                     started_at = utc_now()
                     try:
                         outcome = self._execute_step(
@@ -177,9 +193,12 @@ class PlaywrightBrowserExecutionAdapter:
                             expected_media_object_id=outcome.expected_media_object_id,
                             actual_artifact=outcome.actual_artifact,
                             diff_artifact=outcome.diff_artifact,
+                            parent_step_no=step.parent_step_no,
+                            branch_key=step.branch_key,
+                            branch_name=step.branch_name,
+                            branch_step_index=step.branch_step_index,
                         )
                     )
-
                     if outcome.status == "failed":
                         failure_reason_code = self._failure_code_for_assertion(
                             step.step_type
@@ -376,7 +395,144 @@ class PlaywrightBrowserExecutionAdapter:
             return self._execute_ocr_assert(
                 page, step=step, case_run_id=case_run_id, timeout_ms=timeout_ms
             )
+        if step.step_type == "conditional_branch":
+            return self._execute_conditional_branch(
+                page,
+                step=step,
+                template_contexts=template_contexts,
+            )
         raise UnsupportedStepError(f"Unsupported step type: {step.step_type}")
+
+    def _execute_conditional_branch(
+        self,
+        page,
+        *,
+        step: BrowserStep,
+        template_contexts: dict[int, TemplateAssertionContext],
+    ) -> StepExecutionOutcome:
+        selected = self._select_matching_branch(
+            page,
+            payload=step.payload_json or {},
+            template_contexts=template_contexts,
+        )
+        if selected is None:
+            raise RuntimeError(
+                "conditional_branch did not match any branch and no else_branch was configured."
+            )
+        label = selected.get("branch_name") or selected.get("branch_key") or "默认分支"
+        return StepExecutionOutcome(
+            status="passed",
+            score_value=1.0,
+            error_message=f"命中分支：{label}",
+        )
+
+    def _should_execute_branch_step(
+        self,
+        page,
+        *,
+        step: BrowserStep,
+        steps: Sequence[BrowserStep],
+        template_contexts: dict[int, TemplateAssertionContext],
+    ) -> bool:
+        parent_step_no = step.parent_step_no
+        if parent_step_no is None:
+            return True
+        parent_step = next(
+            (item for item in steps if item.step_no == parent_step_no), None
+        )
+        if parent_step is None or parent_step.step_type != "conditional_branch":
+            return False
+        selected = self._select_matching_branch(
+            page,
+            payload=parent_step.payload_json or {},
+            template_contexts=template_contexts,
+        )
+        if selected is None:
+            return False
+        selected_key = selected.get("branch_key")
+        if selected_key is None and selected.get("condition") is None:
+            selected_key = "else"
+        return step.branch_key == selected_key
+
+    def _select_matching_branch(
+        self,
+        page,
+        *,
+        payload: dict,
+        template_contexts: dict[int, TemplateAssertionContext],
+    ) -> dict | None:
+        branches = (
+            payload.get("branches") if isinstance(payload.get("branches"), list) else []
+        )
+        for branch in branches:
+            if not isinstance(branch, dict):
+                continue
+            if self._evaluate_branch_condition(
+                page,
+                condition=branch.get("condition"),
+                template_contexts=template_contexts,
+            ):
+                return branch
+        else_branch = payload.get("else_branch")
+        if isinstance(else_branch, dict) and else_branch.get("enabled") is True:
+            return {
+                "branch_key": "else",
+                "branch_name": else_branch.get("branch_name") or "默认分支",
+                "condition": None,
+            }
+        return None
+
+    def _evaluate_branch_condition(
+        self,
+        page,
+        *,
+        condition: object,
+        template_contexts: dict[int, TemplateAssertionContext],
+    ) -> bool:
+        if not isinstance(condition, dict):
+            raise ValueError("conditional_branch requires condition object.")
+        condition_type = condition.get("type")
+        if condition_type == "selector_exists":
+            selector = condition.get("selector")
+            if not isinstance(selector, str) or not selector.strip():
+                raise ValueError("selector_exists requires selector.")
+            return page.locator(selector).count() > 0
+        if condition_type == "ocr_text_visible":
+            expected_text = condition.get("expected_text")
+            if not isinstance(expected_text, str) or not expected_text.strip():
+                raise ValueError("ocr_text_visible requires expected_text.")
+            screenshot_bytes = page.screenshot(type="png", full_page=False)
+            try:
+                self._vision_adapter.locate_by_ocr(
+                    image_png_bytes=screenshot_bytes,
+                    target_text=expected_text.strip(),
+                    match_mode=condition.get("match_mode", "contains"),
+                    case_sensitive=bool(condition.get("case_sensitive", False)),
+                    occurrence=1,
+                )
+                return True
+            except RuntimeError:
+                return False
+        if condition_type == "template_visible":
+            template_id = condition.get("template_id")
+            if isinstance(template_id, bool) or not isinstance(template_id, int):
+                raise ValueError("template_visible requires template_id.")
+            if template_id not in template_contexts:
+                raise ValueError("Template condition context is missing.")
+            screenshot_bytes = page.screenshot(type="png", full_page=True)
+            threshold_override = condition.get("threshold")
+            try:
+                self._vision_adapter.locate_by_template(
+                    context=template_contexts[template_id],
+                    actual_png_bytes=screenshot_bytes,
+                    threshold_override=float(threshold_override)
+                    if isinstance(threshold_override, (int, float, Decimal))
+                    else None,
+                )
+                return True
+            except RuntimeError:
+                return False
+        raise ValueError("conditional_branch condition type is not supported.")
 
     def _execute_navigate(
         self, page, *, step: BrowserStep, base_url: str, timeout_ms: int

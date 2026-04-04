@@ -361,6 +361,10 @@ export interface StepResultReadDTO {
   started_at: string | null
   finished_at: string | null
   duration_ms: number | null
+  parent_step_no: number | null
+  branch_key: string | null
+  branch_name: string | null
+  branch_step_index: number | null
   repair_resource_type: 'template' | 'component' | 'test_case' | null
   repair_resource_id: number | null
   repair_route_path: string | null

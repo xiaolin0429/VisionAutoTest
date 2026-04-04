@@ -538,6 +538,10 @@ class StepResultRead(ORMModel):
     started_at: datetime | None = None
     finished_at: datetime | None = None
     duration_ms: int | None = None
+    parent_step_no: int | None = None
+    branch_key: str | None = None
+    branch_name: str | None = None
+    branch_step_index: int | None = None
     repair_resource_type: Literal["template", "component", "test_case"] | None = None
     repair_resource_id: int | None = None
     repair_route_path: str | None = None
