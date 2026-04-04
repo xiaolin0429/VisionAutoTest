@@ -27,3 +27,4 @@ Thumbs.db
 venv/
 output/
 .playwright-mcp/
+doc/assets/

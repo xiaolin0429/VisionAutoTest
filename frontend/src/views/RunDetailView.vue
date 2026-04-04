@@ -30,6 +30,11 @@ interface StepMediaEntry {
   mediaObjectId: number
 }
 
+interface MediaPreviewItem {
+  mediaObjectId: number
+  title: string
+}
+
 const route = useRoute()
 const router = useRouter()
 const loading = ref(false)
@@ -44,10 +49,27 @@ const mediaObjectMap = ref<Record<number, MediaObject>>({})
 const mediaPreviewMap = ref<Record<number, string>>({})
 const mediaLoadingMap = ref<Record<number, boolean>>({})
 const mediaErrorMap = ref<Record<number, string>>({})
+const imagePreviewVisible = ref(false)
+const imagePreviewItems = ref<MediaPreviewItem[]>([])
+const imagePreviewIndex = ref(0)
 
 let pollTimer: number | null = null
 
 const ACTIVE_RUN_STATUSES = new Set(['queued', 'running', 'cancelling'])
+
+const currentPreviewItem = computed(() => {
+  return imagePreviewItems.value[imagePreviewIndex.value] ?? null
+})
+
+const imagePreviewTitle = computed(() => currentPreviewItem.value?.title ?? '')
+
+const imagePreviewUrl = computed(() => {
+  const mediaObjectId = currentPreviewItem.value?.mediaObjectId
+  return mediaObjectId ? mediaPreviewMap.value[mediaObjectId] ?? '' : ''
+})
+
+const canPreviewPrevious = computed(() => imagePreviewIndex.value > 0)
+const canPreviewNext = computed(() => imagePreviewIndex.value < imagePreviewItems.value.length - 1)
 
 const currentCaseRun = computed(() => {
   return runDetail.value?.caseRuns.find((item) => item.id === selectedCaseRunId.value) ?? null
@@ -170,6 +192,22 @@ function getStepMediaEntries(step: StepResult): StepMediaEntry[] {
   }
 
   return entries
+}
+
+function buildStepPreviewGroup(step: StepResult): MediaPreviewItem[] {
+  return getStepMediaEntries(step).map((entry) => ({
+    mediaObjectId: entry.mediaObjectId,
+    title: `${step.name} · ${entry.label}`
+  }))
+}
+
+function buildReportPreviewGroup(artifacts: ReportArtifact[]): MediaPreviewItem[] {
+  return artifacts
+    .filter((artifact): artifact is ReportArtifact & { mediaObjectId: number } => artifact.mediaObjectId !== null)
+    .map((artifact) => ({
+      mediaObjectId: artifact.mediaObjectId,
+      title: artifact.artifactType
+    }))
 }
 
 async function ensureMediaLoaded(mediaObjectId: number) {
@@ -320,6 +358,58 @@ async function downloadMedia(mediaObjectId: number) {
   } catch (error) {
     ElMessage.error(error instanceof Error ? error.message : '下载失败，请稍后重试。')
   }
+}
+
+async function openMediaPreview(
+  mediaObjectId: number,
+  title: string,
+  group: MediaPreviewItem[] = [{ mediaObjectId, title }]
+) {
+  try {
+    await Promise.all(group.map((item) => ensureMediaLoaded(item.mediaObjectId)))
+    const url = mediaPreviewMap.value[mediaObjectId]
+    if (!url) {
+      ElMessage.error(mediaErrorMap.value[mediaObjectId] || '当前媒体尚未加载完成。')
+      return
+    }
+
+    imagePreviewItems.value = group
+    imagePreviewIndex.value = Math.max(
+      0,
+      group.findIndex((item) => item.mediaObjectId === mediaObjectId)
+    )
+    imagePreviewVisible.value = true
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : '预览加载失败，请稍后重试。')
+  }
+}
+
+function closeMediaPreview() {
+  imagePreviewVisible.value = false
+  imagePreviewItems.value = []
+  imagePreviewIndex.value = 0
+}
+
+function previewPrevious() {
+  if (!canPreviewPrevious.value) {
+    return
+  }
+  imagePreviewIndex.value -= 1
+}
+
+function previewNext() {
+  if (!canPreviewNext.value) {
+    return
+  }
+  imagePreviewIndex.value += 1
+}
+
+async function downloadCurrentPreviewMedia() {
+  const mediaObjectId = currentPreviewItem.value?.mediaObjectId
+  if (!mediaObjectId) {
+    return
+  }
+  await downloadMedia(mediaObjectId)
 }
 
 function selectCaseRun(caseRun: CaseRun) {
@@ -673,8 +763,9 @@ onBeforeUnmount(() => {
               <img
                 v-if="artifact.mediaObjectId && mediaPreviewMap[artifact.mediaObjectId]"
                 :src="mediaPreviewMap[artifact.mediaObjectId]"
-                class="mb-3 h-40 w-full rounded-xl border border-slate-200 object-cover"
+                class="mb-3 h-40 w-full cursor-zoom-in rounded-xl border border-slate-200 object-cover transition hover:border-blue-300 hover:shadow-md"
                 :alt="artifact.artifactType"
+                @click="void openMediaPreview(artifact.mediaObjectId, artifact.artifactType, buildReportPreviewGroup(reportArtifacts))"
               />
 
               <div
@@ -829,7 +920,8 @@ onBeforeUnmount(() => {
                         v-if="mediaPreviewMap[entry.mediaObjectId]"
                         :src="mediaPreviewMap[entry.mediaObjectId]"
                         :alt="entry.label"
-                        class="h-48 w-full rounded-xl border border-slate-200 object-contain bg-white"
+                        class="h-48 w-full cursor-zoom-in rounded-xl border border-slate-200 bg-white object-contain transition hover:border-blue-300 hover:shadow-md"
+                        @click="void openMediaPreview(entry.mediaObjectId, `${step.name} · ${entry.label}`, buildStepPreviewGroup(step))"
                       />
 
                       <div
@@ -864,4 +956,59 @@ onBeforeUnmount(() => {
       </SectionCard>
     </div>
   </div>
+
+  <el-dialog
+    v-model="imagePreviewVisible"
+    :title="imagePreviewTitle || '图片预览'"
+    append-to-body
+    destroy-on-close
+    top="4vh"
+    width="min(92vw, 1200px)"
+    @closed="closeMediaPreview"
+  >
+    <div class="mb-3 flex items-center justify-between gap-3 text-xs text-slate-500">
+      <span>
+        {{ currentPreviewItem ? `媒体 #${currentPreviewItem.mediaObjectId}` : '未选择媒体' }}
+      </span>
+      <span v-if="imagePreviewItems.length > 1">
+        {{ imagePreviewIndex + 1 }} / {{ imagePreviewItems.length }}
+      </span>
+    </div>
+
+    <div class="flex max-h-[78vh] items-center justify-center gap-3 overflow-auto rounded-2xl bg-slate-950/95 p-4">
+      <el-button
+        :disabled="!canPreviewPrevious"
+        circle
+        plain
+        @click="previewPrevious"
+      >
+        ‹
+      </el-button>
+
+      <img
+        v-if="imagePreviewUrl"
+        :src="imagePreviewUrl"
+        :alt="imagePreviewTitle || '图片预览'"
+        class="max-h-[72vh] max-w-full rounded-xl object-contain"
+      >
+
+      <el-button
+        :disabled="!canPreviewNext"
+        circle
+        plain
+        @click="previewNext"
+      >
+        ›
+      </el-button>
+    </div>
+    <template #footer>
+      <div class="flex items-center justify-between gap-3">
+        <p class="m-0 text-xs text-slate-400">支持点击缩略图查看大图预览，当前组内可左右切换并直接下载。</p>
+        <div class="flex items-center gap-2">
+          <el-button :disabled="!currentPreviewItem" plain @click="void downloadCurrentPreviewMedia()">下载当前图片</el-button>
+          <el-button @click="closeMediaPreview">关闭</el-button>
+        </div>
+      </div>
+    </template>
+  </el-dialog>
 </template>

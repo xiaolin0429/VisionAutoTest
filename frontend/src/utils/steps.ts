@@ -33,6 +33,8 @@ export interface StepDraft {
   selector: string
   visualTemplateId: number | null
   visualThreshold: number | null
+  visualAnchorXRatio: number | null
+  visualAnchorYRatio: number | null
   text: string
   inputMode: InputMode
   otpLength: number | null
@@ -64,6 +66,8 @@ export interface StepValidationErrors {
   selector?: string
   visualTemplateId?: string
   visualThreshold?: string
+  visualAnchorXRatio?: string
+  visualAnchorYRatio?: string
   text?: string
   inputMode?: string
   otpLength?: string
@@ -161,6 +165,7 @@ const DEFAULT_SCROLL_DISTANCE = 1200
 const DEFAULT_LONG_PRESS_DURATION_MS = 800
 const DEFAULT_INPUT_MODE: InputMode = 'fill'
 const DEFAULT_OTP_PER_CHAR_DELAY_MS = 80
+const DEFAULT_VISUAL_ANCHOR_RATIO = 0.5
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
@@ -253,10 +258,14 @@ function buildLocatorSummary(payload: Record<string, unknown>) {
   }
 
   if (locator === 'visual') {
+    const anchorXRatio =
+      typeof payload.anchor_x_ratio === 'number' ? payload.anchor_x_ratio : DEFAULT_VISUAL_ANCHOR_RATIO
+    const anchorYRatio =
+      typeof payload.anchor_y_ratio === 'number' ? payload.anchor_y_ratio : DEFAULT_VISUAL_ANCHOR_RATIO
     return {
       locator,
       target: `模板 #${typeof payload.template_id === 'number' ? payload.template_id : '--'}`,
-      note: `视觉模板定位${typeof payload.threshold === 'number' ? ` · 阈值 ${payload.threshold.toFixed(2)}` : ''}`
+      note: `视觉模板定位${typeof payload.threshold === 'number' ? ` · 阈值 ${payload.threshold.toFixed(2)}` : ''} · 点击锚点 (${(anchorXRatio * 100).toFixed(0)}%, ${(anchorYRatio * 100).toFixed(0)}%)`
     }
   }
 
@@ -318,6 +327,8 @@ export function createEmptyStepDraft(index: number): StepDraft {
     selector: '',
     visualTemplateId: null,
     visualThreshold: null,
+    visualAnchorXRatio: DEFAULT_VISUAL_ANCHOR_RATIO,
+    visualAnchorYRatio: DEFAULT_VISUAL_ANCHOR_RATIO,
     text: '',
     inputMode: DEFAULT_INPUT_MODE,
     otpLength: null,
@@ -406,6 +417,14 @@ export function normalizeStepByType(step: StepDraft, nextType: StepType): StepDr
       nextType === 'click' || nextType === 'input' || nextType === 'scroll' || nextType === 'long_press'
         ? step.visualThreshold
         : null,
+    visualAnchorXRatio:
+      nextType === 'click' || nextType === 'input' || nextType === 'scroll' || nextType === 'long_press'
+        ? step.visualAnchorXRatio
+        : DEFAULT_VISUAL_ANCHOR_RATIO,
+    visualAnchorYRatio:
+      nextType === 'click' || nextType === 'input' || nextType === 'scroll' || nextType === 'long_press'
+        ? step.visualAnchorYRatio
+        : DEFAULT_VISUAL_ANCHOR_RATIO,
     text: nextType === 'input' ? step.text : '',
     inputMode: nextType === 'input' ? step.inputMode : DEFAULT_INPUT_MODE,
     otpLength: nextType === 'input' ? step.otpLength : null,
@@ -445,6 +464,10 @@ export function buildStepDraft(step: Step): StepDraft {
       draft.selector = typeof payload.selector === 'string' ? payload.selector : ''
       draft.visualTemplateId = typeof payload.template_id === 'number' ? payload.template_id : null
       draft.visualThreshold = typeof payload.threshold === 'number' ? payload.threshold : null
+      draft.visualAnchorXRatio =
+        typeof payload.anchor_x_ratio === 'number' ? payload.anchor_x_ratio : DEFAULT_VISUAL_ANCHOR_RATIO
+      draft.visualAnchorYRatio =
+        typeof payload.anchor_y_ratio === 'number' ? payload.anchor_y_ratio : DEFAULT_VISUAL_ANCHOR_RATIO
       draft.ocrText = typeof payload.ocr_text === 'string' ? payload.ocr_text : ''
       draft.ocrMatchMode = isOcrLocatorMatchMode(payload.ocr_match_mode) ? payload.ocr_match_mode : 'contains'
       draft.ocrCaseSensitive = payload.ocr_case_sensitive === true
@@ -453,6 +476,8 @@ export function buildStepDraft(step: Step): StepDraft {
       delete payload.selector
       delete payload.template_id
       delete payload.threshold
+      delete payload.anchor_x_ratio
+      delete payload.anchor_y_ratio
       delete payload.ocr_text
       delete payload.ocr_match_mode
       delete payload.ocr_case_sensitive
@@ -463,6 +488,10 @@ export function buildStepDraft(step: Step): StepDraft {
       draft.selector = typeof payload.selector === 'string' ? payload.selector : ''
       draft.visualTemplateId = typeof payload.template_id === 'number' ? payload.template_id : null
       draft.visualThreshold = typeof payload.threshold === 'number' ? payload.threshold : null
+      draft.visualAnchorXRatio =
+        typeof payload.anchor_x_ratio === 'number' ? payload.anchor_x_ratio : DEFAULT_VISUAL_ANCHOR_RATIO
+      draft.visualAnchorYRatio =
+        typeof payload.anchor_y_ratio === 'number' ? payload.anchor_y_ratio : DEFAULT_VISUAL_ANCHOR_RATIO
       draft.text = typeof payload.text === 'string' ? payload.text : ''
       draft.inputMode = isInputMode(payload.input_mode) ? payload.input_mode : DEFAULT_INPUT_MODE
       draft.otpLength = typeof payload.otp_length === 'number' && payload.otp_length >= 1 ? payload.otp_length : null
@@ -478,6 +507,8 @@ export function buildStepDraft(step: Step): StepDraft {
       delete payload.selector
       delete payload.template_id
       delete payload.threshold
+      delete payload.anchor_x_ratio
+      delete payload.anchor_y_ratio
       delete payload.text
       delete payload.input_mode
       delete payload.otp_length
@@ -516,6 +547,10 @@ export function buildStepDraft(step: Step): StepDraft {
       draft.selector = typeof payload.selector === 'string' ? payload.selector : ''
       draft.visualTemplateId = typeof payload.template_id === 'number' ? payload.template_id : null
       draft.visualThreshold = typeof payload.threshold === 'number' ? payload.threshold : null
+      draft.visualAnchorXRatio =
+        typeof payload.anchor_x_ratio === 'number' ? payload.anchor_x_ratio : DEFAULT_VISUAL_ANCHOR_RATIO
+      draft.visualAnchorYRatio =
+        typeof payload.anchor_y_ratio === 'number' ? payload.anchor_y_ratio : DEFAULT_VISUAL_ANCHOR_RATIO
       draft.direction = isScrollDirection(payload.direction) ? payload.direction : 'down'
       draft.distance =
         typeof payload.distance === 'number' && Number.isFinite(payload.distance)
@@ -531,6 +566,8 @@ export function buildStepDraft(step: Step): StepDraft {
       delete payload.selector
       delete payload.template_id
       delete payload.threshold
+      delete payload.anchor_x_ratio
+      delete payload.anchor_y_ratio
       delete payload.direction
       delete payload.distance
       delete payload.behavior
@@ -544,6 +581,10 @@ export function buildStepDraft(step: Step): StepDraft {
       draft.selector = typeof payload.selector === 'string' ? payload.selector : ''
       draft.visualTemplateId = typeof payload.template_id === 'number' ? payload.template_id : null
       draft.visualThreshold = typeof payload.threshold === 'number' ? payload.threshold : null
+      draft.visualAnchorXRatio =
+        typeof payload.anchor_x_ratio === 'number' ? payload.anchor_x_ratio : DEFAULT_VISUAL_ANCHOR_RATIO
+      draft.visualAnchorYRatio =
+        typeof payload.anchor_y_ratio === 'number' ? payload.anchor_y_ratio : DEFAULT_VISUAL_ANCHOR_RATIO
       draft.durationMs =
         typeof payload.duration_ms === 'number' && Number.isFinite(payload.duration_ms)
           ? payload.duration_ms
@@ -557,6 +598,8 @@ export function buildStepDraft(step: Step): StepDraft {
       delete payload.selector
       delete payload.template_id
       delete payload.threshold
+      delete payload.anchor_x_ratio
+      delete payload.anchor_y_ratio
       delete payload.duration_ms
       delete payload.button
       delete payload.ocr_text
@@ -622,6 +665,22 @@ export function validateStepDraft(step: StepDraft): StepValidationErrors {
         if (step.visualThreshold !== null && (step.visualThreshold < 0 || step.visualThreshold > 1)) {
           errors.visualThreshold = '视觉定位阈值必须在 0 到 1 之间。'
         }
+        if (
+          step.visualAnchorXRatio === null ||
+          !Number.isFinite(step.visualAnchorXRatio) ||
+          step.visualAnchorXRatio < 0 ||
+          step.visualAnchorXRatio > 1
+        ) {
+          errors.visualAnchorXRatio = '视觉锚点横向比例必须在 0 到 1 之间。'
+        }
+        if (
+          step.visualAnchorYRatio === null ||
+          !Number.isFinite(step.visualAnchorYRatio) ||
+          step.visualAnchorYRatio < 0 ||
+          step.visualAnchorYRatio > 1
+        ) {
+          errors.visualAnchorYRatio = '视觉锚点纵向比例必须在 0 到 1 之间。'
+        }
       } else if (!step.selector.trim()) {
         errors.selector = '请选择或填写点击目标选择器。'
       }
@@ -643,6 +702,22 @@ export function validateStepDraft(step: StepDraft): StepValidationErrors {
         }
         if (step.visualThreshold !== null && (step.visualThreshold < 0 || step.visualThreshold > 1)) {
           errors.visualThreshold = '视觉定位阈值必须在 0 到 1 之间。'
+        }
+        if (
+          step.visualAnchorXRatio === null ||
+          !Number.isFinite(step.visualAnchorXRatio) ||
+          step.visualAnchorXRatio < 0 ||
+          step.visualAnchorXRatio > 1
+        ) {
+          errors.visualAnchorXRatio = '视觉锚点横向比例必须在 0 到 1 之间。'
+        }
+        if (
+          step.visualAnchorYRatio === null ||
+          !Number.isFinite(step.visualAnchorYRatio) ||
+          step.visualAnchorYRatio < 0 ||
+          step.visualAnchorYRatio > 1
+        ) {
+          errors.visualAnchorYRatio = '视觉锚点纵向比例必须在 0 到 1 之间。'
         }
       } else if (!step.selector.trim()) {
         errors.selector = '请输入输入目标选择器。'
@@ -723,6 +798,22 @@ export function validateStepDraft(step: StepDraft): StepValidationErrors {
           if (step.visualThreshold !== null && (step.visualThreshold < 0 || step.visualThreshold > 1)) {
             errors.visualThreshold = '视觉定位阈值必须在 0 到 1 之间。'
           }
+          if (
+            step.visualAnchorXRatio === null ||
+            !Number.isFinite(step.visualAnchorXRatio) ||
+            step.visualAnchorXRatio < 0 ||
+            step.visualAnchorXRatio > 1
+          ) {
+            errors.visualAnchorXRatio = '视觉锚点横向比例必须在 0 到 1 之间。'
+          }
+          if (
+            step.visualAnchorYRatio === null ||
+            !Number.isFinite(step.visualAnchorYRatio) ||
+            step.visualAnchorYRatio < 0 ||
+            step.visualAnchorYRatio > 1
+          ) {
+            errors.visualAnchorYRatio = '视觉锚点纵向比例必须在 0 到 1 之间。'
+          }
         } else if (!step.selector.trim()) {
           errors.selector = '元素滑动必须填写选择器。'
         }
@@ -754,6 +845,22 @@ export function validateStepDraft(step: StepDraft): StepValidationErrors {
         }
         if (step.visualThreshold !== null && (step.visualThreshold < 0 || step.visualThreshold > 1)) {
           errors.visualThreshold = '视觉定位阈值必须在 0 到 1 之间。'
+        }
+        if (
+          step.visualAnchorXRatio === null ||
+          !Number.isFinite(step.visualAnchorXRatio) ||
+          step.visualAnchorXRatio < 0 ||
+          step.visualAnchorXRatio > 1
+        ) {
+          errors.visualAnchorXRatio = '视觉锚点横向比例必须在 0 到 1 之间。'
+        }
+        if (
+          step.visualAnchorYRatio === null ||
+          !Number.isFinite(step.visualAnchorYRatio) ||
+          step.visualAnchorYRatio < 0 ||
+          step.visualAnchorYRatio > 1
+        ) {
+          errors.visualAnchorYRatio = '视觉锚点纵向比例必须在 0 到 1 之间。'
         }
       } else if (!step.selector.trim()) {
         errors.selector = '长按步骤必须填写选择器。'
@@ -793,7 +900,9 @@ function buildStructuredPayload(step: StepDraft) {
           ? {
               locator: 'visual',
               template_id: step.visualTemplateId,
-              ...(step.visualThreshold !== null ? { threshold: Number(step.visualThreshold) } : {})
+              ...(step.visualThreshold !== null ? { threshold: Number(step.visualThreshold) } : {}),
+              anchor_x_ratio: Number(step.visualAnchorXRatio ?? DEFAULT_VISUAL_ANCHOR_RATIO),
+              anchor_y_ratio: Number(step.visualAnchorYRatio ?? DEFAULT_VISUAL_ANCHOR_RATIO)
             }
         : {
             selector: step.selector.trim()
@@ -812,7 +921,9 @@ function buildStructuredPayload(step: StepDraft) {
             ? {
                 locator: 'visual',
                 template_id: step.visualTemplateId,
-                ...(step.visualThreshold !== null ? { threshold: Number(step.visualThreshold) } : {})
+                ...(step.visualThreshold !== null ? { threshold: Number(step.visualThreshold) } : {}),
+                anchor_x_ratio: Number(step.visualAnchorXRatio ?? DEFAULT_VISUAL_ANCHOR_RATIO),
+                anchor_y_ratio: Number(step.visualAnchorYRatio ?? DEFAULT_VISUAL_ANCHOR_RATIO)
               }
           : {
               selector: step.selector.trim()
@@ -867,6 +978,8 @@ function buildStructuredPayload(step: StepDraft) {
           if (step.visualThreshold !== null) {
             payload.threshold = Number(step.visualThreshold)
           }
+          payload.anchor_x_ratio = Number(step.visualAnchorXRatio ?? DEFAULT_VISUAL_ANCHOR_RATIO)
+          payload.anchor_y_ratio = Number(step.visualAnchorYRatio ?? DEFAULT_VISUAL_ANCHOR_RATIO)
         } else {
           payload.selector = step.selector.trim()
         }
@@ -890,6 +1003,8 @@ function buildStructuredPayload(step: StepDraft) {
               locator: 'visual',
               template_id: step.visualTemplateId,
               ...(step.visualThreshold !== null ? { threshold: Number(step.visualThreshold) } : {}),
+              anchor_x_ratio: Number(step.visualAnchorXRatio ?? DEFAULT_VISUAL_ANCHOR_RATIO),
+              anchor_y_ratio: Number(step.visualAnchorYRatio ?? DEFAULT_VISUAL_ANCHOR_RATIO),
               duration_ms: Number(step.durationMs ?? DEFAULT_LONG_PRESS_DURATION_MS),
               button: step.button
             }
@@ -940,7 +1055,7 @@ export function formatStepSummary(source: StepSummarySource) {
           locatorSummary.locator === 'ocr'
             ? ['locator', 'ocr_text', 'ocr_match_mode', 'ocr_case_sensitive', 'ocr_occurrence']
             : locatorSummary.locator === 'visual'
-              ? ['locator', 'template_id', 'threshold']
+              ? ['locator', 'template_id', 'threshold', 'anchor_x_ratio', 'anchor_y_ratio']
             : ['selector']
       return {
         target: `点击 ${locatorSummary.target}`,
@@ -960,7 +1075,7 @@ export function formatStepSummary(source: StepSummarySource) {
           locatorSummary.locator === 'ocr'
             ? ['locator', 'ocr_text', 'ocr_match_mode', 'ocr_case_sensitive', 'ocr_occurrence', 'text', 'input_mode', 'otp_length', 'per_char_delay_ms']
             : locatorSummary.locator === 'visual'
-              ? ['locator', 'template_id', 'threshold', 'text', 'input_mode', 'otp_length', 'per_char_delay_ms']
+              ? ['locator', 'template_id', 'threshold', 'anchor_x_ratio', 'anchor_y_ratio', 'text', 'input_mode', 'otp_length', 'per_char_delay_ms']
             : ['selector', 'text', 'input_mode', 'otp_length', 'per_char_delay_ms']
       return {
         target: `输入到 ${locatorSummary.target}`,
@@ -1024,7 +1139,7 @@ export function formatStepSummary(source: StepSummarySource) {
           ? (locatorSummary?.locator === 'ocr'
               ? ['target', 'locator', 'ocr_text', 'ocr_match_mode', 'ocr_case_sensitive', 'ocr_occurrence', 'direction', 'distance', 'behavior']
               : locatorSummary?.locator === 'visual'
-                ? ['target', 'locator', 'template_id', 'threshold', 'direction', 'distance', 'behavior']
+                ? ['target', 'locator', 'template_id', 'threshold', 'anchor_x_ratio', 'anchor_y_ratio', 'direction', 'distance', 'behavior']
               : ['target', 'selector', 'direction', 'distance', 'behavior'])
           : ['target', 'direction', 'distance', 'behavior']
 
@@ -1042,12 +1157,12 @@ export function formatStepSummary(source: StepSummarySource) {
         typeof payload.duration_ms === 'number' && Number.isFinite(payload.duration_ms)
           ? payload.duration_ms
           : DEFAULT_LONG_PRESS_DURATION_MS
-      const knownKeys =
-        locatorSummary.locator === 'ocr'
-          ? ['locator', 'ocr_text', 'ocr_match_mode', 'ocr_case_sensitive', 'ocr_occurrence', 'duration_ms', 'button']
+        const knownKeys =
+          locatorSummary.locator === 'ocr'
+            ? ['locator', 'ocr_text', 'ocr_match_mode', 'ocr_case_sensitive', 'ocr_occurrence', 'duration_ms', 'button']
           : locatorSummary.locator === 'visual'
-            ? ['locator', 'template_id', 'threshold', 'duration_ms', 'button']
-          : ['selector', 'duration_ms', 'button']
+            ? ['locator', 'template_id', 'threshold', 'anchor_x_ratio', 'anchor_y_ratio', 'duration_ms', 'button']
+            : ['selector', 'duration_ms', 'button']
       return {
         target: `长按 ${locatorSummary.target} ${duration} ms`,
         note: `${locatorSummary.note} · 按钮 ${isLongPressButton(payload.button) ? payload.button : 'left'} · ${timeoutAndRetry}${formatExtraPayloadKeys(

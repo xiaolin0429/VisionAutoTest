@@ -232,13 +232,29 @@ function showLocatorFields(step: StepDraft) {
                 </div>
               </div>
             </template>
-            <div v-if="step.locator === 'visual'">
-              <label class="mb-2 block text-sm font-medium text-slate-700">匹配阈值(可选)</label>
-              <el-input-number v-model="step.visualThreshold" :max="1" :min="0" :precision="2" :step="0.01" :value-on-clear="null" class="!w-full" placeholder="留空则使用模板默认阈值" />
-              <p v-if="getStepErrorFn(index, 'visualThreshold')" class="mt-2 text-xs text-rose-600">
-                {{ getStepErrorFn(index, 'visualThreshold') }}
-              </p>
-            </div>
+              <div v-if="step.locator === 'visual'">
+                <label class="mb-2 block text-sm font-medium text-slate-700">匹配阈值(可选)</label>
+                <el-input-number v-model="step.visualThreshold" :max="1" :min="0" :precision="2" :step="0.01" :value-on-clear="null" class="!w-full" placeholder="留空则使用模板默认阈值" />
+                <p v-if="getStepErrorFn(index, 'visualThreshold')" class="mt-2 text-xs text-rose-600">
+                  {{ getStepErrorFn(index, 'visualThreshold') }}
+                </p>
+              </div>
+              <div v-if="step.locator === 'visual'">
+                <label class="mb-2 block text-sm font-medium text-slate-700">锚点横向比例</label>
+                <el-input-number v-model="step.visualAnchorXRatio" :max="1" :min="0" :precision="2" :step="0.01" class="!w-full" />
+                <p class="mt-2 text-xs text-slate-500">0 表示命中区域最左侧，1 表示最右侧，默认 0.50。</p>
+                <p v-if="getStepErrorFn(index, 'visualAnchorXRatio')" class="mt-2 text-xs text-rose-600">
+                  {{ getStepErrorFn(index, 'visualAnchorXRatio') }}
+                </p>
+              </div>
+              <div v-if="step.locator === 'visual'">
+                <label class="mb-2 block text-sm font-medium text-slate-700">锚点纵向比例</label>
+                <el-input-number v-model="step.visualAnchorYRatio" :max="1" :min="0" :precision="2" :step="0.01" class="!w-full" />
+                <p class="mt-2 text-xs text-slate-500">0 表示命中区域顶部，1 表示底部，默认 0.50。</p>
+                <p v-if="getStepErrorFn(index, 'visualAnchorYRatio')" class="mt-2 text-xs text-rose-600">
+                  {{ getStepErrorFn(index, 'visualAnchorYRatio') }}
+                </p>
+              </div>
           </template>
 
           <!-- navigate -->
@@ -348,6 +364,22 @@ function showLocatorFields(step: StepDraft) {
                   {{ getStepErrorFn(index, 'visualThreshold') }}
                 </p>
               </div>
+              <div v-if="step.locator === 'visual'" class="mt-4 grid grid-cols-2 gap-4">
+                <div>
+                  <label class="mb-2 block text-sm font-medium text-slate-700">锚点横向比例</label>
+                  <el-input-number v-model="step.visualAnchorXRatio" :max="1" :min="0" :precision="2" :step="0.01" class="!w-full" />
+                  <p v-if="getStepErrorFn(index, 'visualAnchorXRatio')" class="mt-2 text-xs text-rose-600">
+                    {{ getStepErrorFn(index, 'visualAnchorXRatio') }}
+                  </p>
+                </div>
+                <div>
+                  <label class="mb-2 block text-sm font-medium text-slate-700">锚点纵向比例</label>
+                  <el-input-number v-model="step.visualAnchorYRatio" :max="1" :min="0" :precision="2" :step="0.01" class="!w-full" />
+                  <p v-if="getStepErrorFn(index, 'visualAnchorYRatio')" class="mt-2 text-xs text-rose-600">
+                    {{ getStepErrorFn(index, 'visualAnchorYRatio') }}
+                  </p>
+                </div>
+              </div>
             </div>
             <div>
               <label class="mb-2 block text-sm font-medium text-slate-700">滑动距离(px)</label>
@@ -439,6 +471,20 @@ function showLocatorFields(step: StepDraft) {
               <el-input-number v-model="step.visualThreshold" :max="1" :min="0" :precision="2" :step="0.01" :value-on-clear="null" class="!w-full" placeholder="留空则使用模板默认阈值" />
               <p v-if="getStepErrorFn(index, 'visualThreshold')" class="mt-2 text-xs text-rose-600">
                 {{ getStepErrorFn(index, 'visualThreshold') }}
+              </p>
+            </div>
+            <div v-if="step.locator === 'visual'">
+              <label class="mb-2 block text-sm font-medium text-slate-700">锚点横向比例</label>
+              <el-input-number v-model="step.visualAnchorXRatio" :max="1" :min="0" :precision="2" :step="0.01" class="!w-full" />
+              <p v-if="getStepErrorFn(index, 'visualAnchorXRatio')" class="mt-2 text-xs text-rose-600">
+                {{ getStepErrorFn(index, 'visualAnchorXRatio') }}
+              </p>
+            </div>
+            <div v-if="step.locator === 'visual'">
+              <label class="mb-2 block text-sm font-medium text-slate-700">锚点纵向比例</label>
+              <el-input-number v-model="step.visualAnchorYRatio" :max="1" :min="0" :precision="2" :step="0.01" class="!w-full" />
+              <p v-if="getStepErrorFn(index, 'visualAnchorYRatio')" class="mt-2 text-xs text-rose-600">
+                {{ getStepErrorFn(index, 'visualAnchorYRatio') }}
               </p>
             </div>
             <div class="col-span-2">
@@ -534,6 +580,20 @@ function showLocatorFields(step: StepDraft) {
               <el-input-number v-model="step.visualThreshold" :max="1" :min="0" :precision="2" :step="0.01" :value-on-clear="null" class="!w-full" placeholder="留空则使用模板默认阈值" />
               <p v-if="getStepErrorFn(index, 'visualThreshold')" class="mt-2 text-xs text-rose-600">
                 {{ getStepErrorFn(index, 'visualThreshold') }}
+              </p>
+            </div>
+            <div v-if="step.locator === 'visual'">
+              <label class="mb-2 block text-sm font-medium text-slate-700">锚点横向比例</label>
+              <el-input-number v-model="step.visualAnchorXRatio" :max="1" :min="0" :precision="2" :step="0.01" class="!w-full" />
+              <p v-if="getStepErrorFn(index, 'visualAnchorXRatio')" class="mt-2 text-xs text-rose-600">
+                {{ getStepErrorFn(index, 'visualAnchorXRatio') }}
+              </p>
+            </div>
+            <div v-if="step.locator === 'visual'">
+              <label class="mb-2 block text-sm font-medium text-slate-700">锚点纵向比例</label>
+              <el-input-number v-model="step.visualAnchorYRatio" :max="1" :min="0" :precision="2" :step="0.01" class="!w-full" />
+              <p v-if="getStepErrorFn(index, 'visualAnchorYRatio')" class="mt-2 text-xs text-rose-600">
+                {{ getStepErrorFn(index, 'visualAnchorYRatio') }}
               </p>
             </div>
             <div v-if="step.inputMode === 'otp'">

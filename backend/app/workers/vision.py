@@ -283,7 +283,7 @@ class DefaultVisionAssertionAdapter:
         image = self._decode_image(cv2, image_png_bytes)
         image_height, image_width = image.shape[:2]
         overlay_image = self._build_overlay_image(cv2, image, mask_regions)
-        processed_image = self._apply_masks(image, mask_regions)
+        processed_image = self._build_processed_preview_image(cv2, image, mask_regions)
         return {
             "image_width": image_width,
             "image_height": image_height,
@@ -442,6 +442,48 @@ class DefaultVisionAssertionAdapter:
             )
             masked_image[top:bottom, left:right] = 0
         return masked_image
+
+    def _build_processed_preview_image(
+        self, cv2, image, mask_regions: list[MaskRegionRatio]
+    ):
+        processed_image = image.copy()
+        height, width = processed_image.shape[:2]
+        for region in mask_regions:
+            left = int(width * region.x_ratio)
+            top = int(height * region.y_ratio)
+            right = min(
+                width, max(left + 1, int(width * (region.x_ratio + region.width_ratio)))
+            )
+            bottom = min(
+                height,
+                max(top + 1, int(height * (region.y_ratio + region.height_ratio))),
+            )
+            region_image = processed_image[top:bottom, left:right]
+            if region_image.size == 0:
+                continue
+            processed_image[top:bottom, left:right] = self._pixelate_region(
+                cv2, region_image
+            )
+        return processed_image
+
+    def _pixelate_region(self, cv2, region_image):
+        region_height, region_width = region_image.shape[:2]
+        if region_height <= 2 or region_width <= 2:
+            return region_image
+
+        block_size = max(8, min(region_width, region_height) // 10)
+        sample_width = max(1, region_width // block_size)
+        sample_height = max(1, region_height // block_size)
+        reduced = cv2.resize(
+            region_image,
+            (sample_width, sample_height),
+            interpolation=cv2.INTER_LINEAR,
+        )
+        return cv2.resize(
+            reduced,
+            (region_width, region_height),
+            interpolation=cv2.INTER_NEAREST,
+        )
 
     def _build_overlay_image(self, cv2, image, mask_regions: list[MaskRegionRatio]):
         overlay = image.copy()
