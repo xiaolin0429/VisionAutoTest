@@ -1039,6 +1039,212 @@ def test_component_call_can_expand_new_browser_steps(monkeypatch):
         assert all(item["status"] == "passed" for item in step_results)
 
 
+def test_conditional_branch_steps_produce_branch_execution_metadata(monkeypatch):
+    _reset_local_data()
+
+    from app.workers.browser import (
+        BrowserArtifact,
+        BrowserStepResult,
+        CaseExecutionResult,
+    )
+    from tests.support.constants import TINY_PNG_BYTES
+    from datetime import datetime, timezone
+
+    class ConditionalBranchAwareFakeAdapter:
+        def execute_case(
+            self,
+            *,
+            base_url: str,
+            case_run_id: int,
+            device_profile,
+            steps,
+            template_contexts,
+        ):
+            _ = (base_url, device_profile, template_contexts)
+            step_results: list[BrowserStepResult] = []
+            for step in steps:
+                if getattr(step, "branch_key", None) == "else":
+                    continue
+                started_at = datetime.now(timezone.utc)
+                finished_at = datetime.now(timezone.utc)
+                step_results.append(
+                    BrowserStepResult(
+                        step_no=step.step_no,
+                        step_type=step.step_type,
+                        status="passed",
+                        started_at=started_at,
+                        finished_at=finished_at,
+                        duration_ms=1,
+                        score_value=1.0,
+                        parent_step_no=getattr(step, "parent_step_no", None),
+                        branch_key=getattr(step, "branch_key", None),
+                        branch_name=getattr(step, "branch_name", None),
+                        branch_step_index=getattr(step, "branch_step_index", None),
+                    )
+                )
+
+            return CaseExecutionResult(
+                status="passed",
+                step_results=step_results,
+                artifact=BrowserArtifact(
+                    file_name=f"case-run-{case_run_id}.png",
+                    content_type="image/png",
+                    content_bytes=TINY_PNG_BYTES,
+                ),
+            )
+
+    monkeypatch.setattr(
+        "app.workers.execution.build_browser_execution_adapter",
+        lambda: ConditionalBranchAwareFakeAdapter(),
+    )
+
+    with app_client() as client:
+        login_resp = client.post(
+            "/api/v1/sessions",
+            json={"username": TEST_ADMIN_USERNAME, "password": TEST_ADMIN_PASSWORD},
+        )
+        token = login_resp.json()["data"]["access_token"]
+        headers = {"Authorization": f"Bearer {token}"}
+
+        workspace_resp = client.post(
+            "/api/v1/workspaces",
+            json={
+                "workspace_code": "conditional_branch_exec_ws",
+                "workspace_name": "Conditional Branch Exec WS",
+            },
+            headers=headers,
+        )
+        workspace_id = workspace_resp.json()["data"]["id"]
+        workspace_headers = headers | {"X-Workspace-Id": str(workspace_id)}
+
+        env_resp = client.post(
+            "/api/v1/environment-profiles",
+            json={"profile_name": "dev", "base_url": "https://example.com"},
+            headers=workspace_headers,
+        )
+        environment_profile_id = env_resp.json()["data"]["id"]
+
+        case_resp = client.post(
+            "/api/v1/test-cases",
+            json={
+                "case_code": "conditional_branch_case",
+                "case_name": "Conditional Branch Case",
+                "status": "published",
+            },
+            headers=workspace_headers,
+        )
+        test_case_id = case_resp.json()["data"]["id"]
+
+        case_steps_resp = client.put(
+            f"/api/v1/test-cases/{test_case_id}/steps",
+            json=[
+                {
+                    "step_no": 1,
+                    "step_type": "conditional_branch",
+                    "step_name": "Branch Decision",
+                    "payload_json": {
+                        "branches": [
+                            {
+                                "branch_key": "if_a",
+                                "branch_name": "分支A",
+                                "condition": {
+                                    "type": "selector_exists",
+                                    "selector": ".state-a",
+                                },
+                                "steps": [
+                                    {
+                                        "step_type": "wait",
+                                        "step_name": "Wait In A",
+                                        "payload_json": {"ms": 100},
+                                        "timeout_ms": 15000,
+                                        "retry_times": 0,
+                                    },
+                                    {
+                                        "step_type": "click",
+                                        "step_name": "Click In A",
+                                        "payload_json": {"selector": ".btn-a"},
+                                        "timeout_ms": 15000,
+                                        "retry_times": 0,
+                                    },
+                                ],
+                            }
+                        ],
+                        "else_branch": {
+                            "enabled": True,
+                            "branch_name": "默认分支",
+                            "steps": [
+                                {
+                                    "step_type": "wait",
+                                    "step_name": "Wait In Else",
+                                    "payload_json": {"ms": 50},
+                                    "timeout_ms": 15000,
+                                    "retry_times": 0,
+                                }
+                            ],
+                        },
+                    },
+                }
+            ],
+            headers=workspace_headers,
+        )
+        assert case_steps_resp.status_code == 200
+
+        suite_resp = client.post(
+            "/api/v1/test-suites",
+            json={
+                "suite_code": "conditional_branch_suite",
+                "suite_name": "Conditional Branch Suite",
+                "status": "active",
+            },
+            headers=workspace_headers,
+        )
+        test_suite_id = suite_resp.json()["data"]["id"]
+
+        client.put(
+            f"/api/v1/test-suites/{test_suite_id}/cases",
+            json=[{"test_case_id": test_case_id, "sort_order": 1}],
+            headers=workspace_headers,
+        )
+
+        run_resp = client.post(
+            "/api/v1/test-runs",
+            json={
+                "test_suite_id": test_suite_id,
+                "environment_profile_id": environment_profile_id,
+                "trigger_source": "manual",
+            },
+            headers=workspace_headers | {"Idempotency-Key": "run-conditional-branch"},
+        )
+        assert run_resp.status_code == 201
+        test_run_id = run_resp.json()["data"]["id"]
+
+        case_runs_resp = client.get(
+            f"/api/v1/test-runs/{test_run_id}/case-runs", headers=workspace_headers
+        )
+        case_run_id = case_runs_resp.json()["data"][0]["id"]
+
+        step_results_resp = client.get(
+            f"/api/v1/case-runs/{case_run_id}/step-results", headers=workspace_headers
+        )
+        assert step_results_resp.status_code == 200
+        step_results = step_results_resp.json()["data"]
+
+        assert [item["step_type"] for item in step_results] == [
+            "conditional_branch",
+            "wait",
+            "click",
+        ]
+        assert step_results[0]["parent_step_no"] is None
+        assert step_results[1]["parent_step_no"] == 1
+        assert step_results[1]["branch_key"] == "if_a"
+        assert step_results[1]["branch_name"] == "分支A"
+        assert step_results[1]["branch_step_index"] == 1
+        assert step_results[2]["parent_step_no"] == 1
+        assert step_results[2]["branch_key"] == "if_a"
+        assert step_results[2]["branch_name"] == "分支A"
+        assert step_results[2]["branch_step_index"] == 2
+
+
 @pytest.mark.vision
 def test_new_browser_steps_work_with_ocr_assert_execution(monkeypatch):
     _reset_local_data()

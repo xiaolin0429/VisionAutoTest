@@ -86,10 +86,16 @@ function mapRun(
 }
 
 function mapStepResult(item: StepResultReadDTO) {
+  const branchPrefix =
+    item.parent_step_no !== null
+      ? `分支 ${item.branch_name ?? item.branch_key ?? '未命名'} · `
+      : ''
   return {
     id: item.id,
     stepNo: item.step_no,
-    name: item.step_type ? `${item.step_type} · Step ${item.step_no}` : `Step ${item.step_no}`,
+    name: item.step_type
+      ? `${branchPrefix}${item.step_type} · Step ${item.step_no}`
+      : `${branchPrefix}Step ${item.step_no}`,
     type: item.step_type,
     status: item.status,
     message:
@@ -102,6 +108,10 @@ function mapStepResult(item: StepResultReadDTO) {
     expectedMediaObjectId: item.expected_media_object_id,
     actualMediaObjectId: item.actual_media_object_id,
     diffMediaObjectId: item.diff_media_object_id,
+    parentStepNo: item.parent_step_no,
+    branchKey: item.branch_key,
+    branchName: item.branch_name,
+    branchStepIndex: item.branch_step_index,
     repairResourceType: item.repair_resource_type,
     repairResourceId: item.repair_resource_id,
     repairRoutePath: item.repair_route_path,

@@ -29,6 +29,7 @@ def _install_fake_browser_adapter(monkeypatch) -> None:
             "navigate",
             "scroll",
             "long_press",
+            "conditional_branch",
         }
 
         def execute_case(
@@ -78,6 +79,10 @@ def _install_fake_browser_adapter(monkeypatch) -> None:
                         finished_at=finished_at,
                         duration_ms=1,
                         score_value=1.0,
+                        parent_step_no=getattr(step, "parent_step_no", None),
+                        branch_key=getattr(step, "branch_key", None),
+                        branch_name=getattr(step, "branch_name", None),
+                        branch_step_index=getattr(step, "branch_step_index", None),
                     )
                 )
 

@@ -1,5 +1,8 @@
 <script setup lang="ts">
+import BranchChildStepFields from './BranchChildStepFields.vue'
 import {
+  CONDITIONAL_BRANCH_CONDITION_OPTIONS,
+  createBranchChildStepDraft,
   INPUT_MODE_OPTIONS,
   LONG_PRESS_BUTTON_OPTIONS,
   LOCATOR_TYPE_OPTIONS,
@@ -76,6 +79,23 @@ function showLocatorFields(step: StepDraft) {
   }
 
   return step.type !== 'scroll' || step.scrollTarget === 'element'
+}
+
+function branchChildTypeOptions() {
+  return [
+    { label: STEP_TYPE_LABELS.wait, value: 'wait' },
+    { label: STEP_TYPE_LABELS.click, value: 'click' },
+    { label: STEP_TYPE_LABELS.input, value: 'input' },
+    { label: STEP_TYPE_LABELS.template_assert, value: 'template_assert' },
+    { label: STEP_TYPE_LABELS.ocr_assert, value: 'ocr_assert' },
+    { label: STEP_TYPE_LABELS.navigate, value: 'navigate' },
+    { label: STEP_TYPE_LABELS.scroll, value: 'scroll' },
+    { label: STEP_TYPE_LABELS.long_press, value: 'long_press' }
+  ]
+}
+
+function updateBranchChildType(step: StepDraft, nextType: string | number | boolean) {
+  emit('update-step-type', step, nextType)
 }
 </script>
 
@@ -687,6 +707,168 @@ function showLocatorFields(step: StepDraft) {
               <p v-if="getStepErrorFn(index, 'componentId')" class="mt-2 text-xs text-rose-600">
                 {{ getStepErrorFn(index, 'componentId') }}
               </p>
+            </div>
+          </template>
+
+          <!-- conditional_branch -->
+          <template v-if="step.type === 'conditional_branch'">
+            <div class="col-span-2 space-y-4">
+              <div class="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+                <p class="m-0 font-medium">条件分支步骤说明</p>
+                <p class="mb-0 mt-2 leading-6">
+                  分支按顺序匹配，命中第一个后停止。本期支持 `ocr_text_visible`、`template_visible`、`selector_exists`。
+                </p>
+                <p class="mb-0 mt-2 leading-6">
+                  分支子步骤请填写 JSON 数组，每项结构应与后端契约一致；子步骤不支持 `component_call` 和嵌套 `conditional_branch`。
+                </p>
+              </div>
+
+              <div
+                v-for="(branch, branchIndex) in step.conditionalBranches"
+                :key="branch.id"
+                class="rounded-2xl border border-slate-200 bg-white p-4"
+              >
+                <div class="mb-3 flex items-center justify-between gap-3">
+                  <p class="m-0 text-sm font-semibold text-slate-900">分支 {{ branchIndex + 1 }}</p>
+                  <el-button
+                    v-if="step.conditionalBranches.length > 1"
+                    link
+                    type="danger"
+                    @click="step.conditionalBranches.splice(branchIndex, 1)"
+                  >
+                    删除分支
+                  </el-button>
+                </div>
+
+                <div class="grid grid-cols-2 gap-4">
+                  <div>
+                    <label class="mb-2 block text-sm font-medium text-slate-700">branchKey</label>
+                    <el-input v-model="branch.branchKey" placeholder="例如 branch_a" />
+                  </div>
+                  <div>
+                    <label class="mb-2 block text-sm font-medium text-slate-700">分支名称</label>
+                    <el-input v-model="branch.branchName" placeholder="例如 显示A时执行" />
+                  </div>
+                  <div>
+                    <label class="mb-2 block text-sm font-medium text-slate-700">条件类型</label>
+                    <el-select v-model="branch.conditionType" class="!w-full">
+                      <el-option
+                        v-for="option in CONDITIONAL_BRANCH_CONDITION_OPTIONS"
+                        :key="option.value"
+                        :label="option.label"
+                        :value="option.value"
+                      />
+                    </el-select>
+                  </div>
+
+                  <template v-if="branch.conditionType === 'ocr_text_visible'">
+                    <div>
+                      <label class="mb-2 block text-sm font-medium text-slate-700">期望文本</label>
+                      <el-input v-model="branch.expectedText" placeholder="请输入 OCR 文本" />
+                    </div>
+                    <div>
+                      <label class="mb-2 block text-sm font-medium text-slate-700">匹配模式</label>
+                      <el-select v-model="branch.matchMode" class="!w-full">
+                        <el-option v-for="option in OCR_MATCH_MODE_OPTIONS" :key="option.value" :label="option.label" :value="option.value" />
+                      </el-select>
+                    </div>
+                    <div class="col-span-2">
+                      <div class="rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+                        <el-checkbox v-model="branch.caseSensitive">区分大小写</el-checkbox>
+                      </div>
+                    </div>
+                  </template>
+
+                  <template v-else-if="branch.conditionType === 'template_visible'">
+                    <div>
+                      <label class="mb-2 block text-sm font-medium text-slate-700">模板</label>
+                      <el-select v-model="branch.templateId" class="!w-full" clearable placeholder="请选择 template 策略模板">
+                        <el-option v-for="option in templates.filter((item) => item.matchStrategy === 'template').map((item) => ({ id: item.id, label: `${item.name} (#${item.id})` }))" :key="option.id" :label="option.label" :value="option.id" />
+                      </el-select>
+                    </div>
+                    <div>
+                      <label class="mb-2 block text-sm font-medium text-slate-700">阈值(可选)</label>
+                      <el-input-number v-model="branch.threshold" :max="1" :min="0" :precision="2" :step="0.01" :value-on-clear="null" class="!w-full" />
+                    </div>
+                  </template>
+
+                  <template v-else>
+                    <div class="col-span-2">
+                      <label class="mb-2 block text-sm font-medium text-slate-700">选择器</label>
+                      <el-input v-model="branch.selector" placeholder="例如 .banner-success" />
+                    </div>
+                  </template>
+
+                  <div class="col-span-2">
+                    <div class="mb-2 flex items-center justify-between gap-3">
+                      <label class="block text-sm font-medium text-slate-700">分支子步骤</label>
+                      <el-button plain size="small" @click="branch.steps.push(createBranchChildStepDraft(branch.steps.length))">
+                        新增子步骤
+                      </el-button>
+                    </div>
+                    <div class="space-y-3">
+                      <BranchChildStepFields
+                        v-for="(childStep, childIndex) in branch.steps"
+                        :key="childStep.id"
+                        :step="childStep"
+                        :index-label="`子步骤 ${childIndex + 1}`"
+                        :templates="templates"
+                        :child-type-options="branchChildTypeOptions()"
+                        :get-step-template-options-fn="getStepTemplateOptionsFn"
+                        :get-step-template-hint-fn="getStepTemplateHintFn"
+                        @remove="branch.steps.splice(childIndex, 1)"
+                        @update-step-type="updateBranchChildType"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="flex justify-between gap-3">
+                <el-button
+                  plain
+                  :disabled="step.conditionalBranches.length >= 3"
+                  @click="step.conditionalBranches.push({ id: -Date.now(), branchKey: `branch_${step.conditionalBranches.length + 1}`, branchName: `分支 ${step.conditionalBranches.length + 1}`, conditionType: 'ocr_text_visible', expectedText: '', matchMode: 'contains', caseSensitive: false, templateId: null, threshold: null, selector: '', steps: [createBranchChildStepDraft(0)] })"
+                >
+                  新增分支
+                </el-button>
+                <div class="text-xs text-slate-500">最多 3 个条件分支</div>
+              </div>
+
+              <div class="rounded-2xl border border-slate-200 bg-white p-4">
+                <div class="mb-3 flex items-center justify-between gap-3">
+                  <p class="m-0 text-sm font-semibold text-slate-900">默认分支</p>
+                  <el-switch v-model="step.elseBranchEnabled" />
+                </div>
+                <div v-if="step.elseBranchEnabled" class="grid grid-cols-2 gap-4">
+                  <div class="col-span-2">
+                    <label class="mb-2 block text-sm font-medium text-slate-700">默认分支名称</label>
+                    <el-input v-model="step.elseBranchName" placeholder="默认分支" />
+                  </div>
+                  <div class="col-span-2">
+                    <div class="mb-2 flex items-center justify-between gap-3">
+                      <label class="block text-sm font-medium text-slate-700">默认分支子步骤</label>
+                      <el-button plain size="small" @click="step.elseSteps.push(createBranchChildStepDraft(step.elseSteps.length))">
+                        新增子步骤
+                      </el-button>
+                    </div>
+                    <div class="space-y-3">
+                      <BranchChildStepFields
+                        v-for="(childStep, childIndex) in step.elseSteps"
+                        :key="childStep.id"
+                        :step="childStep"
+                        :index-label="`默认子步骤 ${childIndex + 1}`"
+                        :templates="templates"
+                        :child-type-options="branchChildTypeOptions()"
+                        :get-step-template-options-fn="getStepTemplateOptionsFn"
+                        :get-step-template-hint-fn="getStepTemplateHintFn"
+                        @remove="step.elseSteps.splice(childIndex, 1)"
+                        @update-step-type="updateBranchChildType"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
           </template>
 

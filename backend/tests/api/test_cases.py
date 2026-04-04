@@ -388,6 +388,220 @@ def test_invalid_long_press_step_is_rejected_during_step_save():
         assert response.json()["error"]["code"] == "STEP_CONFIGURATION_INVALID"
 
 
+def test_conditional_branch_steps_are_saved_for_test_cases_only():
+    with app_client(reset=True) as client:
+        login_resp = client.post(
+            "/api/v1/sessions",
+            json={"username": TEST_ADMIN_USERNAME, "password": TEST_ADMIN_PASSWORD},
+        )
+        token = login_resp.json()["data"]["access_token"]
+        headers = {"Authorization": f"Bearer {token}"}
+
+        workspace_resp = client.post(
+            "/api/v1/workspaces",
+            json={
+                "workspace_code": "branch_steps_ws",
+                "workspace_name": "Branch Steps WS",
+            },
+            headers=headers,
+        )
+        workspace_id = workspace_resp.json()["data"]["id"]
+        workspace_headers = headers | {"X-Workspace-Id": str(workspace_id)}
+
+        case_resp = client.post(
+            "/api/v1/test-cases",
+            json={
+                "case_code": "branch_case",
+                "case_name": "Branch Case",
+                "status": "published",
+            },
+            headers=workspace_headers,
+        )
+        test_case_id = case_resp.json()["data"]["id"]
+
+        response = client.put(
+            f"/api/v1/test-cases/{test_case_id}/steps",
+            json=[
+                {
+                    "step_no": 1,
+                    "step_type": "conditional_branch",
+                    "step_name": "Conditional Step",
+                    "payload_json": {
+                        "branches": [
+                            {
+                                "branch_key": "if_a",
+                                "branch_name": "出现A",
+                                "condition": {
+                                    "type": "selector_exists",
+                                    "selector": ".state-a",
+                                },
+                                "steps": [
+                                    {
+                                        "step_type": "click",
+                                        "step_name": "点击A",
+                                        "payload_json": {"selector": ".btn-a"},
+                                        "timeout_ms": 15000,
+                                        "retry_times": 0,
+                                    }
+                                ],
+                            }
+                        ],
+                        "else_branch": {
+                            "enabled": True,
+                            "branch_name": "默认分支",
+                            "steps": [
+                                {
+                                    "step_type": "wait",
+                                    "step_name": "等待",
+                                    "payload_json": {"ms": 100},
+                                    "timeout_ms": 15000,
+                                    "retry_times": 0,
+                                }
+                            ],
+                        },
+                    },
+                }
+            ],
+            headers=workspace_headers,
+        )
+        assert response.status_code == 200
+        assert response.json()["data"][0]["step_type"] == "conditional_branch"
+
+
+def test_conditional_branch_is_rejected_inside_component_steps():
+    with app_client(reset=True) as client:
+        login_resp = client.post(
+            "/api/v1/sessions",
+            json={"username": TEST_ADMIN_USERNAME, "password": TEST_ADMIN_PASSWORD},
+        )
+        token = login_resp.json()["data"]["access_token"]
+        headers = {"Authorization": f"Bearer {token}"}
+
+        workspace_resp = client.post(
+            "/api/v1/workspaces",
+            json={
+                "workspace_code": "branch_component_ws",
+                "workspace_name": "Branch Component WS",
+            },
+            headers=headers,
+        )
+        workspace_id = workspace_resp.json()["data"]["id"]
+        workspace_headers = headers | {"X-Workspace-Id": str(workspace_id)}
+
+        component_resp = client.post(
+            "/api/v1/components",
+            json={
+                "component_code": "component_branch",
+                "component_name": "Component Branch",
+                "status": "published",
+            },
+            headers=workspace_headers,
+        )
+        component_id = component_resp.json()["data"]["id"]
+
+        response = client.put(
+            f"/api/v1/components/{component_id}/steps",
+            json=[
+                {
+                    "step_no": 1,
+                    "step_type": "conditional_branch",
+                    "step_name": "Invalid Branch",
+                    "payload_json": {
+                        "branches": [
+                            {
+                                "branch_key": "if_a",
+                                "branch_name": "出现A",
+                                "condition": {
+                                    "type": "selector_exists",
+                                    "selector": ".state-a",
+                                },
+                                "steps": [
+                                    {
+                                        "step_type": "wait",
+                                        "step_name": "等待",
+                                        "payload_json": {"ms": 100},
+                                        "timeout_ms": 15000,
+                                        "retry_times": 0,
+                                    }
+                                ],
+                            }
+                        ]
+                    },
+                }
+            ],
+            headers=workspace_headers,
+        )
+        assert response.status_code == 422
+        assert response.json()["error"]["code"] == "STEP_CONFIGURATION_INVALID"
+
+
+def test_conditional_branch_rejects_nested_branch_steps_and_component_calls():
+    with app_client(reset=True) as client:
+        login_resp = client.post(
+            "/api/v1/sessions",
+            json={"username": TEST_ADMIN_USERNAME, "password": TEST_ADMIN_PASSWORD},
+        )
+        token = login_resp.json()["data"]["access_token"]
+        headers = {"Authorization": f"Bearer {token}"}
+
+        workspace_resp = client.post(
+            "/api/v1/workspaces",
+            json={
+                "workspace_code": "branch_invalid_ws",
+                "workspace_name": "Branch Invalid WS",
+            },
+            headers=headers,
+        )
+        workspace_id = workspace_resp.json()["data"]["id"]
+        workspace_headers = headers | {"X-Workspace-Id": str(workspace_id)}
+
+        case_resp = client.post(
+            "/api/v1/test-cases",
+            json={
+                "case_code": "branch_invalid_case",
+                "case_name": "Branch Invalid Case",
+                "status": "published",
+            },
+            headers=workspace_headers,
+        )
+        test_case_id = case_resp.json()["data"]["id"]
+
+        response = client.put(
+            f"/api/v1/test-cases/{test_case_id}/steps",
+            json=[
+                {
+                    "step_no": 1,
+                    "step_type": "conditional_branch",
+                    "step_name": "Invalid Conditional Step",
+                    "payload_json": {
+                        "branches": [
+                            {
+                                "branch_key": "if_a",
+                                "branch_name": "出现A",
+                                "condition": {
+                                    "type": "selector_exists",
+                                    "selector": ".state-a",
+                                },
+                                "steps": [
+                                    {
+                                        "step_type": "conditional_branch",
+                                        "step_name": "Nested",
+                                        "payload_json": {},
+                                        "timeout_ms": 15000,
+                                        "retry_times": 0,
+                                    }
+                                ],
+                            }
+                        ]
+                    },
+                }
+            ],
+            headers=workspace_headers,
+        )
+        assert response.status_code == 422
+        assert response.json()["error"]["code"] == "STEP_CONFIGURATION_INVALID"
+
+
 def test_test_suite_execution_readiness_returns_unpublished_case_issue():
     with app_client(reset=True) as client:
         login_resp = client.post(

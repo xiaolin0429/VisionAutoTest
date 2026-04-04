@@ -22,6 +22,25 @@ interface StepSummarySource {
   retryTimes: number
 }
 
+export type ConditionalBranchConditionType =
+  | 'ocr_text_visible'
+  | 'template_visible'
+  | 'selector_exists'
+
+export interface ConditionalBranchDraft {
+  id: number
+  branchKey: string
+  branchName: string
+  conditionType: ConditionalBranchConditionType
+  expectedText: string
+  matchMode: OcrAssertMatchMode
+  caseSensitive: boolean
+  templateId: number | null
+  threshold: number | null
+  selector: string
+  steps: StepDraft[]
+}
+
 export interface StepDraft {
   id: number
   stepNo: number
@@ -59,6 +78,10 @@ export interface StepDraft {
   extraPayloadJson: string
   timeoutMs: number
   retryTimes: number
+  conditionalBranches: ConditionalBranchDraft[]
+  elseBranchEnabled: boolean
+  elseBranchName: string
+  elseSteps: StepDraft[]
 }
 
 export interface StepValidationErrors {
@@ -107,7 +130,8 @@ export const STEP_TYPE_LABELS: Record<StepType, string> = {
   component_call: '组件调用',
   navigate: '访问页面',
   scroll: '滑动',
-  long_press: '长按'
+  long_press: '长按',
+  conditional_branch: '条件分支'
 }
 
 export const OCR_MATCH_MODE_OPTIONS: Array<{ label: string; value: OcrAssertMatchMode }> = [
@@ -159,6 +183,15 @@ export const INPUT_MODE_OPTIONS: Array<{ label: string; value: InputMode }> = [
   { label: '验证码输入', value: 'otp' }
 ]
 
+export const CONDITIONAL_BRANCH_CONDITION_OPTIONS: Array<{
+  label: string
+  value: ConditionalBranchConditionType
+}> = [
+  { label: 'OCR 文本可见', value: 'ocr_text_visible' },
+  { label: '模板可见', value: 'template_visible' },
+  { label: '选择器存在', value: 'selector_exists' }
+]
+
 const DEFAULT_WAIT_MS = 200
 const DEFAULT_TIMEOUT_MS = 15000
 const DEFAULT_SCROLL_DISTANCE = 1200
@@ -166,6 +199,67 @@ const DEFAULT_LONG_PRESS_DURATION_MS = 800
 const DEFAULT_INPUT_MODE: InputMode = 'fill'
 const DEFAULT_OTP_PER_CHAR_DELAY_MS = 80
 const DEFAULT_VISUAL_ANCHOR_RATIO = 0.5
+
+function createConditionalBranchDraft(index: number): ConditionalBranchDraft {
+  return {
+    id: -Date.now() - index,
+    branchKey: `branch_${index + 1}`,
+    branchName: `分支 ${index + 1}`,
+    conditionType: 'ocr_text_visible',
+    expectedText: '',
+    matchMode: 'contains',
+    caseSensitive: false,
+    templateId: null,
+    threshold: null,
+    selector: '',
+    steps: [createBranchChildStepDraft(0)]
+  }
+}
+
+export function createBranchChildStepDraft(index: number): StepDraft {
+  return {
+    id: -Date.now() - index,
+    stepNo: index + 1,
+    name: '',
+    type: 'wait',
+    templateId: null,
+    componentId: null,
+    waitMs: DEFAULT_WAIT_MS,
+    selector: '',
+    visualTemplateId: null,
+    visualThreshold: null,
+    visualAnchorXRatio: DEFAULT_VISUAL_ANCHOR_RATIO,
+    visualAnchorYRatio: DEFAULT_VISUAL_ANCHOR_RATIO,
+    text: '',
+    inputMode: DEFAULT_INPUT_MODE,
+    otpLength: null,
+    perCharDelayMs: DEFAULT_OTP_PER_CHAR_DELAY_MS,
+    threshold: null,
+    expectedText: '',
+    matchMode: 'contains',
+    caseSensitive: false,
+    url: '',
+    waitUntil: 'load',
+    scrollTarget: 'page',
+    direction: 'down',
+    distance: DEFAULT_SCROLL_DISTANCE,
+    behavior: 'auto',
+    durationMs: DEFAULT_LONG_PRESS_DURATION_MS,
+    button: 'left',
+    locator: 'selector',
+    ocrText: '',
+    ocrMatchMode: 'contains',
+    ocrCaseSensitive: false,
+    ocrOccurrence: 1,
+    extraPayloadJson: '{}',
+    timeoutMs: DEFAULT_TIMEOUT_MS,
+    retryTimes: 0,
+    conditionalBranches: [],
+    elseBranchEnabled: false,
+    elseBranchName: '默认分支',
+    elseSteps: []
+  }
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
@@ -302,7 +396,8 @@ export function createStepTypeOptions(options: { allowComponentCall: boolean }):
     'ocr_assert',
     'navigate',
     'scroll',
-    'long_press'
+    'long_press',
+    'conditional_branch'
   ]
 
   if (options.allowComponentCall) {
@@ -352,7 +447,11 @@ export function createEmptyStepDraft(index: number): StepDraft {
     ocrOccurrence: 1,
     extraPayloadJson: '{}',
     timeoutMs: DEFAULT_TIMEOUT_MS,
-    retryTimes: 0
+    retryTimes: 0,
+    conditionalBranches: [createConditionalBranchDraft(0)],
+    elseBranchEnabled: false,
+    elseBranchName: '默认分支',
+    elseSteps: [createBranchChildStepDraft(0)]
   }
 }
 
@@ -445,7 +544,25 @@ export function normalizeStepByType(step: StepDraft, nextType: StepType): StepDr
     ocrText: keepLocator ? step.ocrText : '',
     ocrMatchMode: keepLocator ? step.ocrMatchMode : 'contains',
     ocrCaseSensitive: keepLocator ? step.ocrCaseSensitive : false,
-    ocrOccurrence: keepLocator ? step.ocrOccurrence : 1
+    ocrOccurrence: keepLocator ? step.ocrOccurrence : 1,
+    extraPayloadJson:
+      nextType === 'conditional_branch'
+        ? step.extraPayloadJson || '{"branches":[]}'
+        : step.extraPayloadJson,
+    conditionalBranches:
+      nextType === 'conditional_branch'
+        ? step.conditionalBranches.length > 0
+          ? step.conditionalBranches
+          : [createConditionalBranchDraft(0)]
+        : [createConditionalBranchDraft(0)],
+    elseBranchEnabled: nextType === 'conditional_branch' ? step.elseBranchEnabled : false,
+    elseBranchName: nextType === 'conditional_branch' ? step.elseBranchName : '默认分支',
+    elseSteps:
+      nextType === 'conditional_branch'
+        ? step.elseSteps.length > 0
+          ? step.elseSteps
+          : [createBranchChildStepDraft(0)]
+        : [createBranchChildStepDraft(0)]
   }
 }
 
@@ -609,6 +726,76 @@ export function buildStepDraft(step: Step): StepDraft {
       break
     case 'component_call':
       break
+    case 'conditional_branch':
+      if (Array.isArray(payload.branches)) {
+        draft.conditionalBranches = payload.branches
+          .filter(isRecord)
+          .map((branch, index) => {
+            const condition = isRecord(branch.condition) ? branch.condition : {}
+            const steps = Array.isArray(branch.steps) ? branch.steps : []
+            return {
+              id: -Date.now() - index,
+              branchKey:
+                typeof branch.branch_key === 'string' && branch.branch_key.trim()
+                  ? branch.branch_key
+                  : `branch_${index + 1}`,
+              branchName:
+                typeof branch.branch_name === 'string' && branch.branch_name.trim()
+                  ? branch.branch_name
+                  : `分支 ${index + 1}`,
+              conditionType:
+                condition.type === 'template_visible' || condition.type === 'selector_exists'
+                  ? condition.type
+                  : 'ocr_text_visible',
+              expectedText:
+                typeof condition.expected_text === 'string' ? condition.expected_text : '',
+              matchMode: condition.match_mode === 'exact' ? 'exact' : 'contains',
+              caseSensitive: condition.case_sensitive === true,
+              templateId: typeof condition.template_id === 'number' ? condition.template_id : null,
+              threshold: typeof condition.threshold === 'number' ? condition.threshold : null,
+              selector: typeof condition.selector === 'string' ? condition.selector : '',
+              steps: steps.map((item, stepIndex) =>
+                buildStepDraft({
+                  id: -Date.now() - stepIndex,
+                  stepNo: stepIndex + 1,
+                  name: typeof item.step_name === 'string' ? item.step_name : `子步骤 ${stepIndex + 1}`,
+                  type: (typeof item.step_type === 'string' ? item.step_type : 'wait') as StepType,
+                  templateId: typeof item.template_id === 'number' ? item.template_id : null,
+                  componentId: null,
+                  target: '',
+                  note: '',
+                  payloadJson: isRecord(item.payload_json) ? item.payload_json : {},
+                  timeoutMs: typeof item.timeout_ms === 'number' ? item.timeout_ms : DEFAULT_TIMEOUT_MS,
+                  retryTimes: typeof item.retry_times === 'number' ? item.retry_times : 0
+                })
+              )
+            }
+          })
+      }
+      if (isRecord(payload.else_branch)) {
+        draft.elseBranchEnabled = payload.else_branch.enabled === true
+        draft.elseBranchName =
+          typeof payload.else_branch.branch_name === 'string'
+            ? payload.else_branch.branch_name
+            : '默认分支'
+        draft.elseSteps = (Array.isArray(payload.else_branch.steps) ? payload.else_branch.steps : []).map(
+          (item, stepIndex) =>
+            buildStepDraft({
+              id: -Date.now() - stepIndex,
+              stepNo: stepIndex + 1,
+              name: typeof item.step_name === 'string' ? item.step_name : `默认子步骤 ${stepIndex + 1}`,
+              type: (typeof item.step_type === 'string' ? item.step_type : 'wait') as StepType,
+              templateId: typeof item.template_id === 'number' ? item.template_id : null,
+              componentId: null,
+              target: '',
+              note: '',
+              payloadJson: isRecord(item.payload_json) ? item.payload_json : {},
+              timeoutMs: typeof item.timeout_ms === 'number' ? item.timeout_ms : DEFAULT_TIMEOUT_MS,
+              retryTimes: typeof item.retry_times === 'number' ? item.retry_times : 0
+            })
+        )
+      }
+      break
   }
 
   return {
@@ -766,6 +953,87 @@ export function validateStepDraft(step: StepDraft): StepValidationErrors {
         errors.componentId = '组件调用必须选择组件。'
       }
       break
+    case 'conditional_branch': {
+      const branchKeys = new Set<string>()
+      if (step.conditionalBranches.length === 0) {
+        errors.extraPayloadJson = '条件分支至少需要 1 个分支。'
+        break
+      }
+      if (step.conditionalBranches.length > 3) {
+        errors.extraPayloadJson = '条件分支最多支持 3 个分支。'
+        break
+      }
+      for (const branch of step.conditionalBranches) {
+        if (!branch.branchKey.trim()) {
+          errors.extraPayloadJson = '每个分支都必须填写 branchKey。'
+          break
+        }
+        if (branchKeys.has(branch.branchKey.trim())) {
+          errors.extraPayloadJson = 'branchKey 不能重复。'
+          break
+        }
+        branchKeys.add(branch.branchKey.trim())
+        if (!branch.branchName.trim()) {
+          errors.extraPayloadJson = '每个分支都必须填写分支名称。'
+          break
+        }
+        if (branch.conditionType === 'ocr_text_visible') {
+          if (!branch.expectedText.trim()) {
+            errors.extraPayloadJson = 'OCR 文本可见条件必须填写期望文本。'
+            break
+          }
+        } else if (branch.conditionType === 'template_visible') {
+          if (branch.templateId === null) {
+            errors.extraPayloadJson = '模板可见条件必须选择模板。'
+            break
+          }
+          if (
+            branch.threshold !== null &&
+            (!Number.isFinite(branch.threshold) || branch.threshold < 0 || branch.threshold > 1)
+          ) {
+            errors.extraPayloadJson = '模板条件阈值必须在 0 到 1 之间。'
+            break
+          }
+        } else if (!branch.selector.trim()) {
+          errors.extraPayloadJson = '选择器存在条件必须填写选择器。'
+          break
+        }
+        if (branch.steps.length === 0) {
+          errors.extraPayloadJson = '每个分支至少需要 1 个子步骤。'
+          break
+        }
+        for (const childStep of branch.steps) {
+          if (childStep.type === 'component_call' || childStep.type === 'conditional_branch') {
+            errors.extraPayloadJson = '分支子步骤不支持 component_call 或 conditional_branch。'
+            break
+          }
+          const childErrors = validateStepDraft(childStep)
+          if (Object.keys(childErrors).length > 0) {
+            errors.extraPayloadJson = '请先修正分支子步骤配置。'
+            break
+          }
+        }
+        if (errors.extraPayloadJson) break
+      }
+      if (!errors.extraPayloadJson && step.elseBranchEnabled) {
+        if (step.elseSteps.length === 0) {
+          errors.extraPayloadJson = '默认分支至少需要 1 个子步骤。'
+        } else {
+          for (const childStep of step.elseSteps) {
+            if (childStep.type === 'component_call' || childStep.type === 'conditional_branch') {
+              errors.extraPayloadJson = '默认分支子步骤不支持 component_call 或 conditional_branch。'
+              break
+            }
+            const childErrors = validateStepDraft(childStep)
+            if (Object.keys(childErrors).length > 0) {
+              errors.extraPayloadJson = '请先修正默认分支子步骤配置。'
+              break
+            }
+          }
+        }
+      }
+      break
+    }
     case 'navigate':
       if (!step.url.trim()) {
         errors.url = '访问页面必须填写 URL 或相对路径。'
@@ -881,7 +1149,7 @@ export function shouldOpenAdvancedPayload(step: StepDraft) {
   return step.extraPayloadJson.trim() !== '{}' || Boolean(validateStepDraft(step).extraPayloadJson)
 }
 
-function buildStructuredPayload(step: StepDraft) {
+function buildStructuredPayload(step: StepDraft): Record<string, unknown> {
   switch (step.type) {
     case 'wait':
       return {
@@ -952,6 +1220,45 @@ function buildStructuredPayload(step: StepDraft) {
       }
     case 'component_call':
       return {}
+    case 'conditional_branch':
+      return {
+        branches: step.conditionalBranches.map((branch) => {
+          const condition =
+            branch.conditionType === 'ocr_text_visible'
+              ? {
+                  type: 'ocr_text_visible',
+                  expected_text: branch.expectedText.trim(),
+                  match_mode: branch.matchMode,
+                  case_sensitive: branch.caseSensitive
+                }
+              : branch.conditionType === 'template_visible'
+                ? {
+                    type: 'template_visible',
+                    template_id: branch.templateId,
+                    ...(branch.threshold !== null ? { threshold: Number(branch.threshold) } : {})
+                  }
+                : {
+                    type: 'selector_exists',
+                    selector: branch.selector.trim()
+                  }
+
+          return {
+            branch_key: branch.branchKey.trim(),
+            branch_name: branch.branchName.trim(),
+            condition,
+            steps: branch.steps.map((childStep, childIndex) => buildNestedStepWritePayload(childStep, childIndex))
+          }
+        }),
+        ...(step.elseBranchEnabled
+          ? {
+              else_branch: {
+                enabled: true,
+                branch_name: step.elseBranchName.trim() || '默认分支',
+                steps: step.elseSteps.map((childStep, childIndex) => buildNestedStepWritePayload(childStep, childIndex))
+              }
+            }
+          : {})
+      }
     case 'navigate':
       return {
         url: step.url.trim(),
@@ -1035,6 +1342,24 @@ export function buildStepWritePayload(step: StepDraft, index: number): StepWrite
   }
 }
 
+function buildNestedStepWritePayload(step: StepDraft, index: number): Record<string, unknown> {
+  const extraPayload = parseExtraPayloadJson(step)
+  const additionalPayload = 'value' in extraPayload ? extraPayload.value : {}
+
+  return {
+    step_type: step.type,
+    step_name: step.name.trim() || `${STEP_TYPE_LABELS[step.type]} ${index + 1}`,
+    template_id: step.type === 'template_assert' || step.type === 'ocr_assert' ? step.templateId : null,
+    component_id: null,
+    payload_json: {
+      ...additionalPayload,
+      ...buildStructuredPayload(step)
+    },
+    timeout_ms: Number(step.timeoutMs),
+    retry_times: Number(step.retryTimes)
+  }
+}
+
 export function formatStepSummary(source: StepSummarySource) {
   const payload = source.payloadJson ?? {}
   const timeoutAndRetry = buildTimeoutAndRetry(source.timeoutMs, source.retryTimes)
@@ -1111,6 +1436,15 @@ export function formatStepSummary(source: StepSummarySource) {
         target: source.componentId ? `组件 #${source.componentId}` : '未选择组件',
         note: timeoutAndRetry
       }
+    case 'conditional_branch': {
+      const branches = Array.isArray(payload.branches) ? payload.branches : []
+      const elseBranch = isRecord(payload.else_branch) ? payload.else_branch : null
+      const enabledElse = elseBranch?.enabled === true
+      return {
+        target: `条件分支 · ${branches.length} 个条件${enabledElse ? ' + 默认分支' : ''}`,
+        note: `${timeoutAndRetry}${formatExtraPayloadKeys(payload, ['branches', 'else_branch'])}`
+      }
+    }
     case 'navigate': {
       const waitUntil = isNavigateWaitUntil(payload.wait_until) ? payload.wait_until : 'load'
       return {

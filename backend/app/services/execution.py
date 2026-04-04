@@ -53,6 +53,15 @@ EXECUTABLE_TEMPLATE_STATUS = "published"
 settings = get_settings()
 
 
+def _truncate_failure_summary(message: str | None, *, limit: int = 500) -> str | None:
+    if message is None:
+        return None
+    normalized = message.strip()
+    if len(normalized) <= limit:
+        return normalized
+    return f"{normalized[: limit - 3]}..."
+
+
 def get_workspace_execution_readiness(
     db: Session,
     *,
@@ -157,6 +166,10 @@ class ResolvedExecutionStep:
     payload_json: dict
     timeout_ms: int
     retry_times: int
+    parent_step_no: int | None = None
+    branch_key: str | None = None
+    branch_name: str | None = None
+    branch_step_index: int | None = None
 
 
 def build_report_summary(
@@ -334,6 +347,9 @@ def build_execution_steps(
     resolved_steps: list[ResolvedExecutionStep] = []
 
     for case_step in case_steps:
+        if case_step.step_type == "conditional_branch":
+            resolved_steps.extend(_build_conditional_branch_steps(case_step=case_step))
+            continue
         if case_step.step_type != "component_call":
             resolved_steps.append(
                 ResolvedExecutionStep(
@@ -374,6 +390,113 @@ def build_execution_steps(
     for index, step in enumerate(resolved_steps, start=1):
         step.step_no = index
     return resolved_steps
+
+
+def _build_conditional_branch_steps(
+    *, case_step: TestCaseStep
+) -> list[ResolvedExecutionStep]:
+    payload = case_step.payload_json or {}
+    steps: list[ResolvedExecutionStep] = [
+        ResolvedExecutionStep(
+            step_no=0,
+            step_type="conditional_branch",
+            step_name=case_step.step_name,
+            template_id=None,
+            component_id=None,
+            payload_json=payload,
+            timeout_ms=case_step.timeout_ms,
+            retry_times=case_step.retry_times,
+        )
+    ]
+
+    branches = (
+        payload.get("branches") if isinstance(payload.get("branches"), list) else []
+    )
+    for branch in branches:
+        if not isinstance(branch, dict):
+            continue
+        branch_key = (
+            branch.get("branch_key")
+            if isinstance(branch.get("branch_key"), str)
+            else None
+        )
+        branch_name = (
+            branch.get("branch_name")
+            if isinstance(branch.get("branch_name"), str)
+            else None
+        )
+        branch_steps = (
+            branch.get("steps") if isinstance(branch.get("steps"), list) else []
+        )
+        for branch_step_index, branch_step in enumerate(branch_steps, start=1):
+            if not isinstance(branch_step, dict):
+                continue
+            steps.append(
+                ResolvedExecutionStep(
+                    step_no=0,
+                    step_type=str(branch_step.get("step_type") or "wait"),
+                    step_name=str(
+                        branch_step.get("step_name")
+                        or f"Branch step {branch_step_index}"
+                    ),
+                    template_id=branch_step.get("template_id")
+                    if isinstance(branch_step.get("template_id"), int)
+                    else None,
+                    component_id=None,
+                    payload_json=branch_step.get("payload_json") or {},
+                    timeout_ms=int(
+                        branch_step.get("timeout_ms") or case_step.timeout_ms
+                    ),
+                    retry_times=int(
+                        branch_step.get("retry_times") or case_step.retry_times
+                    ),
+                    parent_step_no=case_step.step_no,
+                    branch_key=branch_key,
+                    branch_name=branch_name,
+                    branch_step_index=branch_step_index,
+                )
+            )
+
+    else_branch = payload.get("else_branch")
+    if isinstance(else_branch, dict) and else_branch.get("enabled") is True:
+        branch_name = (
+            else_branch.get("branch_name")
+            if isinstance(else_branch.get("branch_name"), str)
+            else "默认分支"
+        )
+        branch_steps = (
+            else_branch.get("steps")
+            if isinstance(else_branch.get("steps"), list)
+            else []
+        )
+        for branch_step_index, branch_step in enumerate(branch_steps, start=1):
+            if not isinstance(branch_step, dict):
+                continue
+            steps.append(
+                ResolvedExecutionStep(
+                    step_no=0,
+                    step_type=str(branch_step.get("step_type") or "wait"),
+                    step_name=str(
+                        branch_step.get("step_name") or f"Else step {branch_step_index}"
+                    ),
+                    template_id=branch_step.get("template_id")
+                    if isinstance(branch_step.get("template_id"), int)
+                    else None,
+                    component_id=None,
+                    payload_json=branch_step.get("payload_json") or {},
+                    timeout_ms=int(
+                        branch_step.get("timeout_ms") or case_step.timeout_ms
+                    ),
+                    retry_times=int(
+                        branch_step.get("retry_times") or case_step.retry_times
+                    ),
+                    parent_step_no=case_step.step_no,
+                    branch_key="else",
+                    branch_name=branch_name,
+                    branch_step_index=branch_step_index,
+                )
+            )
+    return steps
 
 
 def list_test_runs(
@@ -612,7 +735,7 @@ def finalize_errored_test_run(
             case_run.finished_at = case_run.finished_at or now
             case_run.duration_ms = case_run.duration_ms or 1
             case_run.failure_reason_code = failure_reason_code
-            case_run.failure_summary = error_message
+            case_run.failure_summary = _truncate_failure_summary(error_message)
         error_count += 1
 
     test_run.status = "error"
@@ -632,7 +755,7 @@ def finalize_errored_test_run(
         started_at=test_run.started_at,
         finished_at=now,
         failure_code=failure_reason_code,
-        failure_summary=error_message,
+        failure_summary=_truncate_failure_summary(error_message),
     )
     if report is None:
         db.add(
@@ -691,7 +814,7 @@ def list_step_results(db: Session, case_run_id: int):
             source_case_step = db.scalar(
                 select(TestCaseStep).where(
                     TestCaseStep.test_case_id == test_case.id,
-                    TestCaseStep.step_no == step.step_no,
+                    TestCaseStep.step_no == (step.parent_step_no or step.step_no),
                 )
             )
 
@@ -721,10 +844,14 @@ def list_step_results(db: Session, case_run_id: int):
                 "started_at": step.started_at,
                 "finished_at": step.finished_at,
                 "duration_ms": step.duration_ms,
+                "parent_step_no": step.parent_step_no,
+                "branch_key": step.branch_key,
+                "branch_name": step.branch_name,
+                "branch_step_index": step.branch_step_index,
                 "repair_resource_type": repair_resource_type,
                 "repair_resource_id": repair_resource_id,
                 "repair_route_path": repair_route_path,
-                "repair_step_no": step.step_no,
+                "repair_step_no": step.parent_step_no or step.step_no,
                 "created_at": step.created_at,
             }
         )
@@ -1113,6 +1240,41 @@ def _inspect_execution_step_issues(
     route_path: str,
 ) -> list[dict[str, Any]]:
     issues: list[dict[str, Any]] = []
+    if step.step_type == "conditional_branch":
+        payload = step.payload_json or {}
+        branches = payload.get("branches")
+        if not isinstance(branches, list) or not branches:
+            issues.append(
+                _build_readiness_issue(
+                    code="STEP_CONFIGURATION_INVALID",
+                    message=f"步骤 {step.step_name} 缺少有效的条件分支配置。",
+                    resource_type="step",
+                    route_path=route_path,
+                )
+            )
+            return issues
+        for branch in branches:
+            issues.extend(
+                _inspect_branch_payload_issues(
+                    db,
+                    workspace_id=workspace_id,
+                    branch=branch,
+                    step_name=step.step_name,
+                    route_path=route_path,
+                )
+            )
+        else_branch = payload.get("else_branch")
+        if isinstance(else_branch, dict) and else_branch.get("enabled") is True:
+            issues.extend(
+                _inspect_branch_payload_issues(
+                    db,
+                    workspace_id=workspace_id,
+                    branch={"condition": None, "steps": else_branch.get("steps")},
+                    step_name=step.step_name,
+                    route_path=route_path,
+                )
+            )
+        return issues
     if step.step_type == "template_assert" and step.template_id is None:
         issues.append(
             _build_readiness_issue(
@@ -1208,6 +1370,113 @@ def _inspect_execution_step_issues(
             )
         )
     return issues
+
+
+def _inspect_branch_payload_issues(
+    db: Session,
+    *,
+    workspace_id: int,
+    branch: Any,
+    step_name: str,
+    route_path: str,
+) -> list[dict[str, Any]]:
+    issues: list[dict[str, Any]] = []
+    if not isinstance(branch, dict):
+        issues.append(
+            _build_readiness_issue(
+                code="STEP_CONFIGURATION_INVALID",
+                message=f"步骤 {step_name} 存在非法分支配置。",
+                resource_type="step",
+                route_path=route_path,
+            )
+        )
+        return issues
+    condition = branch.get("condition")
+    if condition is not None and isinstance(condition, dict):
+        condition_type = condition.get("type")
+        if condition_type == "template_visible":
+            template_id = condition.get("template_id")
+            template = (
+                db.get(Template, template_id) if isinstance(template_id, int) else None
+            )
+            if (
+                template is None
+                or template.workspace_id != workspace_id
+                or template.is_deleted
+            ):
+                issues.append(
+                    _build_readiness_issue(
+                        code="TEMPLATE_NOT_FOUND",
+                        message=f"步骤 {step_name} 的条件分支引用了不存在的模板 #{template_id}。",
+                        resource_type="template",
+                        resource_id=template_id
+                        if isinstance(template_id, int)
+                        else None,
+                        route_path="/templates",
+                    )
+                )
+            elif template.current_baseline_revision_id is None:
+                issues.append(
+                    _build_readiness_issue(
+                        code="BASELINE_REVISION_REQUIRED",
+                        message=f"步骤 {step_name} 的条件模板 {template.template_name} 缺少当前基准版本。",
+                        resource_type="template",
+                        resource_id=template.id,
+                        resource_name=template.template_name,
+                        route_path="/templates",
+                    )
+                )
+    steps = branch.get("steps")
+    if not isinstance(steps, list) or not steps:
+        issues.append(
+            _build_readiness_issue(
+                code="STEP_CONFIGURATION_INVALID",
+                message=f"步骤 {step_name} 的分支缺少可执行子步骤。",
+                resource_type="step",
+                route_path=route_path,
+            )
+        )
+        return issues
+    for sub_step in steps:
+        if not isinstance(sub_step, dict):
+            issues.append(
+                _build_readiness_issue(
+                    code="STEP_CONFIGURATION_INVALID",
+                    message=f"步骤 {step_name} 的分支子步骤配置非法。",
+                    resource_type="step",
+                    route_path=route_path,
+                )
+            )
+            continue
+        sub_type = sub_step.get("step_type")
+        if sub_type in {"component_call", "conditional_branch"}:
+            issues.append(
+                _build_readiness_issue(
+                    code="STEP_CONFIGURATION_INVALID",
+                    message=f"步骤 {step_name} 的分支子步骤不支持 {sub_type}。",
+                    resource_type="step",
+                    route_path=route_path,
+                )
+            )
+            continue
+        pseudo_step = type(
+            "BranchStep",
+            (),
+            sub_step
+            | {
+                "step_type": sub_type,
+                "payload_json": sub_step.get("payload_json") or {},
+                "template_id": sub_step.get("template_id"),
+            },
+        )
+        issues.extend(
+            _inspect_execution_step_issues(
+                db,
+                workspace_id=workspace_id,
+                step=pseudo_step,
+                route_path=route_path,
+            )
+        )
 
 
 def _count_active_environment_profiles(db: Session, *, workspace_id: int) -> int:

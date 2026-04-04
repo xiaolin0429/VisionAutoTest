@@ -364,6 +364,7 @@ export type StepType =
   | 'navigate'
   | 'scroll'
   | 'long_press'
+  | 'conditional_branch'
 
 export type NavigateWaitUntil = 'load' | 'domcontentloaded' | 'networkidle'
 
@@ -524,6 +525,10 @@ export interface StepResult {
   expectedMediaObjectId: number | null
   actualMediaObjectId: number | null
   diffMediaObjectId: number | null
+  parentStepNo: number | null
+  branchKey: string | null
+  branchName: string | null
+  branchStepIndex: number | null
   artifactLabel?: string
   repairResourceType: 'template' | 'component' | 'test_case' | null
   repairResourceId: number | null

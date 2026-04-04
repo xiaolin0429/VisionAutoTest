@@ -163,6 +163,10 @@ def process_test_run(test_run_id: int) -> None:
                         finished_at=step_result.finished_at,
                         duration_ms=step_result.duration_ms,
                         expected_media_object_id=step_result.expected_media_object_id,
+                        parent_step_no=step_result.parent_step_no,
+                        branch_key=step_result.branch_key,
+                        branch_name=step_result.branch_name,
+                        branch_step_index=step_result.branch_step_index,
                     )
                     db.add(persisted)
                     db.flush()
@@ -380,6 +384,53 @@ def _build_template_contexts(
             template_ids.add(step.template_id)
 
         payload = step.payload_json or {}
+        if step.step_type == "conditional_branch":
+            branches = (
+                payload.get("branches")
+                if isinstance(payload.get("branches"), list)
+                else []
+            )
+            for branch in branches:
+                if not isinstance(branch, dict):
+                    continue
+                condition = branch.get("condition")
+                if isinstance(condition, dict) and isinstance(
+                    condition.get("template_id"), int
+                ):
+                    template_ids.add(condition["template_id"])
+                branch_steps = (
+                    branch.get("steps") if isinstance(branch.get("steps"), list) else []
+                )
+                for branch_step in branch_steps:
+                    if not isinstance(branch_step, dict):
+                        continue
+                    if isinstance(branch_step.get("template_id"), int):
+                        template_ids.add(branch_step["template_id"])
+                    branch_payload = branch_step.get("payload_json") or {}
+                    visual_template_id = branch_payload.get("template_id")
+                    if branch_payload.get("locator") == "visual" and isinstance(
+                        visual_template_id, int
+                    ):
+                        template_ids.add(visual_template_id)
+            else_branch = payload.get("else_branch")
+            if isinstance(else_branch, dict):
+                else_steps = (
+                    else_branch.get("steps")
+                    if isinstance(else_branch.get("steps"), list)
+                    else []
+                )
+                for branch_step in else_steps:
+                    if not isinstance(branch_step, dict):
+                        continue
+                    if isinstance(branch_step.get("template_id"), int):
+                        template_ids.add(branch_step["template_id"])
+                    branch_payload = branch_step.get("payload_json") or {}
+                    visual_template_id = branch_payload.get("template_id")
+                    if branch_payload.get("locator") == "visual" and isinstance(
+                        visual_template_id, int
+                    ):
+                        template_ids.add(visual_template_id)
+
         visual_template_id = payload.get("template_id")
         if payload.get("locator") == "visual" and isinstance(visual_template_id, int):
             template_ids.add(visual_template_id)
