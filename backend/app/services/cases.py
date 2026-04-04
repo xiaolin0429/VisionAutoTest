@@ -32,8 +32,9 @@ SUPPORTED_SCROLL_TARGETS = {"page", "element"}
 SUPPORTED_SCROLL_DIRECTIONS = {"up", "down", "left", "right"}
 SUPPORTED_SCROLL_BEHAVIORS = {"auto", "smooth"}
 SUPPORTED_LONG_PRESS_BUTTONS = {"left"}
-SUPPORTED_LOCATOR_TYPES = {"selector", "ocr"}
+SUPPORTED_LOCATOR_TYPES = {"selector", "ocr", "visual"}
 SUPPORTED_OCR_MATCH_MODES = {"exact", "contains"}
+SUPPORTED_INPUT_MODES = {"fill", "type", "otp"}
 
 
 def _published_at_for_status(status: str, current_published_at=None):
@@ -534,6 +535,26 @@ def _validate_step_payload(
                 status_code=422,
             )
 
+    if payload.get("locator") == "visual":
+        visual_template_id = payload.get("template_id")
+        if isinstance(visual_template_id, bool) or not isinstance(
+            visual_template_id, int
+        ):
+            raise ApiError(
+                code="STEP_CONFIGURATION_INVALID",
+                message="visual locator requires payload_json.template_id.",
+                status_code=422,
+            )
+        _assert_template(db, workspace_id, visual_template_id)
+        visual_template = db.get(Template, visual_template_id)
+        assert visual_template is not None
+        if visual_template.current_baseline_revision_id is None:
+            raise ApiError(
+                code="BASELINE_REVISION_REQUIRED",
+                message="visual locator requires template current baseline revision.",
+                status_code=422,
+            )
+
     if step_type == "template_assert":
         if template_id is None:
             raise ApiError(
@@ -619,6 +640,39 @@ def _validate_step_payload(
                 message="input step requires payload_json.text.",
                 status_code=422,
             )
+        input_mode = payload.get("input_mode")
+        if input_mode is not None and input_mode not in SUPPORTED_INPUT_MODES:
+            raise ApiError(
+                code="STEP_CONFIGURATION_INVALID",
+                message="input input_mode must be `fill`, `type`, or `otp`.",
+                status_code=422,
+            )
+
+        otp_length = payload.get("otp_length")
+        if otp_length is not None:
+            if (
+                isinstance(otp_length, bool)
+                or not isinstance(otp_length, int)
+                or otp_length < 1
+            ):
+                raise ApiError(
+                    code="STEP_CONFIGURATION_INVALID",
+                    message="input otp_length must be a positive integer.",
+                    status_code=422,
+                )
+
+        per_char_delay_ms = payload.get("per_char_delay_ms")
+        if per_char_delay_ms is not None:
+            if (
+                isinstance(per_char_delay_ms, bool)
+                or not isinstance(per_char_delay_ms, (int, float))
+                or float(per_char_delay_ms) < 0
+            ):
+                raise ApiError(
+                    code="STEP_CONFIGURATION_INVALID",
+                    message="input per_char_delay_ms must be a numeric value greater than or equal to 0.",
+                    status_code=422,
+                )
         return
 
     if step_type == "navigate":
@@ -730,7 +784,9 @@ def _validate_long_press_payload(payload: dict) -> None:
         )
 
 
-def _validate_interaction_locator(payload: dict, step_type: str, *, require_selector: bool) -> None:
+def _validate_interaction_locator(
+    payload: dict, step_type: str, *, require_selector: bool
+) -> None:
     """Validate locator fields for interaction steps (click, input, scroll element, long_press).
 
     When locator is ``"ocr"`` the OCR-specific fields are validated.
@@ -740,12 +796,14 @@ def _validate_interaction_locator(payload: dict, step_type: str, *, require_sele
     if locator_type not in SUPPORTED_LOCATOR_TYPES:
         raise ApiError(
             code="STEP_CONFIGURATION_INVALID",
-            message=f"{step_type} locator must be `selector` or `ocr`.",
+            message=f"{step_type} locator must be `selector`, `ocr`, or `visual`.",
             status_code=422,
         )
 
     if locator_type == "ocr":
         _validate_ocr_locator_fields(payload, step_type)
+    elif locator_type == "visual":
+        _validate_visual_locator_fields(payload, step_type)
     elif require_selector:
         selector = payload.get("selector")
         if not isinstance(selector, str) or not selector.strip():
@@ -783,9 +841,44 @@ def _validate_ocr_locator_fields(payload: dict, step_type: str) -> None:
 
     ocr_occurrence = payload.get("ocr_occurrence")
     if ocr_occurrence is not None:
-        if isinstance(ocr_occurrence, bool) or not isinstance(ocr_occurrence, int) or ocr_occurrence < 1:
+        if (
+            isinstance(ocr_occurrence, bool)
+            or not isinstance(ocr_occurrence, int)
+            or ocr_occurrence < 1
+        ):
             raise ApiError(
                 code="STEP_CONFIGURATION_INVALID",
                 message=f"{step_type} ocr_occurrence must be a positive integer.",
                 status_code=422,
             )
+
+
+def _validate_visual_locator_fields(payload: dict, step_type: str) -> None:
+    template_id = payload.get("template_id")
+    if (
+        isinstance(template_id, bool)
+        or not isinstance(template_id, int)
+        or template_id < 1
+    ):
+        raise ApiError(
+            code="STEP_CONFIGURATION_INVALID",
+            message=f"{step_type} step with visual locator requires payload_json.template_id.",
+            status_code=422,
+        )
+
+    threshold = payload.get("threshold")
+    if threshold is not None and (
+        isinstance(threshold, bool) or not isinstance(threshold, (int, float))
+    ):
+        raise ApiError(
+            code="STEP_CONFIGURATION_INVALID",
+            message=f"{step_type} visual locator threshold must be numeric.",
+            status_code=422,
+        )
+
+    if isinstance(threshold, (int, float)) and not (0 <= float(threshold) <= 1):
+        raise ApiError(
+            code="STEP_CONFIGURATION_INVALID",
+            message=f"{step_type} visual locator threshold must be between 0 and 1.",
+            status_code=422,
+        )

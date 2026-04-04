@@ -11,6 +11,7 @@ from app.models import DeviceProfile, utc_now
 from app.workers.vision import (
     OcrLocateResult,
     TemplateAssertionContext,
+    TemplateLocateResult,
     VisionArtifact,
     VisionAssertionOutcome,
     build_vision_assertion_adapter,
@@ -117,7 +118,9 @@ class PlaywrightBrowserExecutionAdapter:
                 browser = playwright.chromium.launch(headless=self._headless)
                 context = browser.new_context(**self._context_kwargs(device_profile))
                 page = context.new_page()
-                page.goto(base_url, wait_until="load", timeout=self._navigation_timeout_ms)
+                page.goto(
+                    base_url, wait_until="load", timeout=self._navigation_timeout_ms
+                )
 
                 for step in steps:
                     started_at = utc_now()
@@ -130,19 +133,27 @@ class PlaywrightBrowserExecutionAdapter:
                             template_contexts=template_contexts,
                         )
                     except UnsupportedStepError as exc:
-                        outcome = StepExecutionOutcome(status="error", error_message=self._format_error(exc))
+                        outcome = StepExecutionOutcome(
+                            status="error", error_message=self._format_error(exc)
+                        )
                         failure_reason_code = "STEP_NOT_SUPPORTED"
                         failure_summary = outcome.error_message
                     except ValueError as exc:
-                        outcome = StepExecutionOutcome(status="error", error_message=self._format_error(exc))
+                        outcome = StepExecutionOutcome(
+                            status="error", error_message=self._format_error(exc)
+                        )
                         failure_reason_code = "STEP_CONFIGURATION_INVALID"
                         failure_summary = outcome.error_message
                     except playwright_timeout_error as exc:
-                        outcome = StepExecutionOutcome(status="error", error_message=self._format_error(exc))
+                        outcome = StepExecutionOutcome(
+                            status="error", error_message=self._format_error(exc)
+                        )
                         failure_reason_code = "STEP_EXECUTION_TIMEOUT"
                         failure_summary = outcome.error_message
                     except Exception as exc:  # noqa: BLE001
-                        outcome = StepExecutionOutcome(status="error", error_message=self._format_error(exc))
+                        outcome = StepExecutionOutcome(
+                            status="error", error_message=self._format_error(exc)
+                        )
                         failure_reason_code = "STEP_EXECUTION_ERROR"
                         failure_summary = outcome.error_message
 
@@ -164,11 +175,17 @@ class PlaywrightBrowserExecutionAdapter:
                     )
 
                     if outcome.status == "failed":
-                        failure_reason_code = self._failure_code_for_assertion(step.step_type)
-                        failure_summary = outcome.error_message or f"{step.step_type} failed."
+                        failure_reason_code = self._failure_code_for_assertion(
+                            step.step_type
+                        )
+                        failure_summary = (
+                            outcome.error_message or f"{step.step_type} failed."
+                        )
                         break
                     if outcome.status == "error":
-                        failure_reason_code = failure_reason_code or "STEP_EXECUTION_ERROR"
+                        failure_reason_code = (
+                            failure_reason_code or "STEP_EXECUTION_ERROR"
+                        )
                         failure_summary = failure_summary or outcome.error_message
                         break
 
@@ -223,7 +240,7 @@ class PlaywrightBrowserExecutionAdapter:
             from playwright.sync_api import sync_playwright
         except ImportError as exc:  # pragma: no cover
             raise RuntimeError(
-                "Playwright is not installed. Run `pip install -e \".[dev]\"` and `playwright install chromium`."
+                'Playwright is not installed. Run `pip install -e ".[dev]"` and `playwright install chromium`.'
             ) from exc
         return sync_playwright, PlaywrightTimeoutError
 
@@ -259,8 +276,10 @@ class PlaywrightBrowserExecutionAdapter:
             page.wait_for_timeout(wait_ms)
             return StepExecutionOutcome(status="passed", score_value=1.0)
         if step.step_type == "click":
-            if self._is_ocr_locator(payload):
-                loc = self._resolve_ocr_target(page, payload)
+            if self._uses_visual_locator(payload):
+                loc = self._resolve_interaction_target(
+                    page, payload, template_contexts=template_contexts
+                )
                 page.mouse.click(loc.center_x, loc.center_y)
             else:
                 selector = self._payload_str(payload, "selector")
@@ -268,20 +287,76 @@ class PlaywrightBrowserExecutionAdapter:
             return StepExecutionOutcome(status="passed", score_value=1.0)
         if step.step_type == "input":
             text = self._payload_str(payload, "text")
-            if self._is_ocr_locator(payload):
-                loc = self._resolve_ocr_target(page, payload)
+            input_mode = payload.get("input_mode", "fill")
+            if input_mode not in {"fill", "type", "otp"}:
+                raise ValueError("input `input_mode` must be `fill`, `type`, or `otp`.")
+            per_char_delay_ms = self._optional_non_negative_int(
+                payload, "per_char_delay_ms", default=80
+            )
+            if self._uses_visual_locator(payload):
+                loc = self._resolve_interaction_target(
+                    page, payload, template_contexts=template_contexts
+                )
                 page.mouse.click(loc.center_x, loc.center_y)
-                page.keyboard.type(text)
+                self._prepare_input_focus(page, input_mode=input_mode)
+                self._input_via_keyboard(
+                    page,
+                    text=text,
+                    input_mode=input_mode,
+                    otp_length=self._optional_positive_int(payload, "otp_length"),
+                    per_char_delay_ms=per_char_delay_ms,
+                )
+                self._verify_input_applied(
+                    page,
+                    text=text,
+                    input_mode=input_mode,
+                    otp_length=self._optional_positive_int(payload, "otp_length"),
+                )
             else:
                 selector = self._payload_str(payload, "selector")
-                page.locator(selector).fill(text, timeout=timeout_ms)
+                locator = page.locator(selector)
+                if input_mode == "fill":
+                    locator.fill(text, timeout=timeout_ms)
+                    current_value = locator.input_value(timeout=timeout_ms)
+                    if current_value != text:
+                        raise RuntimeError(
+                            "Input fill did not persist the expected value."
+                        )
+                else:
+                    locator.click(timeout=timeout_ms)
+                    self._prepare_input_focus(page, input_mode=input_mode)
+                    self._input_via_keyboard(
+                        page,
+                        text=text,
+                        input_mode=input_mode,
+                        otp_length=self._optional_positive_int(payload, "otp_length"),
+                        per_char_delay_ms=per_char_delay_ms,
+                    )
+                    self._verify_input_applied(
+                        page,
+                        text=text,
+                        input_mode=input_mode,
+                        otp_length=self._optional_positive_int(payload, "otp_length"),
+                    )
             return StepExecutionOutcome(status="passed", score_value=1.0)
         if step.step_type == "navigate":
-            return self._execute_navigate(page, step=step, base_url=base_url, timeout_ms=timeout_ms)
+            return self._execute_navigate(
+                page, step=step, base_url=base_url, timeout_ms=timeout_ms
+            )
         if step.step_type == "scroll":
-            return self._execute_scroll(page, step=step, timeout_ms=timeout_ms)
+            return self._execute_scroll(
+                page,
+                step=step,
+                timeout_ms=timeout_ms,
+                template_contexts=template_contexts,
+            )
         if step.step_type == "long_press":
-            return self._execute_long_press(page, step=step, timeout_ms=timeout_ms)
+            return self._execute_long_press(
+                page,
+                step=step,
+                timeout_ms=timeout_ms,
+                template_contexts=template_contexts,
+            )
         if step.step_type == "template_assert":
             return self._execute_template_assert(
                 page,
@@ -290,19 +365,36 @@ class PlaywrightBrowserExecutionAdapter:
                 template_contexts=template_contexts,
             )
         if step.step_type == "ocr_assert":
-            return self._execute_ocr_assert(page, step=step, case_run_id=case_run_id, timeout_ms=timeout_ms)
+            return self._execute_ocr_assert(
+                page, step=step, case_run_id=case_run_id, timeout_ms=timeout_ms
+            )
         raise UnsupportedStepError(f"Unsupported step type: {step.step_type}")
 
-    def _execute_navigate(self, page, *, step: BrowserStep, base_url: str, timeout_ms: int) -> StepExecutionOutcome:
+    def _execute_navigate(
+        self, page, *, step: BrowserStep, base_url: str, timeout_ms: int
+    ) -> StepExecutionOutcome:
         payload = step.payload_json or {}
         url = self._payload_str(payload, "url")
         wait_until = payload.get("wait_until", "load")
         if wait_until not in {"load", "domcontentloaded", "networkidle"}:
-            raise ValueError("navigate `wait_until` must be `load`, `domcontentloaded`, or `networkidle`.")
-        page.goto(self._resolve_navigate_url(base_url, url), wait_until=wait_until, timeout=timeout_ms)
+            raise ValueError(
+                "navigate `wait_until` must be `load`, `domcontentloaded`, or `networkidle`."
+            )
+        page.goto(
+            self._resolve_navigate_url(base_url, url),
+            wait_until=wait_until,
+            timeout=timeout_ms,
+        )
         return StepExecutionOutcome(status="passed", score_value=1.0)
 
-    def _execute_scroll(self, page, *, step: BrowserStep, timeout_ms: int) -> StepExecutionOutcome:
+    def _execute_scroll(
+        self,
+        page,
+        *,
+        step: BrowserStep,
+        timeout_ms: int,
+        template_contexts: dict[int, TemplateAssertionContext],
+    ) -> StepExecutionOutcome:
         payload = step.payload_json or {}
         target = self._payload_str(payload, "target")
         if target not in {"page", "element"}:
@@ -339,11 +431,15 @@ class PlaywrightBrowserExecutionAdapter:
                 }"""
             )
             if before == after:
-                raise RuntimeError("Page scroll did not move; ensure the page can scroll in the requested direction.")
+                raise RuntimeError(
+                    "Page scroll did not move; ensure the page can scroll in the requested direction."
+                )
             return StepExecutionOutcome(status="passed", score_value=1.0)
 
-        if self._is_ocr_locator(payload):
-            loc = self._resolve_ocr_target(page, payload)
+        if self._uses_visual_locator(payload):
+            loc = self._resolve_interaction_target(
+                page, payload, template_contexts=template_contexts
+            )
             page.mouse.move(loc.center_x, loc.center_y)
             page.mouse.wheel(delta_x, delta_y)
             self._settle_scroll(page, behavior)
@@ -352,7 +448,9 @@ class PlaywrightBrowserExecutionAdapter:
         selector = self._payload_str(payload, "selector")
         locator = page.locator(selector)
         locator.wait_for(state="visible", timeout=timeout_ms)
-        before = locator.evaluate("element => ({ left: element.scrollLeft, top: element.scrollTop })")
+        before = locator.evaluate(
+            "element => ({ left: element.scrollLeft, top: element.scrollTop })"
+        )
         locator.evaluate(
             """(element, args) => {
                 element.scrollBy({ left: args.left, top: args.top, behavior: args.behavior });
@@ -360,12 +458,23 @@ class PlaywrightBrowserExecutionAdapter:
             {"left": delta_x, "top": delta_y, "behavior": behavior},
         )
         self._settle_scroll(page, behavior)
-        after = locator.evaluate("element => ({ left: element.scrollLeft, top: element.scrollTop })")
+        after = locator.evaluate(
+            "element => ({ left: element.scrollLeft, top: element.scrollTop })"
+        )
         if before == after:
-            raise RuntimeError("Element scroll did not move; ensure the target element can scroll in the requested direction.")
+            raise RuntimeError(
+                "Element scroll did not move; ensure the target element can scroll in the requested direction."
+            )
         return StepExecutionOutcome(status="passed", score_value=1.0)
 
-    def _execute_long_press(self, page, *, step: BrowserStep, timeout_ms: int) -> StepExecutionOutcome:
+    def _execute_long_press(
+        self,
+        page,
+        *,
+        step: BrowserStep,
+        timeout_ms: int,
+        template_contexts: dict[int, TemplateAssertionContext],
+    ) -> StepExecutionOutcome:
         payload = step.payload_json or {}
         duration_ms = self._payload_int(payload, "duration_ms")
         if duration_ms <= 0:
@@ -374,8 +483,10 @@ class PlaywrightBrowserExecutionAdapter:
         if button != "left":
             raise ValueError("long_press `button` currently only supports `left`.")
 
-        if self._is_ocr_locator(payload):
-            loc = self._resolve_ocr_target(page, payload)
+        if self._uses_visual_locator(payload):
+            loc = self._resolve_interaction_target(
+                page, payload, template_contexts=template_contexts
+            )
             cx, cy = loc.center_x, loc.center_y
         else:
             selector = self._payload_str(payload, "selector")
@@ -387,7 +498,9 @@ class PlaywrightBrowserExecutionAdapter:
             element.scroll_into_view_if_needed(timeout=timeout_ms)
             box = element.bounding_box()
             if box is None or box["width"] <= 0 or box["height"] <= 0:
-                raise RuntimeError("long_press target element has no visible bounding box.")
+                raise RuntimeError(
+                    "long_press target element has no visible bounding box."
+                )
             cx, cy = box["x"] + (box["width"] / 2), box["y"] + (box["height"] / 2)
 
         page.mouse.move(cx, cy)
@@ -426,13 +539,17 @@ class PlaywrightBrowserExecutionAdapter:
             diff_artifact=outcome.diff_artifact,
         )
 
-    def _execute_ocr_assert(self, page, *, step: BrowserStep, case_run_id: int, timeout_ms: int) -> StepExecutionOutcome:
+    def _execute_ocr_assert(
+        self, page, *, step: BrowserStep, case_run_id: int, timeout_ms: int
+    ) -> StepExecutionOutcome:
         payload = step.payload_json or {}
         selector = self._payload_str(payload, "selector")
         expected_text = self._payload_str(payload, "expected_text")
         match_mode = payload.get("match_mode", "contains")
         if match_mode not in {"exact", "contains"}:
-            raise ValueError("ocr_assert `match_mode` must be either `exact` or `contains`.")
+            raise ValueError(
+                "ocr_assert `match_mode` must be either `exact` or `contains`."
+            )
         case_sensitive = payload.get("case_sensitive", False)
         if not isinstance(case_sensitive, bool):
             raise ValueError("ocr_assert `case_sensitive` must be boolean.")
@@ -488,7 +605,9 @@ class PlaywrightBrowserExecutionAdapter:
             return urljoin(base_url, url)
         parsed = urlparse(url)
         if parsed.scheme not in {"http", "https"}:
-            raise ValueError("navigate `url` must be an absolute http/https URL or a path starting with `/`.")
+            raise ValueError(
+                "navigate `url` must be an absolute http/https URL or a path starting with `/`."
+            )
         return url
 
     def _scroll_delta(self, direction: str, distance: float) -> tuple[float, float]:
@@ -507,8 +626,29 @@ class PlaywrightBrowserExecutionAdapter:
         if behavior == "smooth":
             page.wait_for_timeout(250)
 
+    def _uses_visual_locator(self, payload: dict) -> bool:
+        return payload.get("locator") in {"ocr", "visual"}
+
     def _is_ocr_locator(self, payload: dict) -> bool:
         return payload.get("locator") == "ocr"
+
+    def _is_visual_template_locator(self, payload: dict) -> bool:
+        return payload.get("locator") == "visual"
+
+    def _resolve_interaction_target(
+        self,
+        page,
+        payload: dict,
+        *,
+        template_contexts: dict[int, TemplateAssertionContext],
+    ) -> OcrLocateResult | TemplateLocateResult:
+        if self._is_ocr_locator(payload):
+            return self._resolve_ocr_target(page, payload)
+        if self._is_visual_template_locator(payload):
+            return self._resolve_visual_target(
+                page, payload, template_contexts=template_contexts
+            )
+        raise ValueError("Unsupported interaction locator.")
 
     def _resolve_ocr_target(self, page, payload: dict) -> OcrLocateResult:
         ocr_text = payload.get("ocr_text")
@@ -525,6 +665,146 @@ class PlaywrightBrowserExecutionAdapter:
             case_sensitive=bool(case_sensitive),
             occurrence=int(occurrence),
         )
+
+    def _resolve_visual_target(
+        self,
+        page,
+        payload: dict,
+        *,
+        template_contexts: dict[int, TemplateAssertionContext],
+    ) -> TemplateLocateResult:
+        template_id = payload.get("template_id")
+        if isinstance(template_id, bool) or not isinstance(template_id, int):
+            raise ValueError("visual locator requires `template_id` in payload.")
+        if template_id not in template_contexts:
+            raise ValueError("Visual locator template context is missing.")
+
+        threshold_override = payload.get("threshold")
+        if threshold_override is not None:
+            threshold_override = self._payload_float(payload, "threshold")
+
+        screenshot_bytes = page.screenshot(type="png", full_page=True)
+        return self._vision_adapter.locate_by_template(
+            context=template_contexts[template_id],
+            actual_png_bytes=screenshot_bytes,
+            threshold_override=threshold_override,
+        )
+
+    def _input_via_keyboard(
+        self,
+        page,
+        *,
+        text: str,
+        input_mode: str,
+        otp_length: int | None,
+        per_char_delay_ms: int,
+    ) -> None:
+        if input_mode == "fill":
+            page.keyboard.type(text)
+            return
+
+        if input_mode == "type":
+            page.keyboard.type(text, delay=per_char_delay_ms)
+            return
+
+        normalized_text = text.strip()
+        if not normalized_text:
+            raise ValueError("input `text` must be a non-empty string.")
+        expected_length = otp_length if otp_length is not None else len(normalized_text)
+        if len(normalized_text) != expected_length:
+            raise ValueError("input `text` length must match `otp_length` in otp mode.")
+
+        for char in normalized_text:
+            page.keyboard.insert_text(char)
+            page.wait_for_timeout(per_char_delay_ms)
+
+    def _prepare_input_focus(self, page, *, input_mode: str) -> None:
+        if input_mode != "otp":
+            return
+
+        focused = page.evaluate(
+            """() => {
+                const inputs = Array.from(document.querySelectorAll('input.base-code-box-input'));
+                const firstVisible = inputs.find((item) => {
+                    if (!(item instanceof HTMLInputElement)) return false;
+                    const rect = item.getBoundingClientRect();
+                    return rect.width > 0 && rect.height > 0 && !item.disabled;
+                });
+                if (!(firstVisible instanceof HTMLInputElement)) {
+                    return false;
+                }
+                firstVisible.focus();
+                firstVisible.click();
+                return document.activeElement === firstVisible;
+            }"""
+        )
+        if focused:
+            page.wait_for_timeout(100)
+
+    def _verify_input_applied(
+        self,
+        page,
+        *,
+        text: str,
+        input_mode: str,
+        otp_length: int | None,
+    ) -> None:
+        if input_mode == "fill":
+            return
+
+        if input_mode == "otp":
+            expected_length = otp_length if otp_length is not None else len(text)
+            otp_state = page.evaluate(
+                """() => {
+                    const inputs = Array.from(document.querySelectorAll('input.base-code-box-input'));
+                    return inputs.map((item) => ({ value: item.value || '' }));
+                }"""
+            )
+            if isinstance(otp_state, list) and otp_state:
+                joined = "".join(str(item.get("value", "")) for item in otp_state)
+                if len(joined) == expected_length and joined == text:
+                    return
+                raise RuntimeError(
+                    "OTP input did not populate verification boxes with the expected value."
+                )
+
+        active_value = page.evaluate(
+            """() => {
+                const active = document.activeElement;
+                if (active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement) {
+                    return active.value || '';
+                }
+                return '';
+            }"""
+        )
+        if active_value != text:
+            raise RuntimeError("Keyboard input did not persist the expected value.")
+
+    def _optional_positive_int(self, payload: dict, key: str) -> int | None:
+        value = payload.get(key)
+        if value is None:
+            return None
+        if isinstance(value, bool) or not isinstance(value, (int, float, Decimal)):
+            raise ValueError(f"Step payload `{key}` must be numeric.")
+        parsed = int(value)
+        if parsed < 1:
+            raise ValueError(f"Step payload `{key}` must be greater than 0.")
+        return parsed
+
+    def _optional_non_negative_int(
+        self, payload: dict, key: str, *, default: int
+    ) -> int:
+        value = payload.get(key)
+        if value is None:
+            return default
+        if isinstance(value, bool) or not isinstance(value, (int, float, Decimal)):
+            raise ValueError(f"Step payload `{key}` must be numeric.")
+        parsed = int(value)
+        if parsed < 0:
+            raise ValueError(
+                f"Step payload `{key}` must be greater than or equal to 0."
+            )
+        return parsed
 
     def _failure_code_for_assertion(self, step_type: str) -> str:
         if step_type == "template_assert":

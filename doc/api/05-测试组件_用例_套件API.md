@@ -132,7 +132,7 @@
 - MVP 首批真实浏览器执行支持以下步骤载荷约定：
   - `wait`：`payload_json.ms`
   - `click`：`payload_json.selector`（默认）或 OCR 定位模式
-  - `input`：`payload_json.selector`（默认）或 OCR 定位模式、`payload_json.text`
+  - `input`：`payload_json.selector`（默认）或 OCR 定位模式、`payload_json.text`，可选 `payload_json.input_mode`
   - `navigate`：`payload_json.url`、可选 `payload_json.wait_until`
   - `scroll`：`payload_json.target`、可选 `payload_json.selector`（默认）或 OCR 定位模式、`payload_json.direction`、`payload_json.distance`、可选 `payload_json.behavior`
   - `long_press`：`payload_json.selector`（默认）或 OCR 定位模式、`payload_json.duration_ms`、可选 `payload_json.button`
@@ -142,6 +142,10 @@
   - `selector`（默认）：基于 CSS 选择器定位，需提供 `payload_json.selector`。
   - `ocr`：基于 OCR 文字识别定位，需提供 `payload_json.ocr_text`（目标文字）；可选 `payload_json.ocr_match_mode`（`exact` 或 `contains`，默认 `contains`）、`payload_json.ocr_case_sensitive`（布尔，默认 `false`）、`payload_json.ocr_occurrence`（正整数，默认 `1`，表示匹配第 N 个结果）。
   - OCR 定位模式下执行引擎会先对当前页面截图做 OCR 识别，找到匹配文字的坐标后在该坐标执行操作。
+- `input` 步骤支持通用输入策略，通过 `payload_json.input_mode` 切换：
+  - `fill`（默认）：适合普通输入框；selector 定位时优先使用元素填充，OCR 定位时在目标位置聚焦后直接输入文本。
+  - `type`：适合需要键盘事件驱动的输入组件；聚焦目标后按字符逐位输入。
+  - `otp`：适合验证码、PIN 码等多格输入组件；聚焦目标后按字符逐位输入。可选 `payload_json.otp_length`（正整数，验证码长度）与 `payload_json.per_char_delay_ms`（非负数，逐字符延迟，默认 `80`）。
 - `component_call` 为编排步骤，不直接映射浏览器动作；执行时会按组件步骤明细展开成真实执行序列。
 - 当前组件展开只支持一层复用，不支持组件内部继续嵌套组件调用。
 - `template_assert` 仅允许引用当前工作空间下存在已生效基准版本、且 `match_strategy=template` 的模板。

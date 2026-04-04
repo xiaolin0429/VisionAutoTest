@@ -56,6 +56,17 @@ class OcrLocateResult:
     confidence: float
 
 
+@dataclass(slots=True)
+class TemplateLocateResult:
+    center_x: float
+    center_y: float
+    rect_x: int
+    rect_y: int
+    rect_width: int
+    rect_height: int
+    score: float
+
+
 class VisionAssertionAdapter(Protocol):
     def assert_template(
         self,
@@ -99,6 +110,14 @@ class VisionAssertionAdapter(Protocol):
         occurrence: int,
     ) -> OcrLocateResult: ...
 
+    def locate_by_template(
+        self,
+        *,
+        context: TemplateAssertionContext,
+        actual_png_bytes: bytes,
+        threshold_override: float | None,
+    ) -> TemplateLocateResult: ...
+
 
 def build_vision_assertion_adapter() -> VisionAssertionAdapter:
     return DefaultVisionAssertionAdapter()
@@ -120,15 +139,23 @@ class DefaultVisionAssertionAdapter:
         baseline_bytes = context.baseline_file_path.read_bytes()
         baseline_image = self._decode_image(cv2, baseline_bytes)
         actual_image = self._decode_image(cv2, actual_png_bytes)
-        expected_image, actual_image = self._normalize_sizes(cv2, baseline_image, actual_image)
+        expected_image, actual_image = self._normalize_sizes(
+            cv2, baseline_image, actual_image
+        )
         expected_image = self._apply_masks(expected_image, context.mask_regions)
         actual_image = self._apply_masks(actual_image, context.mask_regions)
 
         expected_gray = cv2.cvtColor(expected_image, cv2.COLOR_BGR2GRAY)
         actual_gray = cv2.cvtColor(actual_image, cv2.COLOR_BGR2GRAY)
-        score = float(cv2.matchTemplate(actual_gray, expected_gray, cv2.TM_CCOEFF_NORMED).max())
+        score = float(
+            cv2.matchTemplate(actual_gray, expected_gray, cv2.TM_CCOEFF_NORMED).max()
+        )
 
-        threshold = float(threshold_override if threshold_override is not None else context.threshold_value)
+        threshold = float(
+            threshold_override
+            if threshold_override is not None
+            else context.threshold_value
+        )
         actual_artifact = VisionArtifact(
             file_name=actual_file_name,
             content_type="image/png",
@@ -184,7 +211,9 @@ class DefaultVisionAssertionAdapter:
         return VisionAssertionOutcome(
             status="passed" if passed else "failed",
             score_value=1.0 if passed else 0.0,
-            error_message=None if passed else f"OCR assertion failed: expected `{expected_text}` but got `{recognized_text}`.",
+            error_message=None
+            if passed
+            else f"OCR assertion failed: expected `{expected_text}` but got `{recognized_text}`.",
             actual_artifact=VisionArtifact(
                 file_name=image_file_name,
                 content_type="image/png",
@@ -215,10 +244,15 @@ class DefaultVisionAssertionAdapter:
                     continue
                 text = str(line[1][0]).strip()
                 confidence = float(line[1][1]) if len(line[1]) > 1 else 0.0
-                polygon_points = [self._normalize_point(point, image_width, image_height) for point in line[0]]
+                polygon_points = [
+                    self._normalize_point(point, image_width, image_height)
+                    for point in line[0]
+                ]
                 if not polygon_points:
                     continue
-                pixel_rect = self._build_pixel_rect(polygon_points, image_width, image_height)
+                pixel_rect = self._build_pixel_rect(
+                    polygon_points, image_width, image_height
+                )
                 blocks.append(
                     {
                         "order_no": order_no,
@@ -226,7 +260,9 @@ class DefaultVisionAssertionAdapter:
                         "confidence": confidence,
                         "polygon_points": polygon_points,
                         "pixel_rect": pixel_rect,
-                        "ratio_rect": self._build_ratio_rect(pixel_rect, image_width, image_height),
+                        "ratio_rect": self._build_ratio_rect(
+                            pixel_rect, image_width, image_height
+                        ),
                     }
                 )
                 order_no += 1
@@ -297,11 +333,60 @@ class DefaultVisionAssertionAdapter:
             f"but occurrence {occurrence} was requested."
         )
 
+    def locate_by_template(
+        self,
+        *,
+        context: TemplateAssertionContext,
+        actual_png_bytes: bytes,
+        threshold_override: float | None,
+    ) -> TemplateLocateResult:
+        cv2 = self._load_cv2()
+
+        baseline_bytes = context.baseline_file_path.read_bytes()
+        baseline_image = self._decode_image(cv2, baseline_bytes)
+        actual_image = self._decode_image(cv2, actual_png_bytes)
+        expected_image = self._apply_masks(baseline_image, context.mask_regions)
+
+        expected_gray = cv2.cvtColor(expected_image, cv2.COLOR_BGR2GRAY)
+        actual_gray = cv2.cvtColor(actual_image, cv2.COLOR_BGR2GRAY)
+        expected_height, expected_width = expected_gray.shape[:2]
+        actual_height, actual_width = actual_gray.shape[:2]
+        if expected_width > actual_width or expected_height > actual_height:
+            raise RuntimeError(
+                "Template locate failed: template image is larger than the current screenshot."
+            )
+        result = cv2.matchTemplate(actual_gray, expected_gray, cv2.TM_CCOEFF_NORMED)
+        _, max_score, _, max_loc = cv2.minMaxLoc(result)
+
+        threshold = float(
+            threshold_override
+            if threshold_override is not None
+            else context.threshold_value
+        )
+        if float(max_score) < threshold:
+            raise RuntimeError(
+                f"Template locate failed: score {float(max_score):.4f} is below threshold {threshold:.4f}."
+            )
+
+        rect_x, rect_y = int(max_loc[0]), int(max_loc[1])
+        rect_height, rect_width = expected_height, expected_width
+        return TemplateLocateResult(
+            center_x=rect_x + rect_width / 2,
+            center_y=rect_y + rect_height / 2,
+            rect_x=rect_x,
+            rect_y=rect_y,
+            rect_width=rect_width,
+            rect_height=rect_height,
+            score=float(max_score),
+        )
+
     def _load_cv2(self):
         try:
             import cv2
         except ImportError as exc:  # pragma: no cover
-            raise RuntimeError("OpenCV is not installed. Please install `opencv-python-headless`.") from exc
+            raise RuntimeError(
+                "OpenCV is not installed. Please install `opencv-python-headless`."
+            ) from exc
         return cv2
 
     def _load_paddle_ocr(self):
@@ -310,14 +395,20 @@ class DefaultVisionAssertionAdapter:
         try:
             from paddleocr import PaddleOCR
         except ImportError as exc:  # pragma: no cover
-            raise RuntimeError("PaddleOCR is not installed. Please install `paddleocr`.") from exc
-        self.__class__._ocr_engine = PaddleOCR(use_angle_cls=False, lang="ch", show_log=False)
+            raise RuntimeError(
+                "PaddleOCR is not installed. Please install `paddleocr`."
+            ) from exc
+        self.__class__._ocr_engine = PaddleOCR(
+            use_angle_cls=False, lang="ch", show_log=False
+        )
         return self.__class__._ocr_engine
 
     def _decode_image(self, cv2, image_bytes: bytes):
         import numpy as np
 
-        image = cv2.imdecode(np.frombuffer(image_bytes, dtype=np.uint8), cv2.IMREAD_COLOR)
+        image = cv2.imdecode(
+            np.frombuffer(image_bytes, dtype=np.uint8), cv2.IMREAD_COLOR
+        )
         if image is None:
             raise RuntimeError("Failed to decode image bytes.")
         return image
@@ -342,8 +433,13 @@ class DefaultVisionAssertionAdapter:
         for region in mask_regions:
             left = int(width * region.x_ratio)
             top = int(height * region.y_ratio)
-            right = min(width, max(left + 1, int(width * (region.x_ratio + region.width_ratio))))
-            bottom = min(height, max(top + 1, int(height * (region.y_ratio + region.height_ratio))))
+            right = min(
+                width, max(left + 1, int(width * (region.x_ratio + region.width_ratio)))
+            )
+            bottom = min(
+                height,
+                max(top + 1, int(height * (region.y_ratio + region.height_ratio))),
+            )
             masked_image[top:bottom, left:right] = 0
         return masked_image
 
@@ -354,10 +450,19 @@ class DefaultVisionAssertionAdapter:
         for region in mask_regions:
             left = int(width * region.x_ratio)
             top = int(height * region.y_ratio)
-            right = min(width, max(left + 1, int(width * (region.x_ratio + region.width_ratio))))
-            bottom = min(height, max(top + 1, int(height * (region.y_ratio + region.height_ratio))))
-            cv2.rectangle(layer, (left, top), (right - 1, bottom - 1), (0, 165, 255), thickness=-1)
-            cv2.rectangle(overlay, (left, top), (right - 1, bottom - 1), (0, 90, 255), thickness=2)
+            right = min(
+                width, max(left + 1, int(width * (region.x_ratio + region.width_ratio)))
+            )
+            bottom = min(
+                height,
+                max(top + 1, int(height * (region.y_ratio + region.height_ratio))),
+            )
+            cv2.rectangle(
+                layer, (left, top), (right - 1, bottom - 1), (0, 165, 255), thickness=-1
+            )
+            cv2.rectangle(
+                overlay, (left, top), (right - 1, bottom - 1), (0, 90, 255), thickness=2
+            )
         overlay = cv2.addWeighted(layer, 0.22, overlay, 0.78, 0)
         return overlay
 
@@ -368,7 +473,9 @@ class DefaultVisionAssertionAdapter:
         y = min(max(int(round(raw_y)), 0), max(image_height - 1, 0))
         return {"x": x, "y": y}
 
-    def _build_pixel_rect(self, polygon_points: list[dict], image_width: int, image_height: int) -> dict:
+    def _build_pixel_rect(
+        self, polygon_points: list[dict], image_width: int, image_height: int
+    ) -> dict:
         xs = [point["x"] for point in polygon_points]
         ys = [point["y"] for point in polygon_points]
         left = min(xs)
@@ -382,9 +489,13 @@ class DefaultVisionAssertionAdapter:
             "height": max(1, bottom - top),
         }
 
-    def _build_ratio_rect(self, pixel_rect: dict, image_width: int, image_height: int) -> dict:
+    def _build_ratio_rect(
+        self, pixel_rect: dict, image_width: int, image_height: int
+    ) -> dict:
         if image_width <= 0 or image_height <= 0:
-            raise RuntimeError("Image dimensions must be greater than 0 for OCR ratio conversion.")
+            raise RuntimeError(
+                "Image dimensions must be greater than 0 for OCR ratio conversion."
+            )
         return {
             "x_ratio": pixel_rect["x"] / image_width,
             "y_ratio": pixel_rect["y"] / image_height,

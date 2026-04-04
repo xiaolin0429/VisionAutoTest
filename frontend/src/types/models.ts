@@ -377,9 +377,11 @@ export type LongPressButton = 'left'
 
 export type OcrAssertMatchMode = 'exact' | 'contains'
 
-export type LocatorType = 'selector' | 'ocr'
+export type LocatorType = 'selector' | 'ocr' | 'visual'
 
 export type OcrLocatorMatchMode = 'exact' | 'contains'
+
+export type InputMode = 'fill' | 'type' | 'otp'
 
 export interface Step {
   id: number
