@@ -1,7 +1,10 @@
 import type {
+  InputMode,
+  LocatorType,
   LongPressButton,
   NavigateWaitUntil,
   OcrAssertMatchMode,
+  OcrLocatorMatchMode,
   ScrollBehaviorMode,
   ScrollDirection,
   ScrollTargetType,
@@ -28,7 +31,12 @@ export interface StepDraft {
   componentId: number | null
   waitMs: number | null
   selector: string
+  visualTemplateId: number | null
+  visualThreshold: number | null
   text: string
+  inputMode: InputMode
+  otpLength: number | null
+  perCharDelayMs: number | null
   threshold: number | null
   expectedText: string
   matchMode: OcrAssertMatchMode
@@ -41,6 +49,11 @@ export interface StepDraft {
   behavior: ScrollBehaviorMode
   durationMs: number | null
   button: LongPressButton
+  locator: LocatorType
+  ocrText: string
+  ocrMatchMode: OcrLocatorMatchMode
+  ocrCaseSensitive: boolean
+  ocrOccurrence: number
   extraPayloadJson: string
   timeoutMs: number
   retryTimes: number
@@ -49,7 +62,12 @@ export interface StepDraft {
 export interface StepValidationErrors {
   waitMs?: string
   selector?: string
+  visualTemplateId?: string
+  visualThreshold?: string
   text?: string
+  inputMode?: string
+  otpLength?: string
+  perCharDelayMs?: string
   templateId?: string
   threshold?: string
   expectedText?: string
@@ -66,6 +84,9 @@ export interface StepValidationErrors {
   behavior?: string
   durationMs?: string
   button?: string
+  ocrText?: string
+  ocrMatchMode?: string
+  ocrOccurrence?: string
 }
 
 export interface StepTypeOption {
@@ -117,10 +138,29 @@ export const LONG_PRESS_BUTTON_OPTIONS: Array<{ label: string; value: LongPressB
   { label: 'left', value: 'left' }
 ]
 
+export const LOCATOR_TYPE_OPTIONS: Array<{ label: string; value: LocatorType }> = [
+  { label: 'CSS 选择器', value: 'selector' },
+  { label: 'OCR 文字定位', value: 'ocr' },
+  { label: '视觉模板定位', value: 'visual' }
+]
+
+export const OCR_LOCATOR_MATCH_MODE_OPTIONS: Array<{ label: string; value: OcrLocatorMatchMode }> = [
+  { label: '包含', value: 'contains' },
+  { label: '完全匹配', value: 'exact' }
+]
+
+export const INPUT_MODE_OPTIONS: Array<{ label: string; value: InputMode }> = [
+  { label: '普通输入', value: 'fill' },
+  { label: '键盘输入', value: 'type' },
+  { label: '验证码输入', value: 'otp' }
+]
+
 const DEFAULT_WAIT_MS = 200
 const DEFAULT_TIMEOUT_MS = 15000
 const DEFAULT_SCROLL_DISTANCE = 1200
 const DEFAULT_LONG_PRESS_DURATION_MS = 800
+const DEFAULT_INPUT_MODE: InputMode = 'fill'
+const DEFAULT_OTP_PER_CHAR_DELAY_MS = 80
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
@@ -164,6 +204,18 @@ function isLongPressButton(value: unknown): value is LongPressButton {
   return value === 'left'
 }
 
+function isLocatorType(value: unknown): value is LocatorType {
+  return value === 'selector' || value === 'ocr' || value === 'visual'
+}
+
+function isOcrLocatorMatchMode(value: unknown): value is OcrLocatorMatchMode {
+  return value === 'exact' || value === 'contains'
+}
+
+function isInputMode(value: unknown): value is InputMode {
+  return value === 'fill' || value === 'type' || value === 'otp'
+}
+
 function stringifyPayload(payload: Record<string, unknown>) {
   const keys = Object.keys(payload)
   if (keys.length === 0) {
@@ -179,6 +231,40 @@ function formatTextValue(value: unknown) {
   }
 
   return value.trim()
+}
+
+function buildLocatorSummary(payload: Record<string, unknown>) {
+  const locator = isLocatorType(payload.locator) ? payload.locator : 'selector'
+  if (locator === 'ocr') {
+    const matchMode = isOcrLocatorMatchMode(payload.ocr_match_mode)
+      ? payload.ocr_match_mode
+      : 'contains'
+    const caseSensitive = payload.ocr_case_sensitive === true ? '区分大小写' : '忽略大小写'
+    const occurrence =
+      typeof payload.ocr_occurrence === 'number' && Number.isFinite(payload.ocr_occurrence)
+        ? payload.ocr_occurrence
+        : 1
+
+    return {
+      locator,
+      target: `OCR ${formatTextValue(payload.ocr_text)}`,
+      note: `${matchMode} · ${caseSensitive} · 第 ${occurrence} 个匹配`
+    }
+  }
+
+  if (locator === 'visual') {
+    return {
+      locator,
+      target: `模板 #${typeof payload.template_id === 'number' ? payload.template_id : '--'}`,
+      note: `视觉模板定位${typeof payload.threshold === 'number' ? ` · 阈值 ${payload.threshold.toFixed(2)}` : ''}`
+    }
+  }
+
+  return {
+    locator,
+    target: formatTextValue(payload.selector),
+    note: 'CSS 选择器'
+  }
 }
 
 function formatExtraPayloadKeys(payload: Record<string, unknown>, knownKeys: string[]) {
@@ -230,7 +316,12 @@ export function createEmptyStepDraft(index: number): StepDraft {
     componentId: null,
     waitMs: DEFAULT_WAIT_MS,
     selector: '',
+    visualTemplateId: null,
+    visualThreshold: null,
     text: '',
+    inputMode: DEFAULT_INPUT_MODE,
+    otpLength: null,
+    perCharDelayMs: DEFAULT_OTP_PER_CHAR_DELAY_MS,
     threshold: null,
     expectedText: '',
     matchMode: 'contains',
@@ -243,6 +334,11 @@ export function createEmptyStepDraft(index: number): StepDraft {
     behavior: 'auto',
     durationMs: DEFAULT_LONG_PRESS_DURATION_MS,
     button: 'left',
+    locator: 'selector',
+    ocrText: '',
+    ocrMatchMode: 'contains',
+    ocrCaseSensitive: false,
+    ocrOccurrence: 1,
     extraPayloadJson: '{}',
     timeoutMs: DEFAULT_TIMEOUT_MS,
     retryTimes: 0
@@ -282,7 +378,12 @@ export function parseExtraPayloadJson(step: Pick<StepDraft, 'extraPayloadJson'>)
   }
 }
 
+export function supportsOcrLocator(type: StepType): boolean {
+  return type === 'click' || type === 'input' || type === 'scroll' || type === 'long_press'
+}
+
 export function normalizeStepByType(step: StepDraft, nextType: StepType): StepDraft {
+  const keepLocator = supportsOcrLocator(nextType)
   return {
     ...step,
     type: nextType,
@@ -297,7 +398,18 @@ export function normalizeStepByType(step: StepDraft, nextType: StepType): StepDr
       nextType === 'long_press'
         ? step.selector
         : '',
+    visualTemplateId:
+      nextType === 'click' || nextType === 'input' || nextType === 'scroll' || nextType === 'long_press'
+        ? step.visualTemplateId
+        : null,
+    visualThreshold:
+      nextType === 'click' || nextType === 'input' || nextType === 'scroll' || nextType === 'long_press'
+        ? step.visualThreshold
+        : null,
     text: nextType === 'input' ? step.text : '',
+    inputMode: nextType === 'input' ? step.inputMode : DEFAULT_INPUT_MODE,
+    otpLength: nextType === 'input' ? step.otpLength : null,
+    perCharDelayMs: nextType === 'input' ? step.perCharDelayMs : DEFAULT_OTP_PER_CHAR_DELAY_MS,
     threshold: nextType === 'template_assert' ? step.threshold : null,
     expectedText: nextType === 'ocr_assert' ? step.expectedText : '',
     matchMode: nextType === 'ocr_assert' ? step.matchMode : 'contains',
@@ -309,7 +421,12 @@ export function normalizeStepByType(step: StepDraft, nextType: StepType): StepDr
     distance: nextType === 'scroll' ? step.distance ?? DEFAULT_SCROLL_DISTANCE : null,
     behavior: nextType === 'scroll' ? step.behavior : 'auto',
     durationMs: nextType === 'long_press' ? step.durationMs ?? DEFAULT_LONG_PRESS_DURATION_MS : null,
-    button: nextType === 'long_press' ? step.button : 'left'
+    button: nextType === 'long_press' ? step.button : 'left',
+    locator: keepLocator ? step.locator : 'selector',
+    ocrText: keepLocator ? step.ocrText : '',
+    ocrMatchMode: keepLocator ? step.ocrMatchMode : 'contains',
+    ocrCaseSensitive: keepLocator ? step.ocrCaseSensitive : false,
+    ocrOccurrence: keepLocator ? step.ocrOccurrence : 1
   }
 }
 
@@ -324,14 +441,51 @@ export function buildStepDraft(step: Step): StepDraft {
       delete payload.ms
       break
     case 'click':
+      draft.locator = isLocatorType(payload.locator) ? payload.locator : 'selector'
       draft.selector = typeof payload.selector === 'string' ? payload.selector : ''
+      draft.visualTemplateId = typeof payload.template_id === 'number' ? payload.template_id : null
+      draft.visualThreshold = typeof payload.threshold === 'number' ? payload.threshold : null
+      draft.ocrText = typeof payload.ocr_text === 'string' ? payload.ocr_text : ''
+      draft.ocrMatchMode = isOcrLocatorMatchMode(payload.ocr_match_mode) ? payload.ocr_match_mode : 'contains'
+      draft.ocrCaseSensitive = payload.ocr_case_sensitive === true
+      draft.ocrOccurrence = typeof payload.ocr_occurrence === 'number' && payload.ocr_occurrence >= 1 ? payload.ocr_occurrence : 1
+      delete payload.locator
       delete payload.selector
+      delete payload.template_id
+      delete payload.threshold
+      delete payload.ocr_text
+      delete payload.ocr_match_mode
+      delete payload.ocr_case_sensitive
+      delete payload.ocr_occurrence
       break
     case 'input':
+      draft.locator = isLocatorType(payload.locator) ? payload.locator : 'selector'
       draft.selector = typeof payload.selector === 'string' ? payload.selector : ''
+      draft.visualTemplateId = typeof payload.template_id === 'number' ? payload.template_id : null
+      draft.visualThreshold = typeof payload.threshold === 'number' ? payload.threshold : null
       draft.text = typeof payload.text === 'string' ? payload.text : ''
+      draft.inputMode = isInputMode(payload.input_mode) ? payload.input_mode : DEFAULT_INPUT_MODE
+      draft.otpLength = typeof payload.otp_length === 'number' && payload.otp_length >= 1 ? payload.otp_length : null
+      draft.perCharDelayMs =
+        typeof payload.per_char_delay_ms === 'number' && payload.per_char_delay_ms >= 0
+          ? payload.per_char_delay_ms
+          : DEFAULT_OTP_PER_CHAR_DELAY_MS
+      draft.ocrText = typeof payload.ocr_text === 'string' ? payload.ocr_text : ''
+      draft.ocrMatchMode = isOcrLocatorMatchMode(payload.ocr_match_mode) ? payload.ocr_match_mode : 'contains'
+      draft.ocrCaseSensitive = payload.ocr_case_sensitive === true
+      draft.ocrOccurrence = typeof payload.ocr_occurrence === 'number' && payload.ocr_occurrence >= 1 ? payload.ocr_occurrence : 1
+      delete payload.locator
       delete payload.selector
+      delete payload.template_id
+      delete payload.threshold
       delete payload.text
+      delete payload.input_mode
+      delete payload.otp_length
+      delete payload.per_char_delay_ms
+      delete payload.ocr_text
+      delete payload.ocr_match_mode
+      delete payload.ocr_case_sensitive
+      delete payload.ocr_occurrence
       break
     case 'template_assert':
       draft.threshold =
@@ -358,29 +512,57 @@ export function buildStepDraft(step: Step): StepDraft {
       break
     case 'scroll':
       draft.scrollTarget = isScrollTarget(payload.target) ? payload.target : 'page'
+      draft.locator = isLocatorType(payload.locator) ? payload.locator : 'selector'
       draft.selector = typeof payload.selector === 'string' ? payload.selector : ''
+      draft.visualTemplateId = typeof payload.template_id === 'number' ? payload.template_id : null
+      draft.visualThreshold = typeof payload.threshold === 'number' ? payload.threshold : null
       draft.direction = isScrollDirection(payload.direction) ? payload.direction : 'down'
       draft.distance =
         typeof payload.distance === 'number' && Number.isFinite(payload.distance)
           ? payload.distance
           : DEFAULT_SCROLL_DISTANCE
       draft.behavior = isScrollBehavior(payload.behavior) ? payload.behavior : 'auto'
+      draft.ocrText = typeof payload.ocr_text === 'string' ? payload.ocr_text : ''
+      draft.ocrMatchMode = isOcrLocatorMatchMode(payload.ocr_match_mode) ? payload.ocr_match_mode : 'contains'
+      draft.ocrCaseSensitive = payload.ocr_case_sensitive === true
+      draft.ocrOccurrence = typeof payload.ocr_occurrence === 'number' && payload.ocr_occurrence >= 1 ? payload.ocr_occurrence : 1
       delete payload.target
+      delete payload.locator
       delete payload.selector
+      delete payload.template_id
+      delete payload.threshold
       delete payload.direction
       delete payload.distance
       delete payload.behavior
+      delete payload.ocr_text
+      delete payload.ocr_match_mode
+      delete payload.ocr_case_sensitive
+      delete payload.ocr_occurrence
       break
     case 'long_press':
+      draft.locator = isLocatorType(payload.locator) ? payload.locator : 'selector'
       draft.selector = typeof payload.selector === 'string' ? payload.selector : ''
+      draft.visualTemplateId = typeof payload.template_id === 'number' ? payload.template_id : null
+      draft.visualThreshold = typeof payload.threshold === 'number' ? payload.threshold : null
       draft.durationMs =
         typeof payload.duration_ms === 'number' && Number.isFinite(payload.duration_ms)
           ? payload.duration_ms
           : DEFAULT_LONG_PRESS_DURATION_MS
       draft.button = isLongPressButton(payload.button) ? payload.button : 'left'
+      draft.ocrText = typeof payload.ocr_text === 'string' ? payload.ocr_text : ''
+      draft.ocrMatchMode = isOcrLocatorMatchMode(payload.ocr_match_mode) ? payload.ocr_match_mode : 'contains'
+      draft.ocrCaseSensitive = payload.ocr_case_sensitive === true
+      draft.ocrOccurrence = typeof payload.ocr_occurrence === 'number' && payload.ocr_occurrence >= 1 ? payload.ocr_occurrence : 1
+      delete payload.locator
       delete payload.selector
+      delete payload.template_id
+      delete payload.threshold
       delete payload.duration_ms
       delete payload.button
+      delete payload.ocr_text
+      delete payload.ocr_match_mode
+      delete payload.ocr_case_sensitive
+      delete payload.ocr_occurrence
       break
     case 'component_call':
       break
@@ -423,16 +605,63 @@ export function validateStepDraft(step: StepDraft): StepValidationErrors {
       }
       break
     case 'click':
-      if (!step.selector.trim()) {
+      if (step.locator === 'ocr') {
+        if (!step.ocrText.trim()) {
+          errors.ocrText = '点击步骤使用 OCR 定位时必须填写识别文本。'
+        }
+        if (!isOcrLocatorMatchMode(step.ocrMatchMode)) {
+          errors.ocrMatchMode = 'OCR 匹配模式仅支持 exact 或 contains。'
+        }
+        if (!Number.isInteger(step.ocrOccurrence) || step.ocrOccurrence < 1) {
+          errors.ocrOccurrence = 'OCR 匹配序号必须为大于等于 1 的整数。'
+        }
+      } else if (step.locator === 'visual') {
+        if (step.visualTemplateId === null) {
+          errors.visualTemplateId = '点击步骤使用视觉模板定位时必须选择模板。'
+        }
+        if (step.visualThreshold !== null && (step.visualThreshold < 0 || step.visualThreshold > 1)) {
+          errors.visualThreshold = '视觉定位阈值必须在 0 到 1 之间。'
+        }
+      } else if (!step.selector.trim()) {
         errors.selector = '请选择或填写点击目标选择器。'
       }
       break
     case 'input':
-      if (!step.selector.trim()) {
+      if (step.locator === 'ocr') {
+        if (!step.ocrText.trim()) {
+          errors.ocrText = '输入步骤使用 OCR 定位时必须填写识别文本。'
+        }
+        if (!isOcrLocatorMatchMode(step.ocrMatchMode)) {
+          errors.ocrMatchMode = 'OCR 匹配模式仅支持 exact 或 contains。'
+        }
+        if (!Number.isInteger(step.ocrOccurrence) || step.ocrOccurrence < 1) {
+          errors.ocrOccurrence = 'OCR 匹配序号必须为大于等于 1 的整数。'
+        }
+      } else if (step.locator === 'visual') {
+        if (step.visualTemplateId === null) {
+          errors.visualTemplateId = '输入步骤使用视觉模板定位时必须选择模板。'
+        }
+        if (step.visualThreshold !== null && (step.visualThreshold < 0 || step.visualThreshold > 1)) {
+          errors.visualThreshold = '视觉定位阈值必须在 0 到 1 之间。'
+        }
+      } else if (!step.selector.trim()) {
         errors.selector = '请输入输入目标选择器。'
       }
       if (!step.text.trim()) {
         errors.text = '请输入要填充的文本。'
+      }
+      if (!isInputMode(step.inputMode)) {
+        errors.inputMode = '输入方式仅支持 fill、type、otp。'
+      }
+      if (step.inputMode === 'otp') {
+        if (!Number.isInteger(step.otpLength) || (step.otpLength ?? 0) < 1) {
+          errors.otpLength = '验证码长度必须为大于等于 1 的整数。'
+        } else if (step.text.trim() && step.text.trim().length !== step.otpLength) {
+          errors.otpLength = '验证码长度必须与输入文本长度一致。'
+        }
+      }
+      if (!Number.isFinite(step.perCharDelayMs) || (step.perCharDelayMs ?? -1) < 0) {
+        errors.perCharDelayMs = '逐字符延迟必须大于等于 0 ms。'
       }
       break
     case 'template_assert':
@@ -476,8 +705,27 @@ export function validateStepDraft(step: StepDraft): StepValidationErrors {
       if (!isScrollTarget(step.scrollTarget)) {
         errors.scrollTarget = '滑动目标仅支持 page 或 element。'
       }
-      if (step.scrollTarget === 'element' && !step.selector.trim()) {
-        errors.selector = '元素滑动必须填写选择器。'
+      if (step.scrollTarget === 'element') {
+        if (step.locator === 'ocr') {
+          if (!step.ocrText.trim()) {
+            errors.ocrText = '元素滑动使用 OCR 定位时必须填写识别文本。'
+          }
+          if (!isOcrLocatorMatchMode(step.ocrMatchMode)) {
+            errors.ocrMatchMode = 'OCR 匹配模式仅支持 exact 或 contains。'
+          }
+          if (!Number.isInteger(step.ocrOccurrence) || step.ocrOccurrence < 1) {
+            errors.ocrOccurrence = 'OCR 匹配序号必须为大于等于 1 的整数。'
+          }
+        } else if (step.locator === 'visual') {
+          if (step.visualTemplateId === null) {
+            errors.visualTemplateId = '元素滑动使用视觉模板定位时必须选择模板。'
+          }
+          if (step.visualThreshold !== null && (step.visualThreshold < 0 || step.visualThreshold > 1)) {
+            errors.visualThreshold = '视觉定位阈值必须在 0 到 1 之间。'
+          }
+        } else if (!step.selector.trim()) {
+          errors.selector = '元素滑动必须填写选择器。'
+        }
       }
       if (!isScrollDirection(step.direction)) {
         errors.direction = '滑动方向仅支持 up、down、left、right。'
@@ -490,7 +738,24 @@ export function validateStepDraft(step: StepDraft): StepValidationErrors {
       }
       break
     case 'long_press':
-      if (!step.selector.trim()) {
+      if (step.locator === 'ocr') {
+        if (!step.ocrText.trim()) {
+          errors.ocrText = '长按步骤使用 OCR 定位时必须填写识别文本。'
+        }
+        if (!isOcrLocatorMatchMode(step.ocrMatchMode)) {
+          errors.ocrMatchMode = 'OCR 匹配模式仅支持 exact 或 contains。'
+        }
+        if (!Number.isInteger(step.ocrOccurrence) || step.ocrOccurrence < 1) {
+          errors.ocrOccurrence = 'OCR 匹配序号必须为大于等于 1 的整数。'
+        }
+      } else if (step.locator === 'visual') {
+        if (step.visualTemplateId === null) {
+          errors.visualTemplateId = '长按步骤使用视觉模板定位时必须选择模板。'
+        }
+        if (step.visualThreshold !== null && (step.visualThreshold < 0 || step.visualThreshold > 1)) {
+          errors.visualThreshold = '视觉定位阈值必须在 0 到 1 之间。'
+        }
+      } else if (!step.selector.trim()) {
         errors.selector = '长按步骤必须填写选择器。'
       }
       if (!Number.isFinite(step.durationMs) || (step.durationMs ?? 0) <= 0) {
@@ -516,13 +781,50 @@ function buildStructuredPayload(step: StepDraft) {
         ms: Number(step.waitMs ?? 0)
       }
     case 'click':
-      return {
-        selector: step.selector.trim()
-      }
+      return step.locator === 'ocr'
+        ? {
+            locator: 'ocr',
+            ocr_text: step.ocrText.trim(),
+            ocr_match_mode: step.ocrMatchMode,
+            ocr_case_sensitive: step.ocrCaseSensitive,
+            ocr_occurrence: Number(step.ocrOccurrence)
+          }
+        : step.locator === 'visual'
+          ? {
+              locator: 'visual',
+              template_id: step.visualTemplateId,
+              ...(step.visualThreshold !== null ? { threshold: Number(step.visualThreshold) } : {})
+            }
+        : {
+            selector: step.selector.trim()
+          }
     case 'input':
       return {
-        selector: step.selector.trim(),
-        text: step.text
+        ...(step.locator === 'ocr'
+          ? {
+              locator: 'ocr',
+              ocr_text: step.ocrText.trim(),
+              ocr_match_mode: step.ocrMatchMode,
+              ocr_case_sensitive: step.ocrCaseSensitive,
+              ocr_occurrence: Number(step.ocrOccurrence)
+            }
+          : step.locator === 'visual'
+            ? {
+                locator: 'visual',
+                template_id: step.visualTemplateId,
+                ...(step.visualThreshold !== null ? { threshold: Number(step.visualThreshold) } : {})
+              }
+          : {
+              selector: step.selector.trim()
+            }),
+        text: step.text,
+        input_mode: step.inputMode,
+        ...(step.inputMode === 'otp' && step.otpLength !== null
+          ? { otp_length: Number(step.otpLength) }
+          : {}),
+        ...(step.inputMode !== 'fill' && step.perCharDelayMs !== null
+          ? { per_char_delay_ms: Number(step.perCharDelayMs) }
+          : {})
       }
     case 'template_assert':
       return step.threshold === null
@@ -553,17 +855,49 @@ function buildStructuredPayload(step: StepDraft) {
       }
 
       if (step.scrollTarget === 'element') {
-        payload.selector = step.selector.trim()
+        if (step.locator === 'ocr') {
+          payload.locator = 'ocr'
+          payload.ocr_text = step.ocrText.trim()
+          payload.ocr_match_mode = step.ocrMatchMode
+          payload.ocr_case_sensitive = step.ocrCaseSensitive
+          payload.ocr_occurrence = Number(step.ocrOccurrence)
+        } else if (step.locator === 'visual') {
+          payload.locator = 'visual'
+          payload.template_id = step.visualTemplateId
+          if (step.visualThreshold !== null) {
+            payload.threshold = Number(step.visualThreshold)
+          }
+        } else {
+          payload.selector = step.selector.trim()
+        }
       }
 
       return payload
     }
     case 'long_press':
-      return {
-        selector: step.selector.trim(),
-        duration_ms: Number(step.durationMs ?? DEFAULT_LONG_PRESS_DURATION_MS),
-        button: step.button
-      }
+      return step.locator === 'ocr'
+        ? {
+            locator: 'ocr',
+            ocr_text: step.ocrText.trim(),
+            ocr_match_mode: step.ocrMatchMode,
+            ocr_case_sensitive: step.ocrCaseSensitive,
+            ocr_occurrence: Number(step.ocrOccurrence),
+            duration_ms: Number(step.durationMs ?? DEFAULT_LONG_PRESS_DURATION_MS),
+            button: step.button
+          }
+        : step.locator === 'visual'
+          ? {
+              locator: 'visual',
+              template_id: step.visualTemplateId,
+              ...(step.visualThreshold !== null ? { threshold: Number(step.visualThreshold) } : {}),
+              duration_ms: Number(step.durationMs ?? DEFAULT_LONG_PRESS_DURATION_MS),
+              button: step.button
+            }
+        : {
+            selector: step.selector.trim(),
+            duration_ms: Number(step.durationMs ?? DEFAULT_LONG_PRESS_DURATION_MS),
+            button: step.button
+          }
   }
 }
 
@@ -600,17 +934,41 @@ export function formatStepSummary(source: StepSummarySource) {
       }
     }
     case 'click':
+      {
+        const locatorSummary = buildLocatorSummary(payload)
+        const knownKeys =
+          locatorSummary.locator === 'ocr'
+            ? ['locator', 'ocr_text', 'ocr_match_mode', 'ocr_case_sensitive', 'ocr_occurrence']
+            : locatorSummary.locator === 'visual'
+              ? ['locator', 'template_id', 'threshold']
+            : ['selector']
       return {
-        target: `点击 ${formatTextValue(payload.selector)}`,
-        note: `${timeoutAndRetry}${formatExtraPayloadKeys(payload, ['selector'])}`
+        target: `点击 ${locatorSummary.target}`,
+        note: `${locatorSummary.note} · ${timeoutAndRetry}${formatExtraPayloadKeys(payload, knownKeys)}`
+      }
       }
     case 'input':
+      {
+        const locatorSummary = buildLocatorSummary(payload)
+        const inputMode = isInputMode(payload.input_mode) ? payload.input_mode : DEFAULT_INPUT_MODE
+        const modeLabelMap: Record<InputMode, string> = {
+          fill: '普通输入',
+          type: '键盘输入',
+          otp: '验证码输入'
+        }
+        const knownKeys =
+          locatorSummary.locator === 'ocr'
+            ? ['locator', 'ocr_text', 'ocr_match_mode', 'ocr_case_sensitive', 'ocr_occurrence', 'text', 'input_mode', 'otp_length', 'per_char_delay_ms']
+            : locatorSummary.locator === 'visual'
+              ? ['locator', 'template_id', 'threshold', 'text', 'input_mode', 'otp_length', 'per_char_delay_ms']
+            : ['selector', 'text', 'input_mode', 'otp_length', 'per_char_delay_ms']
       return {
-        target: `输入到 ${formatTextValue(payload.selector)}`,
-        note: `文本 ${formatTextValue(payload.text)} · ${timeoutAndRetry}${formatExtraPayloadKeys(
+        target: `输入到 ${locatorSummary.target}`,
+        note: `文本 ${formatTextValue(payload.text)} · ${modeLabelMap[inputMode]}${typeof payload.otp_length === 'number' ? `(${payload.otp_length}位)` : ''} · ${locatorSummary.note} · ${timeoutAndRetry}${formatExtraPayloadKeys(
           payload,
-          ['selector', 'text']
+          knownKeys
         )}`
+      }
       }
     case 'template_assert': {
       const threshold =
@@ -658,29 +1016,43 @@ export function formatStepSummary(source: StepSummarySource) {
         left: '向左',
         right: '向右'
       }
-      const summaryPrefix =
+      const locatorSummary = target === 'element' ? buildLocatorSummary(payload) : null
+      const summaryPrefix = target === 'element' ? `元素 ${locatorSummary?.target ?? '--'}` : '页面'
+      const locatorNote = target === 'element' ? `${locatorSummary?.note ?? ''} · ` : ''
+      const knownKeys =
         target === 'element'
-          ? `元素 ${formatTextValue(payload.selector)}`
-          : '页面'
+          ? (locatorSummary?.locator === 'ocr'
+              ? ['target', 'locator', 'ocr_text', 'ocr_match_mode', 'ocr_case_sensitive', 'ocr_occurrence', 'direction', 'distance', 'behavior']
+              : locatorSummary?.locator === 'visual'
+                ? ['target', 'locator', 'template_id', 'threshold', 'direction', 'distance', 'behavior']
+              : ['target', 'selector', 'direction', 'distance', 'behavior'])
+          : ['target', 'direction', 'distance', 'behavior']
 
       return {
         target: `${summaryPrefix}${directionLabelMap[direction]}滑动 ${distance} px`,
-        note: `行为 ${isScrollBehavior(payload.behavior) ? payload.behavior : 'auto'} · ${timeoutAndRetry}${formatExtraPayloadKeys(
+        note: `${locatorNote}行为 ${isScrollBehavior(payload.behavior) ? payload.behavior : 'auto'} · ${timeoutAndRetry}${formatExtraPayloadKeys(
           payload,
-          ['target', 'selector', 'direction', 'distance', 'behavior']
+          knownKeys
         )}`
       }
     }
     case 'long_press': {
+      const locatorSummary = buildLocatorSummary(payload)
       const duration =
         typeof payload.duration_ms === 'number' && Number.isFinite(payload.duration_ms)
           ? payload.duration_ms
           : DEFAULT_LONG_PRESS_DURATION_MS
+      const knownKeys =
+        locatorSummary.locator === 'ocr'
+          ? ['locator', 'ocr_text', 'ocr_match_mode', 'ocr_case_sensitive', 'ocr_occurrence', 'duration_ms', 'button']
+          : locatorSummary.locator === 'visual'
+            ? ['locator', 'template_id', 'threshold', 'duration_ms', 'button']
+          : ['selector', 'duration_ms', 'button']
       return {
-        target: `长按 ${formatTextValue(payload.selector)} ${duration} ms`,
-        note: `按钮 ${isLongPressButton(payload.button) ? payload.button : 'left'} · ${timeoutAndRetry}${formatExtraPayloadKeys(
+        target: `长按 ${locatorSummary.target} ${duration} ms`,
+        note: `${locatorSummary.note} · 按钮 ${isLongPressButton(payload.button) ? payload.button : 'left'} · ${timeoutAndRetry}${formatExtraPayloadKeys(
           payload,
-          ['selector', 'duration_ms', 'button']
+          knownKeys
         )}`
       }
     }

@@ -371,12 +371,19 @@ def _persist_report_artifacts(
 def _build_template_contexts(
     db, *, workspace_id: int, steps
 ) -> dict[int, TemplateAssertionContext]:
-    template_ids = {
-        step.template_id
-        for step in steps
-        if step.template_id is not None
-        and step.step_type in {"template_assert", "ocr_assert"}
-    }
+    template_ids: set[int] = set()
+    for step in steps:
+        if step.template_id is not None and step.step_type in {
+            "template_assert",
+            "ocr_assert",
+        }:
+            template_ids.add(step.template_id)
+
+        payload = step.payload_json or {}
+        visual_template_id = payload.get("template_id")
+        if payload.get("locator") == "visual" and isinstance(visual_template_id, int):
+            template_ids.add(visual_template_id)
+
     contexts: dict[int, TemplateAssertionContext] = {}
     for template_id in template_ids:
         template = db.get(Template, template_id)

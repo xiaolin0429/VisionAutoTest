@@ -127,11 +127,16 @@ function resolveStepRowClassName(scope: { row: { stepNo: number } }) {
 }
 
 function getStepTemplateOptions(step: StepDraft): StepTemplateOption[] {
-  if (step.type !== 'template_assert' && step.type !== 'ocr_assert') {
+  const usesVisualLocator =
+    (step.type === 'click' || step.type === 'input' || step.type === 'scroll' || step.type === 'long_press') &&
+    step.locator === 'visual'
+
+  if (step.type !== 'template_assert' && step.type !== 'ocr_assert' && !usesVisualLocator) {
     return []
   }
 
-  const expectedStrategy = step.type === 'template_assert' ? 'template' : 'ocr'
+  const expectedStrategy = step.type === 'ocr_assert' ? 'ocr' : 'template'
+  const currentTemplateId = usesVisualLocator ? step.visualTemplateId : step.templateId
   const options = templates.value
     .filter((item) => item.matchStrategy === expectedStrategy)
     .map((item) => ({
@@ -139,8 +144,8 @@ function getStepTemplateOptions(step: StepDraft): StepTemplateOption[] {
       label: formatTemplateOptionLabel(item)
     }))
 
-  if (step.templateId !== null && !options.some((item) => item.id === step.templateId)) {
-    const currentTemplate = templates.value.find((item) => item.id === step.templateId)
+  if (currentTemplateId !== null && !options.some((item) => item.id === currentTemplateId)) {
+    const currentTemplate = templates.value.find((item) => item.id === currentTemplateId)
     if (currentTemplate) {
       options.unshift({
         id: currentTemplate.id,
@@ -163,11 +168,16 @@ function formatComponentOptionLabel(component: Component) {
 }
 
 function getStepTemplateHint(step: StepDraft) {
-  if (step.templateId === null) {
+  const usesVisualLocator =
+    (step.type === 'click' || step.type === 'input' || step.type === 'scroll' || step.type === 'long_press') &&
+    step.locator === 'visual'
+  const currentTemplateId = usesVisualLocator ? step.visualTemplateId : step.templateId
+
+  if (currentTemplateId === null) {
     return ''
   }
 
-  const template = templates.value.find((item) => item.id === step.templateId)
+  const template = templates.value.find((item) => item.id === currentTemplateId)
   if (!template) {
     return '当前模板不存在，请重新选择。'
   }
@@ -180,6 +190,10 @@ function getStepTemplateHint(step: StepDraft) {
 
   if (step.type === 'ocr_assert' && template.matchStrategy !== 'ocr') {
     messages.push('当前模板不是 ocr 策略。')
+  }
+
+  if (usesVisualLocator && template.matchStrategy !== 'template') {
+    messages.push('视觉模板定位要求模板使用 template 策略。')
   }
 
   if (template.currentBaselineRevisionId === null) {
