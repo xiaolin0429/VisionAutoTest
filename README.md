@@ -1,83 +1,214 @@
 # VisionAutoTest
 
-企业级跨端视觉自动化测试平台。基于 `Playwright + OpenCV + PaddleOCR` 构建视觉执行闭环，支持模板管理、Mask 处理、OCR 分析、测试用例编排、执行调度与差异报告。
+`VisionAutoTest` 是一个面向研发、测试和测试开发团队的视觉自动化测试平台。项目当前已经完成 `MVP` 主链路：前后端可联通，工作空间内可以完成环境配置、模板管理、测试组件/用例/套件编排、执行触发、执行详情查看，以及基于 `Playwright + OpenCV + PaddleOCR` 的视觉执行闭环。
 
-## 当前状态
+本 README 从 PM 视角描述项目现状，帮助团队快速建立共识：这个项目现在是什么、已经做到哪里、当前边界是什么、接下来应该优先做什么。
 
-- **当前阶段：MVP 主链路可运行**，前后端已完成联调，视觉执行闭环贯通。
-- 已完成：认证与会话管理、工作空间、环境配置、模板资产（含 OCR 分析与 Mask 预览）、测试组件与用例编排、套件、执行调度、执行报告。
-- 视觉执行层：Playwright 浏览器驱动（click / input / navigate / scroll / long_press）、OpenCV 模板匹配、PaddleOCR 文本识别、差异图生成。
-- 数据库：5 个 Alembic 迁移版本，含初始表结构、基准版本溯源、报告附件链路、组件步骤超时重试、模板 OCR 结果。
-- 下一步：补齐通知 / Webhook、引入 Redis + Celery 异步队列、对象存储扩展、CI 集成与可观测性。
+## 1. 项目定位
 
-## 项目目标
+VisionAutoTest 要解决的核心问题，不是“再做一套脚本平台”，而是降低 UI 自动化在真实业务里的维护成本。
 
-- 基于 `Playwright + OpenCV + OCR` 构建跨端视觉自动化测试能力。
-- 支持基准图、忽略区域、数据驱动、任务调度、差异报告和 CI 集成。
-- 兼容单机运行与企业级扩展部署。
-- 以严格 API 契约和规范化表设计作为实现基线。
+传统基于 DOM/Selector 的自动化在以下场景里很容易失效：
 
-## 目录结构
+- 页面结构频繁调整，选择器不稳定
+- WebView、Canvas、复杂前端渲染页面难以稳定定位
+- 不同设备分辨率、缩放比例、轻微位移导致断言脆弱
+- 动态区域过多，容易出现误报
+
+这个项目的产品方向是：
+
+- 用视觉能力补足传统自动化的脆弱性
+- 用工作空间、模板资产、组件复用、用例编排和执行报告形成平台化闭环
+- 先支持单机可运行的 `MVP`，再逐步升级到企业级调度和存储能力
+
+## 2. 当前项目状态
+
+- 当前阶段：`MVP 已可运行，前后端主链路已打通`
+- 当前形态：单仓库全栈项目，包含前端管理台、后端 API、视觉执行引擎、数据库迁移和项目文档
+- 当前重点：在保持外部行为稳定的前提下，已完成一轮后端结构治理，降低后续继续叠需求时的维护风险
+
+可以把当前项目理解为：
+
+- 产品层面：已经具备可演示、可联调、可继续迭代的最小平台形态
+- 工程层面：已经从“功能堆叠阶段”进入“结构收口和稳定化阶段”
+
+## 3. 当前已支持的产品能力
+
+### 3.1 用户与空间
+
+- 管理员登录与会话续期
+- 工作空间切换
+- 工作空间成员管理
+- 工作空间级执行就绪检查
+
+### 3.2 执行前配置
+
+- 环境档案管理
+- 环境变量管理
+- 设备预设管理
+- 工作台展示当前工作空间的资源概览、执行风险和 readiness 状态
+
+### 3.3 模板资产管理
+
+- 模板创建、编辑、发布状态管理
+- 基准版本上传与切换
+- Mask 区域新增、调整、删除、排序
+- 基于相对比例坐标保存忽略区域
+- 模板原图预览
+- OCR 分析结果查看
+- Mask 叠加和处理后效果预览
+
+当前模板页已经不只是简单的“模板列表页”，而是在向“模板资产处理工作台”演进。
+
+### 3.4 编排能力
+
+- 公共组件管理
+- 测试用例管理
+- 测试套件管理
+- 步骤编排与保存
+- 步骤类型校验
+- 条件分支步骤编排
+- 组件调用式复用
+
+### 3.5 执行与报告
+
+- 触发 `test-runs`
+- 异步执行批次状态跟踪
+- 执行列表筛选与轮询刷新
+- 执行详情查看
+- `test-runs -> case-runs -> step-results` 聚合浏览
+- 运行取消能力
+- 失败修复建议和跳转引导
+- 报告与证据产物归档
+
+### 3.6 视觉执行能力
+
+当前真实执行链路已覆盖：
+
+- `navigate`
+- `wait`
+- `click`
+- `input`
+- `scroll`
+- `long_press`
+- `conditional_branch`
+- `template_assert`
+- `ocr_assert`
+
+当前视觉执行技术栈：
+
+- 浏览器驱动：`Playwright`
+- 模板匹配：`OpenCV`
+- 文本识别：`PaddleOCR`
+
+## 4. 当前不在 MVP 交付范围内的能力
+
+以下方向已经有规划或设计，但不属于当前已完成范围：
+
+- `Redis + Celery` 分布式执行集群
+- 多对象存储后端适配
+- 完整 `RBAC` 细粒度权限矩阵
+- 多渠道通知与 Webhook 编排
+- 智能失败归因和更强的可观测性大盘
+- 大规模 CI/CD 集成治理能力
+
+这意味着当前产品已经具备最小可用闭环，但还不是最终企业版形态。
+
+## 5. 当前推荐使用路径
+
+从产品体验角度，当前推荐的主路径如下：
+
+1. 登录系统并进入一个工作空间。
+2. 配置环境档案、环境变量和设备预设。
+3. 创建模板并上传基准图。
+4. 在模板页查看 OCR 结果、维护 Mask、确认处理效果。
+5. 创建公共组件和测试用例，编排步骤。
+6. 将用例加入测试套件。
+7. 触发一次执行批次。
+8. 在执行记录和执行详情中查看状态、失败步骤和报告产物。
+
+这条路径已经可以完成一个完整的 MVP 演示和联调闭环。
+
+## 6. 当前里程碑判断
+
+结合现有代码、文档和测试情况，可以把项目状态判断为：
+
+- `M1 契约和设计文档`：已完成
+- `M2 后端最小服务可启动`：已完成
+- `M3 单条用例可执行并生成报告`：已完成
+- `M4 前端完成主要业务页面并可联调`：已完成
+- `M5 单机稳定运行和初级集成基础`：基本达成，仍需要继续补齐工程化配套
+
+当前项目的主要矛盾已经从“功能是否存在”转向：
+
+- 功能边界是否清晰
+- 文档是否能指导协作
+- 结构是否支撑继续迭代
+- 如何以较低风险进入下一阶段增强
+
+## 7. 目录概览
 
 ```text
 backend/
   app/
-    api/v1/          # RESTful 路由：iam / workspaces / assets / cases / executions
-    core/            # 配置、安全、存储、HTTP 工具
-    db/              # SQLAlchemy session、Alembic 迁移、bootstrap 种子
-    models/          # ORM 实体（entities.py）
-    schemas/         # Pydantic 契约（contracts.py）
-    services/        # 业务逻辑层
-    workers/         # 执行引擎：browser / vision / execution / dispatcher
-  alembic/           # 数据库迁移脚本
-  tests/             # pytest 自动化测试
+    api/v1/          # REST API 路由层
+    core/            # 配置、安全、存储、运行时基础设施
+    db/              # 数据库会话、bootstrap、迁移集成
+    models/          # SQLAlchemy 模型，已按领域拆分并保留聚合导出层
+    schemas/         # Pydantic 契约，已按领域拆分并保留兼容导出层
+    services/        # 业务服务层，执行域与编排域已完成一轮拆分治理
+    workers/         # 执行引擎与浏览器步骤处理器
+  alembic/           # Alembic 迁移脚本
+  tests/             # 后端自动化测试
 frontend/
   src/
-    api/modules/     # axios 请求模块（按业务域划分）
-    auth/            # JWT 会话运行时（自动续期）
-    components/      # 公共组件（AppHeader / AppSidebar / TemplateCanvas 等）
-    layouts/         # AppShell 主布局
-    router/          # Vue Router 路由定义
-    stores/          # Pinia 状态：auth / workspace / appError
-    types/           # 后端契约类型、前端模型类型
-    views/           # 页面组件
+    api/modules/     # 按业务域拆分的前端 API 模块
+    components/      # 公共组件与业务组件
+    layouts/         # 应用布局
+    router/          # 前端路由
+    stores/          # Pinia 状态管理
+    types/           # 前端模型与契约类型
+    views/           # 页面视图
 doc/
-  api/               # RESTful API 设计文档（共 9 个模块）
-  backend/           # 服务端技术架构设计文档
-  database/          # 数据库设计文档（共 8 个模块）
-  frontend/          # 前端技术架构设计文档
-  联调文档/          # 前后端联调总览、执行编排联调清单、接口示例
+  api/               # API 契约文档
+  backend/           # 后端架构与实现规范
+  database/          # 数据库设计文档
+  frontend/          # 前端架构文档
+  联调文档/          # 联调说明、接口示例与清单
 ```
 
-## 技术栈
+## 8. 技术栈
 
 | 层次 | 技术 |
 |------|------|
-| 后端运行时 | Python 3.11、FastAPI、Uvicorn |
+| 后端 | Python 3.11、FastAPI、Uvicorn |
 | ORM / 迁移 | SQLAlchemy 2.x、Alembic |
 | 数据库 | PostgreSQL |
-| 视觉执行 | Playwright、OpenCV、PaddleOCR |
-| 认证 | PyJWT（HS256）、会话续期 |
-| 前端框架 | Vue 3、Vite、TypeScript |
-| 前端状态 | Pinia、Vue Router |
-| 前端 UI | Element Plus、@vueuse/core、Tailwind CSS |
-| HTTP 客户端 | Axios |
+| 执行引擎 | Playwright |
+| 视觉能力 | OpenCV、PaddleOCR |
+| 前端 | Vue 3、Vite、TypeScript |
+| 状态管理 | Pinia、Vue Router |
+| UI | Element Plus、Tailwind CSS |
+| HTTP | Axios |
 
-## 快速启动
+## 9. 快速启动
 
-### 后端
+### 9.1 后端
 
 ```bash
 cd backend
-cp .env.example .env          # 填入数据库账号、JWT 密钥、管理员初始密码
+python3 -m venv .venv
+source .venv/bin/activate
+cp .env.example .env
 pip install -e ".[dev]"
-python -m app.db.bootstrap    # 初始化表结构 + 最小种子数据（幂等）
-uvicorn app.main:app --reload
+.venv/bin/playwright install chromium
+.venv/bin/python -m app.db.bootstrap
+.venv/bin/uvicorn app.main:app --reload
 ```
 
 Swagger 文档：`http://127.0.0.1:8000/docs`
 
-### 前端
+### 9.2 前端
 
 ```bash
 cd frontend
@@ -87,94 +218,67 @@ npm run dev
 
 前端开发服务器默认代理 `/api` 与 `/healthz` 到 `http://127.0.0.1:8000`。
 
-### 运行测试
+### 9.3 测试
 
 ```bash
 cd backend
-# 配置独立测试库（禁止复用开发库 AutoTestDev）
-cp .env.example .env.test.local   # 填入 VAT_TEST_DATABASE_URL
+cp .env.test.sample .env.test.local
 bash scripts/run_pytest.sh
 ```
 
-## 联调说明
+注意：
 
-- 登录账号：`admin`，初始密码以 `backend/.env` 中 `VAT_DEFAULT_ADMIN_PASSWORD` 为准。
-- 演示目标页：`http://127.0.0.1:8000/demo/acceptance-target`（bootstrap 默认种子）。
-- 主链路聚合路径：`test-runs → case-runs → step-results`，执行详情不依赖独立报告 ID。
-- 详细接口示例与错误码见 [`doc/联调文档/`](./doc/联调文档/)。
+- 后端测试必须使用独立测试库
+- 不要复用开发库 `AutoTestDev`
+- 当前后端 API 测试建议串行运行，避免测试库重建和 DDL 冲突
 
-## 文档导航
+## 10. 验收资源与演示入口
 
-### 核心业务与架构
+- 默认管理员用户名：`admin`
+- 默认管理员密码：来自 `backend/.env` 中的 `VAT_DEFAULT_ADMIN_PASSWORD`
+- 默认演示目标页：`http://127.0.0.1:8000/demo/acceptance-target`
 
-- [PRD](./doc/企业级跨端视觉自动化测试平台PRD.md)
-- [服务端技术架构设计文档](./doc/backend/服务端技术架构设计文档.md)
-- [前端技术架构设计文档](./doc/frontend/前端技术架构设计文档.md)
-- [文档索引](./doc/文档索引.md)
+`bootstrap` 会在开发环境下幂等创建一套最小演示数据，便于快速完成联调和产品演示。
 
-### 项目推进
+## 11. 文档导航
 
+### 11.1 产品与总体设计
+
+- [文档中心首页](./doc/README.md)
+- [企业级跨端视觉自动化测试平台 PRD](./doc/企业级跨端视觉自动化测试平台PRD.md)
 - [MVP 定义](./doc/MVP定义.md)
 - [实施路线图](./doc/实施路线图.md)
-- [产品后续更新方向（2026-03-31）](./doc/产品后续更新方向-2026-03-31.md)
+- [文档索引](./doc/文档索引.md)
 
-### API 设计
+### 11.2 架构与实现规范
+
+- [服务端技术架构设计文档](./doc/backend/服务端技术架构设计文档.md)
+- [前端技术架构设计文档](./doc/frontend/前端技术架构设计文档.md)
+
+### 11.3 API 与数据库契约
 
 - [API 设计总览](./doc/api/00-API设计总览.md)
-- [认证与身份 API](./doc/api/01-认证与身份API.md)
-- [工作空间与成员 API](./doc/api/02-工作空间与成员API.md)
-- [环境与设备配置 API](./doc/api/03-环境与设备配置API.md)
-- [模板与基准资产 API](./doc/api/04-模板与基准资产API.md)
-- [测试组件、用例与套件 API](./doc/api/05-测试组件_用例_套件API.md)
-- [测试执行与报告 API](./doc/api/06-测试执行与报告API.md)
-- [通知与Webhook API](./doc/api/07-通知与WebhookAPI.md)
-- [权限与授权 API](./doc/api/08-权限与授权API.md)
-- [媒体对象 API](./doc/api/09-媒体对象API.md)
-
-### 数据库设计
-
 - [数据库设计总览](./doc/database/00-数据库设计总览.md)
-- [身份与会话模型](./doc/database/01-身份与权限模型.md)
-- [工作空间与配置模型](./doc/database/02-工作空间与配置模型.md)
-- [模板与基准资产模型](./doc/database/03-模板与基准资产模型.md)
-- [测试编排模型](./doc/database/04-测试编排模型.md)
-- [执行与报告模型](./doc/database/05-执行与报告模型.md)
-- [通知与集成模型](./doc/database/06-通知与集成模型.md)
-- [权限与授权模型](./doc/database/07-权限与授权模型.md)
-- [媒体对象与引用模型](./doc/database/08-媒体对象与引用模型.md)
 
-### 联调文档
+### 11.4 联调与专项需求
 
 - [前端联调总览](./doc/联调文档/00-前端联调总览.md)
 - [执行编排联调清单](./doc/联调文档/01-执行编排联调清单.md)
 - [接口示例与错误处理](./doc/联调文档/02-接口示例与错误处理.md)
+- [产品开发方向 PRD：模板资产 OCR 与 Mask 处理工作台（2026-04-04）](./doc/产品后续更新方向-2026-04-04.md)
 
-## 后续规划功能
+## 12. 近期产品优先级建议
 
-以下功能已完成调研或设计，计划在 MVP 稳定后按优先级逐步交付。
+如果以 PM 视角看下一阶段，建议按以下顺序推进：
 
-### P1 — 模板资产 OCR 与 Mask 处理工作台
+1. 继续把模板页收口为真正的“模板资产处理工作台”，强化 OCR、Mask 和处理预览体验。
+2. 提升执行链路的工程化稳定性，包括任务调度解耦、测试基建稳定性和可观测性。
+3. 补齐通知、Webhook、CI 集成，让平台更适合接入真实团队流程。
+4. 在能力稳定后，再推进企业级增强，如 `Redis + Celery`、对象存储和更细粒度权限体系。
 
-将模板管理页从"资产登记页"升级为"资产处理工作台"，支持真实基准图查看、OCR 分析与结果可视化、Mask 蒙版绘制与效果预览、OCR 与 Mask 联动处理。详见 [产品后续更新方向（2026-03-31）](./doc/产品后续更新方向-2026-03-31.md)。
+## 13. 工程原则
 
-### P2 — OCR 视觉定位操作
-
-在用例步骤编排的点击、滑动、长按等操作中，支持基于 OCR 文字识别进行屏幕元素定位，不再强依赖 CSS 选择器。适用于跨端 WebView、动态渲染页面等选择器不稳定的场景。
-
-### P3 — 步骤编排实时调试
-
-为用例步骤编排提供实时调试能力，包括：单步执行与暂停、每步实时截图回传、断点设置、步骤状态实时推送。需要引入 WebSocket 通信层和独立的调试执行路径。建议在分布式执行（Celery + Redis）上线后启动。
-
-### P4 — 企业级增强
-
-- 分布式 Celery Worker 集群与 Redis 消息队列
-- S3 兼容对象存储
-- 多渠道通知与 Webhook
-- 完整 RBAC 细粒度权限
-- CI 集成与可观测性大盘
-
-## 工程原则
-
-- API 严格使用 RESTful 风格，URL 使用名词复数，不在路径中使用动作语义。
-- 数据库优先遵守行业规范：统一命名、显式主外键、必要索引、审计字段、软删除策略、乐观锁字段。
-- 先收敛 `MVP`，再扩展企业级功能，避免在第一阶段同时实现多租户、调度集群、复杂报表全部能力。
+- API 统一使用 RESTful 风格，资源路径保持名词化。
+- 数据库与 API 契约优先于实现细节。
+- 先收敛 `MVP`，再逐步扩展企业级能力。
+- 在不改变外部行为的前提下持续进行结构治理，避免重新回到巨石模块状态。

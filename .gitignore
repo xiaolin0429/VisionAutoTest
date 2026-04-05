@@ -11,6 +11,7 @@ Thumbs.db
 # Codex local state
 .codex/config.toml
 .codex/environments/
+.codex-runtime/
 
 # Shared local environment files
 .env
@@ -28,3 +29,4 @@ venv/
 output/
 .playwright-mcp/
 doc/assets/
+.claude/agent-team/
