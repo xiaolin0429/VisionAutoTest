@@ -14,6 +14,8 @@ description: >
 This skill standardizes backend delivery in VisionAutoTest. It keeps implementation aligned with the repo's backend architecture, RESTful API contracts, database design baseline, workspace isolation model, and the team's required self-review and validation flow.
 Unless the task is explicitly read-only, backend delivery must follow a documentation-first sequence: `对应 API 文档 -> 对应数据库文档 -> schemas -> service -> router -> 测试`.
 
+Current backend structure is already post-refactor. Treat the current modularized layout as the baseline, not as a future target.
+
 ## Use When
 - The task touches `backend/app/api`, `backend/app/schemas`, `backend/app/models`, `backend/app/services`, `backend/app/workers`, `backend/app/core`, `backend/app/db`, or `backend/tests`.
 - The task adds or changes backend APIs, request and response contracts, data models, business rules, execution flows, or worker logic.
@@ -31,6 +33,7 @@ Typical prompts:
 ## Authoritative Sources
 Read the smallest viable set before coding:
 - Project overview: `README.md` (project root)
+- Backend developer entry: `backend/README.md`
 - Backend architecture baseline: `doc/backend/服务端技术架构设计文档.md`
 - API conventions first: `doc/api/00-API设计总览.md`
 - Domain API and database files matching the task under `doc/api/` and `doc/database/`
@@ -46,28 +49,37 @@ For backend work, prefer this routing:
 ## Backend Development Map
 Use this map to decide where to start and which files to touch.
 
+### 0. Current Structural Baseline
+- `backend/app/services/cases.py` and `backend/app/services/execution.py` are frozen compatibility facades.
+- `backend/app/models/entities.py` and `backend/app/schemas/contracts.py` are compatibility export layers, not preferred implementation targets.
+- Workspace-related routers are already split into focused files and aggregated through `backend/app/api/v1/workspaces.py`.
+- Browser step execution already uses `browser_step_registry.py` and `browser_step_handlers.py`; prefer extending that path instead of re-growing a giant dispatcher.
+- New backend work should start from the specialized domain module first, then touch compatibility layers only when export wiring for old callers is still needed.
+
 ### 1. Entry Checklist
 - If the task changes API behavior, read the matching file under `doc/api/` first.
 - If the task changes fields, constraints, status, or relationships, read the matching file under `doc/database/` next.
-- Then locate the current contract in `backend/app/schemas/contracts.py`.
+- Then locate the current contract in the specialized schema module under `backend/app/schemas/`.
 - Then locate the business rule owner in `backend/app/services/`.
 - Then locate the protocol adapter in `backend/app/api/v1/`.
 - Only after that decide whether `backend/app/models/`, `backend/app/workers/`, `backend/app/core/`, or `backend/app/db/` also need changes.
 
 ### 2. Domain-to-File Map
-- **IAM / 登录 / 会话**: `backend/app/api/v1/iam.py` -> `backend/app/services/iam.py` -> `backend/app/models/entities.py`
-- **工作空间 / 成员 / 环境 / 设备**: `backend/app/api/v1/workspaces.py` -> `backend/app/services/workspace.py` -> `backend/app/models/entities.py`
-- **媒体 / 模板 / 基准 / 忽略区域**: `backend/app/api/v1/assets.py` -> `backend/app/services/assets.py` -> `backend/app/models/entities.py`
-- **组件 / 用例 / 套件 / 步骤编排**: `backend/app/api/v1/cases.py` -> `backend/app/services/component_service.py` / `backend/app/services/test_case_service.py` / `backend/app/services/suite_service.py` / `backend/app/services/step_payload_validator.py` / `backend/app/services/branch_validator.py` -> `backend/app/models/entities.py`
-- **执行批次 / 用例执行 / 步骤结果 / 报告**: `backend/app/api/v1/executions.py` -> `backend/app/services/execution_report.py` / `backend/app/services/execution_status.py` / `backend/app/services/execution_steps.py` / `backend/app/services/execution_readiness.py` -> `backend/app/workers/execution.py` -> `backend/app/workers/browser.py`
+- **IAM / 登录 / 会话**: `backend/app/api/v1/iam.py` -> `backend/app/services/iam.py` -> `backend/app/schemas/iam.py` -> `backend/app/models/iam.py`
+- **工作空间 / 成员 / 环境 / 设备**: `backend/app/api/v1/workspaces.py` / `backend/app/api/v1/workspace_management.py` / `backend/app/api/v1/workspace_members.py` / `backend/app/api/v1/environment_profiles.py` / `backend/app/api/v1/environment_variables.py` / `backend/app/api/v1/device_profiles.py` / `backend/app/api/v1/workspace_execution_readiness.py` -> `backend/app/services/workspace.py` -> `backend/app/schemas/workspace.py` -> `backend/app/models/workspace.py`
+- **媒体 / 模板 / 基准 / 忽略区域**: `backend/app/api/v1/assets.py` -> `backend/app/services/assets.py` -> `backend/app/schemas/assets.py` -> `backend/app/models/assets.py`
+- **组件 / 用例 / 套件 / 步骤编排**: `backend/app/api/v1/cases.py` -> `backend/app/services/component_service.py` / `backend/app/services/test_case_service.py` / `backend/app/services/suite_service.py` / `backend/app/services/step_payload_validator.py` / `backend/app/services/branch_validator.py` -> `backend/app/schemas/cases.py` -> `backend/app/models/cases.py`
+- **执行批次 / 用例执行 / 步骤结果 / 报告**: `backend/app/api/v1/executions.py` -> `backend/app/services/execution_report.py` / `backend/app/services/execution_status.py` / `backend/app/services/execution_steps.py` / `backend/app/services/execution_readiness.py` -> `backend/app/schemas/execution.py` -> `backend/app/models/execution.py` -> `backend/app/workers/execution.py` -> `backend/app/workers/browser.py`
 - Compatibility facades: `backend/app/services/cases.py` and `backend/app/services/execution.py` are compatibility-only aggregation layers. Read them only to understand current exports or old callers; do not place new business logic there.
+- Compatibility exports: `backend/app/models/entities.py` and `backend/app/schemas/contracts.py` should normally only be touched when export compatibility or legacy imports require it.
 
 ### 3. Change-Type Map
-- **只改接口字段或响应结构**: 先改 `doc/api/`，再改 `backend/app/schemas/contracts.py`，最后对齐 router/service 返回。
+- **只改接口字段或响应结构**: 先改 `doc/api/`，再改对应领域 `backend/app/schemas/*.py`，最后对齐 router/service 返回。
 - **只改业务规则**: 先改 `doc/api/` 或 `doc/database/` 中对应规则，再改 `backend/app/services/`，最后检查 router 是否仍然保持轻薄。
-- **新增或修改持久化字段**: 先改 `doc/database/`，再改 `backend/app/models/entities.py`，再补 `schemas`、`services`、Alembic 迁移。
-- **新增执行链路能力**: 先看 `doc/api/06-*` 与 `doc/database/05-*`，再改 `backend/app/services/execution.py`，必要时再改 `backend/app/workers/execution.py` 与 `backend/app/workers/browser.py`。
+- **新增或修改持久化字段**: 先改 `doc/database/`，再改对应领域 `backend/app/models/*.py`，再补 `schemas`、`services`、Alembic 迁移。
+- **新增执行链路能力**: 先看 `doc/api/06-*` 与 `doc/database/05-*`，再改 specialized execution service 模块，必要时再改 `backend/app/workers/execution.py` 与 `backend/app/workers/browser.py`。
 - **改鉴权、请求头、错误结构、全局基础设施**: 优先看 `backend/app/api/deps.py`、`backend/app/core/http.py`、`backend/app/core/security.py`、`backend/app/db/session.py`，并先确认不会破坏现有统一协议。
+- **新增步骤类型或步骤规则**: 优先扩展 `step_payload_validator.py` / `branch_validator.py` 与 browser step registry / handlers，避免回到巨型 `if/elif` 主干。
 
 ### 4. Layer Responsibilities Map
 - `backend/app/schemas`: 只负责契约、字段校验、DTO 边界，不承载业务流程。
@@ -82,6 +94,7 @@ Use this map to decide where to start and which files to touch.
 - 改执行链路时，优先验证 `test-runs -> case-runs -> step-results -> reports` 主链路。
 - 改工作空间隔离时，必须验证 `Authorization` 与 `X-Workspace-Id` 的联合行为。
 - 改媒体或模板引用时，必须验证引用关系不会破坏删除保护或执行证据链。
+- 改 browser step handler 或 step validator 时，优先补窄测试，避免只依赖主链路回归覆盖。
 
 ## Backend Decision Tree
 Use this tree when deciding the first move for a backend task.
@@ -93,7 +106,7 @@ Use this tree when deciding the first move for a backend task.
 ### 2. If the task adds or changes an API
 - Start at the matching `doc/api/` document.
 - Then read the matching `doc/database/` document if fields, status, or relationships are involved.
-- Then update `backend/app/schemas/contracts.py`.
+- Then update the specialized schema module under `backend/app/schemas/`.
 - Then implement the rule in `backend/app/services/`.
 - Then wire or adjust the endpoint in `backend/app/api/v1/`.
 - Then run the narrowest API or workflow test.
@@ -101,7 +114,7 @@ Use this tree when deciding the first move for a backend task.
 ### 3. If the task adds or changes persistence fields
 - Start at the matching `doc/database/` document.
 - Confirm whether the API contract also changes; if yes, update `doc/api/` in the same turn.
-- Then update `backend/app/models/entities.py`.
+- Then update the specialized model module under `backend/app/models/`.
 - Then add or adjust Alembic migration files.
 - Then align `schemas`, `services`, and `router`.
 - Then verify create/read/update flows for that resource.
@@ -118,6 +131,7 @@ Use this tree when deciding the first move for a backend task.
 - Then inspect the specialized execution modules under `backend/app/services/` first: `execution_report.py`, `execution_status.py`, `execution_steps.py`, `execution_readiness.py`.
 - Then inspect `backend/app/workers/execution.py`.
 - Then inspect `backend/app/workers/browser.py` if browser behavior changes.
+- Prefer extending `browser_step_registry.py` and `browser_step_handlers.py` over adding new branching logic directly inside `browser.py`.
 - Preserve the current MVP truth: `BackgroundTasks + process_test_run + Playwright screenshot artifact`.
 
 ### 6. If the task touches authentication, session, or permission headers
@@ -167,6 +181,9 @@ Use this tree when deciding the first move for a backend task.
 - Treat the current `FastAPI + SQLAlchemy + SQLite` MVP as the runtime truth unless the task explicitly upgrades the architecture.
 - When touching `JWT`, `Alembic`, `Celery + Redis`, object storage, or secret management, first compare the current codebase with `doc/backend/服务端技术架构设计文档.md` and `backend/README.md` to avoid implementing against the wrong target state.
 - Treat `backend/app/services/cases.py` and `backend/app/services/execution.py` as frozen compatibility facades. New business logic must go into the specialized modules they export from, not back into the facade files.
+- Treat `backend/app/models/entities.py` and `backend/app/schemas/contracts.py` as compatibility-oriented modules. Prefer domain files first.
+- Treat `backend/app/api/v1/workspaces.py` as an aggregation router. Prefer changing the focused workspace sub-router file when only one resource family is affected.
+- Prefer extending the existing validator / handler split for step-related work; do not collapse step semantics back into one service or one worker dispatcher.
 
 5. **Synchronize docs when contracts change**
    - If API paths, request or response fields, status transitions, business rules, or model fields change, update the matching API and database docs in the same turn.
@@ -197,6 +214,18 @@ Use this tree when deciding the first move for a backend task.
 - Do not add new business logic to frozen compatibility facades: `backend/app/services/cases.py` and `backend/app/services/execution.py`.
 - When a change relates to orchestration or execution, implement it in the specialized modules first, then export through the facade only if an existing caller still depends on that symbol.
 - If you touch a compatibility facade, the default expectation is "rewire exports only". If you believe real logic must be added there, explicitly justify why the specialized module route is insufficient before coding.
+- Do not use `backend/app/models/entities.py` or `backend/app/schemas/contracts.py` as the first-place landing zone for new fields or contracts.
+- Do not turn `backend/app/api/v1/workspaces.py` back into a multi-resource implementation file when the change belongs in a focused sub-router.
+- Do not rebuild large step dispatch chains in `browser.py` or large step validation chains in legacy service files.
+
+## Backend Review Checklist
+For non-trivial backend work, self-review against these questions before handoff:
+- Did the change land in the correct domain module instead of a compatibility layer?
+- If the task touched execution or orchestration, did it preserve the split between status, report, steps, readiness, and worker responsibilities?
+- If the task touched a step type, did it extend validator / handler registration instead of central branching?
+- If the task touched workspace APIs, did it change the focused sub-router instead of bloating the aggregation router?
+- If the task touched models or schemas, did it prefer domain files over compatibility exports?
+- Did the change keep API behavior, database shape, and execution/report semantics aligned with docs?
 
 ## Handoff Expectations
 When finishing a backend task, report:
