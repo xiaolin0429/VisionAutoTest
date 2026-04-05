@@ -39,6 +39,30 @@ const currentComponent = ref<Component | null>(null)
 const readinessIssuesByComponentId = ref<Record<number, ExecutionReadinessIssue[]>>({})
 const highlightedStepNo = ref<number | null>(null)
 
+const searchKeyword = ref('')
+const filterStatus = ref('')
+let searchTimer: number | null = null
+
+const filterStatusOptions = [
+  { label: '全部', value: '' },
+  { label: '草稿', value: 'draft' },
+  { label: '已发布', value: 'published' },
+  { label: '已归档', value: 'archived' }
+]
+
+function handleFilterChange() {
+  void loadComponents()
+}
+
+function handleSearchInput() {
+  if (searchTimer !== null) {
+    window.clearTimeout(searchTimer)
+  }
+  searchTimer = window.setTimeout(() => {
+    void loadComponents()
+  }, 300)
+}
+
 const componentDialogVisible = ref(false)
 const stepDialogVisible = ref(false)
 const componentDialogMode = ref<'create' | 'edit'>('create')
@@ -90,7 +114,16 @@ function resolveStepRowClassName(scope: { row: { stepNo: number } }) {
 async function loadComponents() {
   loading.value = true
   try {
-    components.value = await listComponents()
+    const options: { keyword?: string; status?: string } = {}
+    if (searchKeyword.value.trim()) {
+      options.keyword = searchKeyword.value.trim()
+    }
+    if (filterStatus.value) {
+      options.status = filterStatus.value
+    }
+    components.value = await listComponents(
+      Object.keys(options).length > 0 ? options : undefined
+    )
     const workspaceId = Number(localStorage.getItem(WORKSPACE_STORAGE_KEY) ?? 0)
     const readiness = workspaceId
       ? await getWorkspaceExecutionReadiness(workspaceId).catch(() => null)
@@ -261,7 +294,29 @@ onMounted(() => {
               新建组件
             </el-button>
           </template>
-          <el-scrollbar v-loading="loading" height="calc(100vh - 280px)">
+          <div class="search-filter-bar">
+            <el-input
+              v-model="searchKeyword"
+              clearable
+              placeholder="搜索编码或名称"
+              @input="handleSearchInput"
+              @clear="handleFilterChange"
+            />
+            <el-select
+              v-model="filterStatus"
+              class="filter-select"
+              placeholder="按状态筛选"
+              @change="handleFilterChange"
+            >
+              <el-option
+                v-for="option in filterStatusOptions"
+                :key="option.value"
+                :label="option.label"
+                :value="option.value"
+              />
+            </el-select>
+          </div>
+          <el-scrollbar v-loading="loading" height="calc(100vh - 360px)">
             <div class="component-list">
               <div
                 v-for="component in components"
@@ -282,7 +337,10 @@ onMounted(() => {
                   {{ readinessIssuesByComponentId[component.id][0]?.message }}
                 </div>
               </div>
-              <el-empty v-if="components.length === 0" description="暂无组件" />
+              <el-empty
+                v-if="components.length === 0 && !loading"
+                :description="searchKeyword || filterStatus ? '暂无匹配组件' : '暂无组件'"
+              />
             </div>
           </el-scrollbar>
         </SectionCard>
@@ -457,6 +515,17 @@ onMounted(() => {
 .main-content {
   flex: 1;
   min-width: 0;
+}
+
+.search-filter-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.search-filter-bar .filter-select {
+  width: 100%;
 }
 
 .component-list {

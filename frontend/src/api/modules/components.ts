@@ -42,13 +42,14 @@ function mapStep(item: TestCaseStepDTO): Step {
   }
 }
 
-export async function listComponents(): Promise<Component[]> {
+export async function listComponents(options?: { keyword?: string; status?: string }): Promise<Component[]> {
   const response = await requestPage<ComponentReadDTO>({
     method: 'get',
     url: '/components',
     params: {
       page: 1,
-      page_size: 100
+      page_size: 100,
+      ...options
     }
   })
 

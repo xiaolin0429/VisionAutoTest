@@ -1,17 +1,19 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import MetricCard from '@/components/MetricCard.vue'
 import SectionCard from '@/components/SectionCard.vue'
 import StatusTag from '@/components/StatusTag.vue'
 import { getMediaObject, getMediaObjectContent } from '@/api/modules/mediaObjects'
 import {
+  cancelTestRun,
   createTestRun,
   getRunDetail,
   getTestRunReport,
   listReportArtifacts
 } from '@/api/modules/testRuns'
+import { ApiError } from '@/api/client'
 import { formatDateTime } from '@/utils/format'
 import {
   resolveRunRepairTarget
@@ -40,6 +42,7 @@ const router = useRouter()
 const loading = ref(false)
 const reportLoading = ref(false)
 const rerunLoading = ref(false)
+const cancelLoading = ref(false)
 const runDetail = ref<RunDetail | null>(null)
 const runReport = ref<RunReport | null>(null)
 const reportArtifacts = ref<ReportArtifact[]>([])
@@ -507,6 +510,37 @@ async function handleRerun() {
   }
 }
 
+async function handleCancelRun() {
+  const detail = runDetail.value
+  if (!detail) {
+    return
+  }
+
+  try {
+    await ElMessageBox.confirm(
+      '取消后正在执行的用例将中止，已完成的用例结果将保留。',
+      '确认取消执行',
+      { confirmButtonText: '确认取消', cancelButtonText: '返回', type: 'warning' }
+    )
+  } catch {
+    return
+  }
+
+  cancelLoading.value = true
+  try {
+    await cancelTestRun(detail.id)
+    ElMessage.success('执行批次已标记为取消中')
+  } catch (error) {
+    if (error instanceof ApiError && error.code === 'TEST_RUN_STATUS_CONFLICT') {
+      ElMessage.warning('该批次状态已变更，无法取消')
+    } else {
+      ElMessage.error('取消执行失败，请稍后重试')
+    }
+  } finally {
+    cancelLoading.value = false
+  }
+}
+
 watch(
   () => route.params.testRunId,
   () => {
@@ -558,6 +592,16 @@ onBeforeUnmount(() => {
             @click="copyRunSummary"
           >
             复制摘要
+          </el-button>
+          <el-button
+            v-if="runDetail && (runDetail.status === 'queued' || runDetail.status === 'running')"
+            :loading="cancelLoading"
+            plain
+            size="small"
+            type="danger"
+            @click="handleCancelRun"
+          >
+            取消执行
           </el-button>
           <el-button
             v-if="runDetail && !ACTIVE_RUN_STATUSES.has(runDetail.status)"

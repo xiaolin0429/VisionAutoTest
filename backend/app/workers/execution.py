@@ -25,17 +25,19 @@ from app.models import (
     utc_now,
 )
 from app.services import assets as asset_service
-from app.services.execution import (
-    _normalize_failure_payload,
+from app.services.execution import get_report_by_test_run
+from app.services.execution_report import (
     build_report_summary,
-    build_execution_steps,
     create_report_artifact,
+    refresh_report_artifact_summary,
+)
+from app.services.execution_status import (
     finalize_cancelled_test_run,
     finalize_completed_test_run,
     finalize_errored_test_run,
-    get_report_by_test_run,
-    refresh_report_artifact_summary,
+    normalize_failure_payload,
 )
+from app.services.execution_steps import build_execution_steps
 from app.workers.browser import build_browser_execution_adapter
 from app.workers.vision import MaskRegionRatio, TemplateAssertionContext
 
@@ -247,7 +249,7 @@ def process_test_run(test_run_id: int) -> None:
                     int(elapsed_seconds * 1000),
                 )
                 if execution_result.status in {"failed", "error"}:
-                    failure_code, failure_summary = _normalize_failure_payload(
+                    failure_code, failure_summary = normalize_failure_payload(
                         status=execution_result.status,
                         failure_code=execution_result.failure_reason_code,
                         failure_summary=execution_result.failure_summary,

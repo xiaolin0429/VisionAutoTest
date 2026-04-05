@@ -28,6 +28,39 @@ from app.models import (
     User,
     utc_now,
 )
+from app.services.execution_report import (
+    build_report_summary,
+    create_report_artifact,
+    media_content_url,
+    refresh_report_artifact_summary,
+)
+from app.services.execution_readiness import (
+    build_readiness_issue,
+    count_active_environment_profiles,
+    dedupe_readiness_issues,
+    get_test_suite_execution_readiness,
+    get_workspace_execution_readiness,
+    inspect_branch_payload_issues,
+    inspect_execution_step_issues,
+    inspect_test_case_execution_issues,
+    inspect_test_suite_execution_issues,
+    validate_case_execution_readiness,
+    validate_visual_step_readiness,
+)
+from app.services.execution_steps import (
+    ResolvedExecutionStep,
+    build_conditional_branch_steps,
+    build_execution_steps,
+    get_component_in_workspace,
+)
+from app.services.execution_status import (
+    finalize_cancelled_test_run,
+    finalize_completed_test_run,
+    finalize_errored_test_run,
+    normalize_failure_payload,
+    resolve_run_failure,
+    truncate_failure_summary,
+)
 from app.services.helpers import count_total, require_workspace_access
 
 FINAL_TEST_RUN_STATUSES = {
@@ -51,178 +84,6 @@ FINAL_CASE_RUN_STATUSES = {
 FINAL_STEP_RESULT_STATUSES = {"passed", "failed", "error"}
 EXECUTABLE_TEMPLATE_STATUS = "published"
 settings = get_settings()
-
-
-def _truncate_failure_summary(message: str | None, *, limit: int = 500) -> str | None:
-    if message is None:
-        return None
-    normalized = message.strip()
-    if len(normalized) <= limit:
-        return normalized
-    return f"{normalized[: limit - 3]}..."
-
-
-def get_workspace_execution_readiness(
-    db: Session,
-    *,
-    user: User,
-    workspace_id: int,
-) -> dict[str, Any]:
-    require_workspace_access(db, user, workspace_id)
-    active_environment_count = _count_active_environment_profiles(
-        db, workspace_id=workspace_id
-    )
-    active_suites = db.scalars(
-        select(TestSuite).where(
-            TestSuite.workspace_id == workspace_id,
-            TestSuite.is_deleted.is_(False),
-            TestSuite.status == "active",
-        )
-    ).all()
-
-    issues: list[dict[str, Any]] = []
-    if active_environment_count == 0:
-        issues.append(
-            _build_readiness_issue(
-                code="ENVIRONMENT_PROFILE_REQUIRED",
-                message="当前工作空间缺少可用环境，无法触发执行。",
-                resource_type="environment_profile",
-                route_path="/environments",
-            )
-        )
-    if not active_suites:
-        issues.append(
-            _build_readiness_issue(
-                code="TEST_SUITE_REQUIRED",
-                message="当前工作空间缺少活跃套件，至少需要一个 active 套件。",
-                resource_type="test_suite",
-                route_path="/suites",
-            )
-        )
-
-    for suite in active_suites:
-        issues.extend(_inspect_test_suite_execution_issues(db, suite=suite))
-
-    normalized_issues = _dedupe_readiness_issues(issues)
-    return {
-        "scope": "workspace",
-        "status": "ready" if not normalized_issues else "blocked",
-        "workspace_id": workspace_id,
-        "test_suite_id": None,
-        "active_environment_count": active_environment_count,
-        "active_test_suite_count": len(active_suites),
-        "blocking_issue_count": len(normalized_issues),
-        "issues": normalized_issues,
-    }
-
-
-def get_test_suite_execution_readiness(
-    db: Session,
-    *,
-    user: User,
-    test_suite: TestSuite,
-) -> dict[str, Any]:
-    require_workspace_access(db, user, test_suite.workspace_id)
-    active_environment_count = _count_active_environment_profiles(
-        db, workspace_id=test_suite.workspace_id
-    )
-    active_suite_stmt = select(TestSuite).where(
-        TestSuite.workspace_id == test_suite.workspace_id,
-        TestSuite.is_deleted.is_(False),
-        TestSuite.status == "active",
-    )
-    active_test_suite_count: int = count_total(db, active_suite_stmt)
-    issues = []
-    if active_environment_count == 0:
-        issues.append(
-            _build_readiness_issue(
-                code="ENVIRONMENT_PROFILE_REQUIRED",
-                message="当前工作空间缺少可用环境，无法触发执行。",
-                resource_type="environment_profile",
-                route_path="/environments",
-            )
-        )
-    issues.extend(_inspect_test_suite_execution_issues(db, suite=test_suite))
-    normalized_issues = _dedupe_readiness_issues(issues)
-    return {
-        "scope": "test_suite",
-        "status": "ready" if not normalized_issues else "blocked",
-        "workspace_id": test_suite.workspace_id,
-        "test_suite_id": test_suite.id,
-        "active_environment_count": active_environment_count,
-        "active_test_suite_count": int(active_test_suite_count or 0),
-        "blocking_issue_count": len(normalized_issues),
-        "issues": normalized_issues,
-    }
-
-
-@dataclass(slots=True)
-class ResolvedExecutionStep:
-    step_no: int
-    step_type: str
-    step_name: str
-    template_id: int | None
-    component_id: int | None
-    payload_json: dict
-    timeout_ms: int
-    retry_times: int
-    parent_step_no: int | None = None
-    branch_key: str | None = None
-    branch_name: str | None = None
-    branch_step_index: int | None = None
-
-
-def build_report_summary(
-    *,
-    status: str,
-    total_case_count: int,
-    passed_count: int,
-    failed_count: int,
-    error_count: int,
-    cancelled_count: int,
-    started_at,
-    finished_at,
-    failure_code: str | None,
-    failure_summary: str | None,
-    artifact_totals: dict[str, int] | None = None,
-) -> dict[str, Any]:
-    artifacts_by_type = artifact_totals or {}
-    duration_ms = None
-    if started_at is not None and finished_at is not None:
-        duration_ms = max(1, int((finished_at - started_at).total_seconds() * 1000))
-
-    summary = {
-        "status": status,
-        "counts": {
-            "total": total_case_count,
-            "passed": passed_count,
-            "failed": failed_count,
-            "error": error_count,
-            "cancelled": cancelled_count,
-        },
-        "failure": None
-        if failure_code is None and failure_summary is None
-        else {
-            "code": failure_code,
-            "summary": failure_summary,
-        },
-        "timing": {
-            "started_at": started_at.isoformat() if started_at is not None else None,
-            "finished_at": finished_at.isoformat() if finished_at is not None else None,
-            "duration_ms": duration_ms,
-        },
-        "artifacts": {
-            "total": sum(artifacts_by_type.values()),
-            "by_type": artifacts_by_type,
-        },
-        "total_case_count": total_case_count,
-        "passed_case_count": passed_count,
-        "failed_case_count": failed_count,
-        "error_case_count": error_count,
-        "cancelled_case_count": cancelled_count,
-        "message": failure_summary,
-    }
-    return summary
 
 
 def create_test_run(
@@ -295,7 +156,7 @@ def create_test_run(
             status_code=422,
         )
     for suite_case in suite_cases:
-        _validate_case_execution_readiness(
+        validate_case_execution_readiness(
             db, workspace_id=workspace_id, test_case_id=suite_case.test_case_id
         )
 
@@ -324,179 +185,6 @@ def create_test_run(
     db.commit()
     db.refresh(test_run)
     return test_run
-
-
-def build_execution_steps(
-    db: Session, *, workspace_id: int, test_case_id: int
-) -> list[ResolvedExecutionStep]:
-    test_case = db.get(TestCase, test_case_id)
-    if (
-        test_case is None
-        or test_case.workspace_id != workspace_id
-        or test_case.is_deleted
-    ):
-        raise ApiError(
-            code="TEST_CASE_NOT_FOUND", message="Test case not found.", status_code=404
-        )
-
-    case_steps = db.scalars(
-        select(TestCaseStep)
-        .where(TestCaseStep.test_case_id == test_case_id)
-        .order_by(TestCaseStep.step_no.asc())
-    ).all()
-    resolved_steps: list[ResolvedExecutionStep] = []
-
-    for case_step in case_steps:
-        if case_step.step_type == "conditional_branch":
-            resolved_steps.extend(_build_conditional_branch_steps(case_step=case_step))
-            continue
-        if case_step.step_type != "component_call":
-            resolved_steps.append(
-                ResolvedExecutionStep(
-                    step_no=0,
-                    step_type=case_step.step_type,
-                    step_name=case_step.step_name,
-                    template_id=case_step.template_id,
-                    component_id=case_step.component_id,
-                    payload_json=case_step.payload_json or {},
-                    timeout_ms=case_step.timeout_ms,
-                    retry_times=case_step.retry_times,
-                )
-            )
-            continue
-
-        component = _get_component_in_workspace(
-            db, workspace_id=workspace_id, component_id=case_step.component_id
-        )
-        component_steps = db.scalars(
-            select(ComponentStep)
-            .where(ComponentStep.component_id == component.id)
-            .order_by(ComponentStep.step_no.asc())
-        ).all()
-        for component_step in component_steps:
-            resolved_steps.append(
-                ResolvedExecutionStep(
-                    step_no=0,
-                    step_type=component_step.step_type,
-                    step_name=component_step.step_name,
-                    template_id=component_step.template_id,
-                    component_id=component.id,
-                    payload_json=component_step.payload_json or {},
-                    timeout_ms=case_step.timeout_ms,
-                    retry_times=case_step.retry_times,
-                )
-            )
-
-    for index, step in enumerate(resolved_steps, start=1):
-        step.step_no = index
-    return resolved_steps
-
-
-def _build_conditional_branch_steps(
-    *, case_step: TestCaseStep
-) -> list[ResolvedExecutionStep]:
-    payload = case_step.payload_json or {}
-    steps: list[ResolvedExecutionStep] = [
-        ResolvedExecutionStep(
-            step_no=0,
-            step_type="conditional_branch",
-            step_name=case_step.step_name,
-            template_id=None,
-            component_id=None,
-            payload_json=payload,
-            timeout_ms=case_step.timeout_ms,
-            retry_times=case_step.retry_times,
-        )
-    ]
-
-    branches = (
-        payload.get("branches") if isinstance(payload.get("branches"), list) else []
-    )
-    for branch in branches:
-        if not isinstance(branch, dict):
-            continue
-        branch_key = (
-            branch.get("branch_key")
-            if isinstance(branch.get("branch_key"), str)
-            else None
-        )
-        branch_name = (
-            branch.get("branch_name")
-            if isinstance(branch.get("branch_name"), str)
-            else None
-        )
-        branch_steps = (
-            branch.get("steps") if isinstance(branch.get("steps"), list) else []
-        )
-        for branch_step_index, branch_step in enumerate(branch_steps, start=1):
-            if not isinstance(branch_step, dict):
-                continue
-            steps.append(
-                ResolvedExecutionStep(
-                    step_no=0,
-                    step_type=str(branch_step.get("step_type") or "wait"),
-                    step_name=str(
-                        branch_step.get("step_name")
-                        or f"Branch step {branch_step_index}"
-                    ),
-                    template_id=branch_step.get("template_id")
-                    if isinstance(branch_step.get("template_id"), int)
-                    else None,
-                    component_id=None,
-                    payload_json=branch_step.get("payload_json") or {},
-                    timeout_ms=int(
-                        branch_step.get("timeout_ms") or case_step.timeout_ms
-                    ),
-                    retry_times=int(
-                        branch_step.get("retry_times") or case_step.retry_times
-                    ),
-                    parent_step_no=case_step.step_no,
-                    branch_key=branch_key,
-                    branch_name=branch_name,
-                    branch_step_index=branch_step_index,
-                )
-            )
-
-    else_branch = payload.get("else_branch")
-    if isinstance(else_branch, dict) and else_branch.get("enabled") is True:
-        branch_name = (
-            else_branch.get("branch_name")
-            if isinstance(else_branch.get("branch_name"), str)
-            else "默认分支"
-        )
-        branch_steps = (
-            else_branch.get("steps")
-            if isinstance(else_branch.get("steps"), list)
-            else []
-        )
-        for branch_step_index, branch_step in enumerate(branch_steps, start=1):
-            if not isinstance(branch_step, dict):
-                continue
-            steps.append(
-                ResolvedExecutionStep(
-                    step_no=0,
-                    step_type=str(branch_step.get("step_type") or "wait"),
-                    step_name=str(
-                        branch_step.get("step_name") or f"Else step {branch_step_index}"
-                    ),
-                    template_id=branch_step.get("template_id")
-                    if isinstance(branch_step.get("template_id"), int)
-                    else None,
-                    component_id=None,
-                    payload_json=branch_step.get("payload_json") or {},
-                    timeout_ms=int(
-                        branch_step.get("timeout_ms") or case_step.timeout_ms
-                    ),
-                    retry_times=int(
-                        branch_step.get("retry_times") or case_step.retry_times
-                    ),
-                    parent_step_no=case_step.step_no,
-                    branch_key="else",
-                    branch_name=branch_name,
-                    branch_step_index=branch_step_index,
-                )
-            )
-    return steps
 
 
 def list_test_runs(
@@ -539,238 +227,6 @@ def update_test_run_status(
             status_code=409,
         )
     test_run.status = "cancelling"
-    db.commit()
-    db.refresh(test_run)
-    return test_run
-
-
-def finalize_cancelled_test_run(db: Session, test_run: TestRun) -> TestRun:
-    now = utc_now()
-    cancellation_code = "TEST_RUN_CANCELLED"
-    cancellation_summary = "Test run was cancelled."
-    case_runs = db.scalars(
-        select(TestCaseRun)
-        .where(TestCaseRun.test_run_id == test_run.id)
-        .order_by(TestCaseRun.sort_order.asc())
-    ).all()
-    cancelled_count = 0
-    passed_count = 0
-    failed_count = 0
-    error_count = 0
-    for case_run in case_runs:
-        if case_run.status == "passed":
-            passed_count += 1
-            continue
-        if case_run.status == "failed":
-            failed_count += 1
-            continue
-        if case_run.status == "error":
-            error_count += 1
-            continue
-        if case_run.status != "cancelled":
-            case_run.status = "cancelled"
-            case_run.finished_at = case_run.finished_at or now
-            if case_run.started_at is not None and case_run.duration_ms is None:
-                finished_at = case_run.finished_at
-                assert finished_at is not None
-                case_run.duration_ms = max(
-                    1,
-                    int((finished_at - case_run.started_at).total_seconds() * 1000),
-                )
-            case_run.failure_reason_code = (
-                case_run.failure_reason_code or cancellation_code
-            )
-            case_run.failure_summary = case_run.failure_summary or cancellation_summary
-        cancelled_count += 1
-
-    test_run.status = "cancelled"
-    test_run.finished_at = test_run.finished_at or now
-    test_run.passed_case_count = passed_count
-    test_run.failed_case_count = failed_count
-    test_run.error_case_count = error_count
-
-    report = db.scalar(select(RunReport).where(RunReport.test_run_id == test_run.id))
-    summary_json = build_report_summary(
-        status="cancelled",
-        total_case_count=test_run.total_case_count,
-        passed_count=passed_count,
-        failed_count=failed_count,
-        error_count=error_count,
-        cancelled_count=cancelled_count,
-        started_at=test_run.started_at,
-        finished_at=test_run.finished_at,
-        failure_code=cancellation_code,
-        failure_summary=cancellation_summary,
-    )
-    if report is None:
-        db.add(
-            RunReport(
-                test_run_id=test_run.id,
-                summary_status="cancelled",
-                summary_json=summary_json,
-                generated_at=now,
-            )
-        )
-    else:
-        report.summary_status = "cancelled"
-        report.summary_json = summary_json
-        report.generated_at = now
-
-    db.commit()
-    db.refresh(test_run)
-    return test_run
-
-
-def finalize_completed_test_run(
-    db: Session,
-    test_run: TestRun,
-    *,
-    passed_count: int,
-    failed_count: int,
-    error_count: int,
-) -> TestRun:
-    now = utc_now()
-    if passed_count == 0 and failed_count == 0 and error_count > 0:
-        final_status = "error"
-    elif failed_count > 0 and error_count == 0 and passed_count == 0:
-        final_status = "failed"
-    elif failed_count == 0 and error_count == 0:
-        final_status = "passed"
-    else:
-        final_status = "partial_failed"
-    case_runs: list[TestCaseRun] = list(
-        db.scalars(
-            select(TestCaseRun)
-            .where(TestCaseRun.test_run_id == test_run.id)
-            .order_by(TestCaseRun.sort_order.asc())
-        ).all()
-    )
-    failure_code, failure_summary = _resolve_run_failure(
-        case_runs=case_runs, final_status=final_status
-    )
-    update_result: Any = db.execute(
-        update(TestRun)
-        .where(TestRun.id == test_run.id, TestRun.status == "running")
-        .values(
-            finished_at=now,
-            passed_case_count=passed_count,
-            failed_case_count=failed_count,
-            error_case_count=error_count,
-            status=final_status,
-        )
-    )
-    if not update_result.rowcount:
-        db.expire_all()
-        latest_test_run = db.get(TestRun, test_run.id)
-        if latest_test_run is not None and latest_test_run.status == "cancelling":
-            return finalize_cancelled_test_run(db, latest_test_run)
-        if latest_test_run is None:
-            raise ApiError(
-                code="TEST_RUN_NOT_FOUND",
-                message="Test run not found.",
-                status_code=404,
-            )
-        return latest_test_run
-
-    report = db.scalar(select(RunReport).where(RunReport.test_run_id == test_run.id))
-    summary_json = build_report_summary(
-        status=final_status,
-        total_case_count=test_run.total_case_count,
-        passed_count=passed_count,
-        failed_count=failed_count,
-        error_count=error_count,
-        cancelled_count=0,
-        started_at=test_run.started_at,
-        finished_at=now,
-        failure_code=failure_code,
-        failure_summary=failure_summary,
-    )
-    if report is None:
-        db.add(
-            RunReport(
-                test_run_id=test_run.id,
-                summary_status=final_status,
-                summary_json=summary_json,
-                generated_at=now,
-            )
-        )
-    else:
-        report.summary_status = final_status
-        report.summary_json = summary_json
-        report.generated_at = now
-    db.commit()
-    latest_test_run = db.get(TestRun, test_run.id)
-    if latest_test_run is None:
-        raise ApiError(
-            code="TEST_RUN_NOT_FOUND", message="Test run not found.", status_code=404
-        )
-    return latest_test_run
-
-
-def finalize_errored_test_run(
-    db: Session,
-    test_run: TestRun,
-    *,
-    failure_reason_code: str = "TEST_RUN_EXECUTION_ERROR",
-    error_message: str,
-) -> TestRun:
-    now = utc_now()
-    case_runs = db.scalars(
-        select(TestCaseRun)
-        .where(TestCaseRun.test_run_id == test_run.id)
-        .order_by(TestCaseRun.sort_order.asc())
-    ).all()
-    error_count = 0
-    passed_count = 0
-    failed_count = 0
-    for case_run in case_runs:
-        if case_run.status == "passed":
-            passed_count += 1
-            continue
-        if case_run.status == "failed":
-            failed_count += 1
-            continue
-        if case_run.status != "error":
-            case_run.status = "error"
-            case_run.finished_at = case_run.finished_at or now
-            case_run.duration_ms = case_run.duration_ms or 1
-            case_run.failure_reason_code = failure_reason_code
-            case_run.failure_summary = _truncate_failure_summary(error_message)
-        error_count += 1
-
-    test_run.status = "error"
-    test_run.finished_at = now
-    test_run.passed_case_count = passed_count
-    test_run.failed_case_count = failed_count
-    test_run.error_case_count = error_count
-
-    report = db.scalar(select(RunReport).where(RunReport.test_run_id == test_run.id))
-    summary_json = build_report_summary(
-        status="error",
-        total_case_count=test_run.total_case_count,
-        passed_count=passed_count,
-        failed_count=failed_count,
-        error_count=error_count,
-        cancelled_count=0,
-        started_at=test_run.started_at,
-        finished_at=now,
-        failure_code=failure_reason_code,
-        failure_summary=_truncate_failure_summary(error_message),
-    )
-    if report is None:
-        db.add(
-            RunReport(
-                test_run_id=test_run.id,
-                summary_status="error",
-                summary_json=summary_json,
-                generated_at=now,
-            )
-        )
-    else:
-        report.summary_status = "error"
-        report.summary_json = summary_json
-        report.generated_at = now
-
     db.commit()
     db.refresh(test_run)
     return test_run
@@ -879,71 +335,14 @@ def list_report_artifacts(db: Session, report_id: int):
     ).all()
 
 
-def create_report_artifact(
-    db: Session,
-    *,
-    report: RunReport,
-    media: MediaObject,
-    artifact_type: str,
-    case_run_id: int | None = None,
-    step_result_id: int | None = None,
-) -> ReportArtifact:
-    artifact = ReportArtifact(
-        report_id=report.id,
-        artifact_type=artifact_type,
-        media_object_id=media.id,
-        case_run_id=case_run_id,
-        step_result_id=step_result_id,
-        artifact_url=_media_content_url(media.id),
-    )
-    db.add(artifact)
-    db.commit()
-    db.refresh(artifact)
-    return artifact
-
-
-def refresh_report_artifact_summary(db: Session, report: RunReport) -> None:
-    artifact_rows = db.scalars(
-        select(ReportArtifact).where(ReportArtifact.report_id == report.id)
-    ).all()
-    by_type: dict[str, int] = {}
-    for artifact in artifact_rows:
-        by_type[artifact.artifact_type] = by_type.get(artifact.artifact_type, 0) + 1
-    summary_json = dict(report.summary_json or {})
-    summary_json["artifacts"] = {
-        "total": len(artifact_rows),
-        "by_type": by_type,
-    }
-    report.summary_json = summary_json
-    db.commit()
-    db.refresh(report)
+def _truncate_failure_summary(message: str | None, *, limit: int = 500) -> str | None:
+    return truncate_failure_summary(message, limit=limit)
 
 
 def _resolve_run_failure(
     *, case_runs: list[TestCaseRun], final_status: str
 ) -> tuple[str | None, str | None]:
-    if final_status == "passed":
-        return None, None
-    if final_status == "cancelled":
-        return "TEST_RUN_CANCELLED", "Test run was cancelled."
-    for case_run in case_runs:
-        if case_run.status not in {"failed", "error", "cancelled"}:
-            continue
-        return _normalize_failure_payload(
-            status=case_run.status,
-            failure_code=case_run.failure_reason_code,
-            failure_summary=case_run.failure_summary,
-        )
-    if final_status == "partial_failed":
-        return (
-            "TEST_RUN_PARTIAL_FAILED",
-            "Test run completed with failed or errored cases.",
-        )
-    if final_status == "failed":
-        return "TEST_RUN_FAILED", "Test run completed with failed cases."
-    if final_status == "error":
-        return "TEST_RUN_EXECUTION_ERROR", "Test run completed with execution errors."
-    return None, None
+    return resolve_run_failure(case_runs=case_runs, final_status=final_status)
 
 
 def _normalize_failure_payload(
@@ -952,228 +351,41 @@ def _normalize_failure_payload(
     failure_code: str | None,
     failure_summary: str | None,
 ) -> tuple[str, str]:
-    if failure_code and failure_summary:
-        return failure_code, failure_summary
-    default_code = {
-        "failed": "ASSERTION_FAILED",
-        "error": "STEP_EXECUTION_ERROR",
-        "cancelled": "TEST_RUN_CANCELLED",
-    }.get(status, "TEST_RUN_EXECUTION_ERROR")
-    default_summary = {
-        "failed": "Execution finished with assertion failure.",
-        "error": "Execution finished with runtime error.",
-        "cancelled": "Test run was cancelled.",
-    }.get(status, "Execution failed.")
-    return failure_code or default_code, failure_summary or default_summary
+    return normalize_failure_payload(
+        status=status,
+        failure_code=failure_code,
+        failure_summary=failure_summary,
+    )
 
 
 def _media_content_url(media_object_id: int) -> str:
-    return f"{settings.api_v1_prefix}/media-objects/{media_object_id}/content"
+    return media_content_url(media_object_id)
 
 
 def _validate_case_execution_readiness(
     db: Session, *, workspace_id: int, test_case_id: int
 ) -> None:
-    test_case = db.get(TestCase, test_case_id)
-    if (
-        test_case is None
-        or test_case.workspace_id != workspace_id
-        or test_case.is_deleted
-    ):
-        raise ApiError(
-            code="TEST_CASE_NOT_FOUND", message="Test case not found.", status_code=404
-        )
-    if test_case.status != "published":
-        raise ApiError(
-            code="PUBLISHED_VERSION_REQUIRED",
-            message="Test case must be published before execution.",
-            status_code=422,
-        )
-
-    case_steps = db.scalars(
-        select(TestCaseStep)
-        .where(TestCaseStep.test_case_id == test_case_id)
-        .order_by(TestCaseStep.step_no.asc())
-    ).all()
-    for case_step in case_steps:
-        _validate_visual_step_readiness(db, workspace_id=workspace_id, step=case_step)
-        if case_step.component_id is None:
-            continue
-        component = _get_component_in_workspace(
-            db, workspace_id=workspace_id, component_id=case_step.component_id
-        )
-        if component.status != "published":
-            raise ApiError(
-                code="PUBLISHED_VERSION_REQUIRED",
-                message="Component must be published before execution.",
-                status_code=422,
-            )
-        component_steps = db.scalars(
-            select(ComponentStep)
-            .where(ComponentStep.component_id == component.id)
-            .order_by(ComponentStep.step_no.asc())
-        ).all()
-        for component_step in component_steps:
-            _validate_visual_step_readiness(
-                db, workspace_id=workspace_id, step=component_step
-            )
+    validate_case_execution_readiness(
+        db, workspace_id=workspace_id, test_case_id=test_case_id
+    )
 
 
 def _get_component_in_workspace(
     db: Session, *, workspace_id: int, component_id: int | None
 ) -> Component:
-    if component_id is None:
-        raise ApiError(
-            code="COMPONENT_NOT_FOUND", message="Component not found.", status_code=404
-        )
-    component = db.get(Component, component_id)
-    if (
-        component is None
-        or component.workspace_id != workspace_id
-        or component.is_deleted
-    ):
-        raise ApiError(
-            code="COMPONENT_NOT_FOUND", message="Component not found.", status_code=404
-        )
-    return component
+    return get_component_in_workspace(
+        db, workspace_id=workspace_id, component_id=component_id
+    )
 
 
 def _validate_visual_step_readiness(db: Session, *, workspace_id: int, step) -> None:
-    if step.step_type not in {"template_assert", "ocr_assert"}:
-        return
-
-    if step.step_type == "template_assert" and step.template_id is None:
-        raise ApiError(
-            code="STEP_CONFIGURATION_INVALID",
-            message="template_assert step requires template_id.",
-            status_code=422,
-        )
-
-    if step.step_type == "ocr_assert":
-        payload = step.payload_json or {}
-        selector = payload.get("selector")
-        expected_text = payload.get("expected_text")
-        if (
-            not isinstance(selector, str)
-            or not selector.strip()
-            or not isinstance(expected_text, str)
-            or not expected_text.strip()
-        ):
-            raise ApiError(
-                code="STEP_CONFIGURATION_INVALID",
-                message="ocr_assert step requires selector and expected_text.",
-                status_code=422,
-            )
-
-    if step.template_id is None:
-        return
-
-    template = db.get(Template, step.template_id)
-    if template is None or template.workspace_id != workspace_id or template.is_deleted:
-        raise ApiError(
-            code="TEMPLATE_NOT_FOUND", message="Template not found.", status_code=404
-        )
-    if template.status != EXECUTABLE_TEMPLATE_STATUS:
-        raise ApiError(
-            code="PUBLISHED_VERSION_REQUIRED",
-            message="Template must be published before execution.",
-            status_code=422,
-        )
-
-    if template.current_baseline_revision_id is None:
-        raise ApiError(
-            code="BASELINE_REVISION_REQUIRED",
-            message="Template must have a current baseline revision before execution.",
-            status_code=422,
-        )
-
-    baseline = db.get(BaselineRevision, template.current_baseline_revision_id)
-    if baseline is None or baseline.template_id != template.id:
-        raise ApiError(
-            code="BASELINE_REVISION_REQUIRED",
-            message="Template current baseline revision is invalid.",
-            status_code=422,
-        )
-
-    expected_strategy = "template" if step.step_type == "template_assert" else "ocr"
-    if template.match_strategy != expected_strategy:
-        raise ApiError(
-            code="STEP_CONFIGURATION_INVALID",
-            message=f"{step.step_type} step requires template match_strategy `{expected_strategy}`.",
-            status_code=422,
-        )
+    validate_visual_step_readiness(db, workspace_id=workspace_id, step=step)
 
 
 def _inspect_test_suite_execution_issues(
     db: Session, *, suite: TestSuite
 ) -> list[dict[str, Any]]:
-    issues: list[dict[str, Any]] = []
-    if suite.status != "active":
-        issues.append(
-            _build_readiness_issue(
-                code="TEST_SUITE_NOT_ACTIVE",
-                message="当前套件状态不是 active，不能直接触发执行。",
-                resource_type="test_suite",
-                resource_id=suite.id,
-                resource_name=suite.suite_name,
-                route_path="/suites",
-            )
-        )
-
-    suite_cases = db.scalars(
-        select(SuiteCase)
-        .where(SuiteCase.test_suite_id == suite.id)
-        .order_by(SuiteCase.sort_order.asc())
-    ).all()
-    if not suite_cases:
-        issues.append(
-            _build_readiness_issue(
-                code="TEST_SUITE_EMPTY",
-                message="当前套件为空，至少需要一个可执行用例。",
-                resource_type="test_suite",
-                resource_id=suite.id,
-                resource_name=suite.suite_name,
-                route_path="/suites",
-            )
-        )
-        return issues
-
-    for suite_case in suite_cases:
-        test_case = db.get(TestCase, suite_case.test_case_id)
-        if (
-            test_case is None
-            or test_case.workspace_id != suite.workspace_id
-            or test_case.is_deleted
-        ):
-            issues.append(
-                _build_readiness_issue(
-                    code="TEST_CASE_NOT_FOUND",
-                    message=f"套件引用了不存在的测试用例 #{suite_case.test_case_id}。",
-                    resource_type="test_case",
-                    resource_id=suite_case.test_case_id,
-                    route_path="/cases",
-                )
-            )
-            continue
-        if test_case.status != "published":
-            issues.append(
-                _build_readiness_issue(
-                    code="PUBLISHED_VERSION_REQUIRED",
-                    message=f"测试用例 {test_case.case_name} 尚未发布，无法执行。",
-                    resource_type="test_case",
-                    resource_id=test_case.id,
-                    resource_name=test_case.case_name,
-                    route_path="/cases",
-                )
-            )
-        issues.extend(
-            _inspect_test_case_execution_issues(
-                db,
-                workspace_id=suite.workspace_id,
-                test_case=test_case,
-            )
-        )
-    return issues
+    return inspect_test_suite_execution_issues(db, suite=suite)
 
 
 def _inspect_test_case_execution_issues(
@@ -1182,54 +394,9 @@ def _inspect_test_case_execution_issues(
     workspace_id: int,
     test_case: TestCase,
 ) -> list[dict[str, Any]]:
-    issues: list[dict[str, Any]] = []
-    case_steps = db.scalars(
-        select(TestCaseStep)
-        .where(TestCaseStep.test_case_id == test_case.id)
-        .order_by(TestCaseStep.step_no.asc())
-    ).all()
-    for case_step in case_steps:
-        issues.extend(
-            _inspect_execution_step_issues(
-                db,
-                workspace_id=workspace_id,
-                step=case_step,
-                route_path="/cases",
-            )
-        )
-        if case_step.component_id is None:
-            continue
-        component = _get_component_in_workspace(
-            db,
-            workspace_id=workspace_id,
-            component_id=case_step.component_id,
-        )
-        if component.status != "published":
-            issues.append(
-                _build_readiness_issue(
-                    code="PUBLISHED_VERSION_REQUIRED",
-                    message=f"组件 {component.component_name} 尚未发布，无法执行。",
-                    resource_type="component",
-                    resource_id=component.id,
-                    resource_name=component.component_name,
-                    route_path="/components",
-                )
-            )
-        component_steps = db.scalars(
-            select(ComponentStep)
-            .where(ComponentStep.component_id == component.id)
-            .order_by(ComponentStep.step_no.asc())
-        ).all()
-        for component_step in component_steps:
-            issues.extend(
-                _inspect_execution_step_issues(
-                    db,
-                    workspace_id=workspace_id,
-                    step=component_step,
-                    route_path="/components",
-                )
-            )
-    return issues
+    return inspect_test_case_execution_issues(
+        db, workspace_id=workspace_id, test_case=test_case
+    )
 
 
 def _inspect_execution_step_issues(
@@ -1239,137 +406,9 @@ def _inspect_execution_step_issues(
     step,
     route_path: str,
 ) -> list[dict[str, Any]]:
-    issues: list[dict[str, Any]] = []
-    if step.step_type == "conditional_branch":
-        payload = step.payload_json or {}
-        branches = payload.get("branches")
-        if not isinstance(branches, list) or not branches:
-            issues.append(
-                _build_readiness_issue(
-                    code="STEP_CONFIGURATION_INVALID",
-                    message=f"步骤 {step.step_name} 缺少有效的条件分支配置。",
-                    resource_type="step",
-                    route_path=route_path,
-                )
-            )
-            return issues
-        for branch in branches:
-            issues.extend(
-                _inspect_branch_payload_issues(
-                    db,
-                    workspace_id=workspace_id,
-                    branch=branch,
-                    step_name=step.step_name,
-                    route_path=route_path,
-                )
-            )
-        else_branch = payload.get("else_branch")
-        if isinstance(else_branch, dict) and else_branch.get("enabled") is True:
-            issues.extend(
-                _inspect_branch_payload_issues(
-                    db,
-                    workspace_id=workspace_id,
-                    branch={"condition": None, "steps": else_branch.get("steps")},
-                    step_name=step.step_name,
-                    route_path=route_path,
-                )
-            )
-        return issues
-    if step.step_type == "template_assert" and step.template_id is None:
-        issues.append(
-            _build_readiness_issue(
-                code="STEP_CONFIGURATION_INVALID",
-                message=f"步骤 {step.step_name} 缺少 template_id 配置。",
-                resource_type="step",
-                route_path=route_path,
-            )
-        )
-        return issues
-
-    if step.step_type == "ocr_assert":
-        payload = step.payload_json or {}
-        selector = payload.get("selector")
-        expected_text = payload.get("expected_text")
-        if (
-            not isinstance(selector, str)
-            or not selector.strip()
-            or not isinstance(expected_text, str)
-            or not expected_text.strip()
-        ):
-            issues.append(
-                _build_readiness_issue(
-                    code="STEP_CONFIGURATION_INVALID",
-                    message=f"步骤 {step.step_name} 缺少 OCR 断言所需的 selector 或 expected_text。",
-                    resource_type="step",
-                    route_path=route_path,
-                )
-            )
-    if step.template_id is None:
-        return issues
-
-    template = db.get(Template, step.template_id)
-    if template is None or template.workspace_id != workspace_id or template.is_deleted:
-        issues.append(
-            _build_readiness_issue(
-                code="TEMPLATE_NOT_FOUND",
-                message=f"步骤 {step.step_name} 引用了不存在的模板 #{step.template_id}。",
-                resource_type="template",
-                resource_id=step.template_id,
-                route_path="/templates",
-            )
-        )
-        return issues
-    if template.status != EXECUTABLE_TEMPLATE_STATUS:
-        issues.append(
-            _build_readiness_issue(
-                code="PUBLISHED_VERSION_REQUIRED",
-                message=f"模板 {template.template_name} 尚未发布，无法执行。",
-                resource_type="template",
-                resource_id=template.id,
-                resource_name=template.template_name,
-                route_path="/templates",
-            )
-        )
-    if template.current_baseline_revision_id is None:
-        issues.append(
-            _build_readiness_issue(
-                code="BASELINE_REVISION_REQUIRED",
-                message=f"模板 {template.template_name} 缺少当前基准版本。",
-                resource_type="template",
-                resource_id=template.id,
-                resource_name=template.template_name,
-                route_path="/templates",
-            )
-        )
-    else:
-        baseline = db.get(BaselineRevision, template.current_baseline_revision_id)
-        if baseline is None or baseline.template_id != template.id:
-            issues.append(
-                _build_readiness_issue(
-                    code="BASELINE_REVISION_REQUIRED",
-                    message=f"模板 {template.template_name} 的当前基准版本无效。",
-                    resource_type="template",
-                    resource_id=template.id,
-                    resource_name=template.template_name,
-                    route_path="/templates",
-                )
-            )
-    expected_strategy = "template" if step.step_type == "template_assert" else "ocr"
-    if (
-        step.step_type in {"template_assert", "ocr_assert"}
-        and template.match_strategy != expected_strategy
-    ):
-        issues.append(
-            _build_readiness_issue(
-                code="STEP_CONFIGURATION_INVALID",
-                message=f"模板 {template.template_name} 与步骤 {step.step_name} 的断言策略不兼容。",
-                resource_type="template",
-                resource_id=template.id,
-                resource_name=template.template_name,
-                route_path="/templates",
-            )
-        )
-    return issues
+    return inspect_execution_step_issues(
+        db, workspace_id=workspace_id, step=step, route_path=route_path
+    )
 
 
 def _inspect_branch_payload_issues(
@@ -1380,112 +419,17 @@ def _inspect_branch_payload_issues(
     step_name: str,
     route_path: str,
 ) -> list[dict[str, Any]]:
-    issues: list[dict[str, Any]] = []
-    if not isinstance(branch, dict):
-        issues.append(
-            _build_readiness_issue(
-                code="STEP_CONFIGURATION_INVALID",
-                message=f"步骤 {step_name} 存在非法分支配置。",
-                resource_type="step",
-                route_path=route_path,
-            )
-        )
-        return issues
-    condition = branch.get("condition")
-    if condition is not None and isinstance(condition, dict):
-        condition_type = condition.get("type")
-        if condition_type == "template_visible":
-            template_id = condition.get("template_id")
-            template = (
-                db.get(Template, template_id) if isinstance(template_id, int) else None
-            )
-            if (
-                template is None
-                or template.workspace_id != workspace_id
-                or template.is_deleted
-            ):
-                issues.append(
-                    _build_readiness_issue(
-                        code="TEMPLATE_NOT_FOUND",
-                        message=f"步骤 {step_name} 的条件分支引用了不存在的模板 #{template_id}。",
-                        resource_type="template",
-                        resource_id=template_id
-                        if isinstance(template_id, int)
-                        else None,
-                        route_path="/templates",
-                    )
-                )
-            elif template.current_baseline_revision_id is None:
-                issues.append(
-                    _build_readiness_issue(
-                        code="BASELINE_REVISION_REQUIRED",
-                        message=f"步骤 {step_name} 的条件模板 {template.template_name} 缺少当前基准版本。",
-                        resource_type="template",
-                        resource_id=template.id,
-                        resource_name=template.template_name,
-                        route_path="/templates",
-                    )
-                )
-    steps = branch.get("steps")
-    if not isinstance(steps, list) or not steps:
-        issues.append(
-            _build_readiness_issue(
-                code="STEP_CONFIGURATION_INVALID",
-                message=f"步骤 {step_name} 的分支缺少可执行子步骤。",
-                resource_type="step",
-                route_path=route_path,
-            )
-        )
-        return issues
-    for sub_step in steps:
-        if not isinstance(sub_step, dict):
-            issues.append(
-                _build_readiness_issue(
-                    code="STEP_CONFIGURATION_INVALID",
-                    message=f"步骤 {step_name} 的分支子步骤配置非法。",
-                    resource_type="step",
-                    route_path=route_path,
-                )
-            )
-            continue
-        sub_type = sub_step.get("step_type")
-        if sub_type in {"component_call", "conditional_branch"}:
-            issues.append(
-                _build_readiness_issue(
-                    code="STEP_CONFIGURATION_INVALID",
-                    message=f"步骤 {step_name} 的分支子步骤不支持 {sub_type}。",
-                    resource_type="step",
-                    route_path=route_path,
-                )
-            )
-            continue
-        pseudo_step = type(
-            "BranchStep",
-            (),
-            sub_step
-            | {
-                "step_type": sub_type,
-                "payload_json": sub_step.get("payload_json") or {},
-                "template_id": sub_step.get("template_id"),
-            },
-        )
-        issues.extend(
-            _inspect_execution_step_issues(
-                db,
-                workspace_id=workspace_id,
-                step=pseudo_step,
-                route_path=route_path,
-            )
-        )
+    return inspect_branch_payload_issues(
+        db,
+        workspace_id=workspace_id,
+        branch=branch,
+        step_name=step_name,
+        route_path=route_path,
+    )
 
 
 def _count_active_environment_profiles(db: Session, *, workspace_id: int) -> int:
-    stmt = select(EnvironmentProfile).where(
-        EnvironmentProfile.workspace_id == workspace_id,
-        EnvironmentProfile.is_deleted.is_(False),
-        EnvironmentProfile.status == "active",
-    )
-    return count_total(db, stmt)
+    return count_active_environment_profiles(db, workspace_id=workspace_id)
 
 
 def _build_readiness_issue(
@@ -1496,29 +440,16 @@ def _build_readiness_issue(
     resource_id: int | None = None,
     resource_name: str | None = None,
     route_path: str | None = None,
-) -> dict[str, Any]:
-    return {
-        "code": code,
-        "message": message,
-        "resource_type": resource_type,
-        "resource_id": resource_id,
-        "resource_name": resource_name,
-        "route_path": route_path,
-    }
+) -> list[dict[str, Any]] | dict[str, Any]:
+    return build_readiness_issue(
+        code=code,
+        message=message,
+        resource_type=resource_type,
+        resource_id=resource_id,
+        resource_name=resource_name,
+        route_path=route_path,
+    )
 
 
 def _dedupe_readiness_issues(issues: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    seen: set[tuple[Any, ...]] = set()
-    normalized: list[dict[str, Any]] = []
-    for issue in issues:
-        identity = (
-            issue["code"],
-            issue["resource_type"],
-            issue.get("resource_id"),
-            issue.get("route_path"),
-        )
-        if identity in seen:
-            continue
-        seen.add(identity)
-        normalized.append(issue)
-    return normalized
+    return dedupe_readiness_issues(issues)

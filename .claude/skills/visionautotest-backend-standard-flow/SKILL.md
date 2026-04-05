@@ -40,8 +40,8 @@ For backend work, prefer this routing:
 - IAM and sessions: `doc/api/01-认证与身份API.md`, `doc/database/01-身份与权限模型.md`, `backend/app/services/iam.py`
 - Workspaces, environments, devices: `doc/api/02-工作空间与成员API.md`, `doc/api/03-环境与设备配置API.md`, `doc/database/02-工作空间与配置模型.md`, `backend/app/services/workspace.py`
 - Templates, baselines, media: `doc/api/04-模板与基准资产API.md`, `doc/api/09-媒体对象API.md`, `doc/database/03-模板与基准资产模型.md`, `doc/database/08-媒体对象与引用模型.md`, `backend/app/services/assets.py`
-- Components, test cases, suites: `doc/api/05-测试组件_用例_套件API.md`, `doc/database/04-测试编排模型.md`, `backend/app/services/cases.py`
-- Test runs, case runs, reports: `doc/api/06-测试执行与报告API.md`, `doc/database/05-执行与报告模型.md`, `backend/app/services/execution.py`, `backend/app/workers/execution.py`
+- Components, test cases, suites: `doc/api/05-测试组件_用例_套件API.md`, `doc/database/04-测试编排模型.md`, `backend/app/services/component_service.py`, `backend/app/services/test_case_service.py`, `backend/app/services/suite_service.py`, `backend/app/services/step_payload_validator.py`, `backend/app/services/branch_validator.py` (`backend/app/services/cases.py` is a compatibility facade)
+- Test runs, case runs, reports: `doc/api/06-测试执行与报告API.md`, `doc/database/05-执行与报告模型.md`, `backend/app/services/execution_report.py`, `backend/app/services/execution_status.py`, `backend/app/services/execution_steps.py`, `backend/app/services/execution_readiness.py`, `backend/app/workers/execution.py`, `backend/app/workers/browser.py` (`backend/app/services/execution.py` is a compatibility facade)
 
 ## Backend Development Map
 Use this map to decide where to start and which files to touch.
@@ -58,8 +58,9 @@ Use this map to decide where to start and which files to touch.
 - **IAM / 登录 / 会话**: `backend/app/api/v1/iam.py` -> `backend/app/services/iam.py` -> `backend/app/models/entities.py`
 - **工作空间 / 成员 / 环境 / 设备**: `backend/app/api/v1/workspaces.py` -> `backend/app/services/workspace.py` -> `backend/app/models/entities.py`
 - **媒体 / 模板 / 基准 / 忽略区域**: `backend/app/api/v1/assets.py` -> `backend/app/services/assets.py` -> `backend/app/models/entities.py`
-- **组件 / 用例 / 套件 / 步骤编排**: `backend/app/api/v1/cases.py` -> `backend/app/services/cases.py` -> `backend/app/models/entities.py`
-- **执行批次 / 用例执行 / 步骤结果 / 报告**: `backend/app/api/v1/executions.py` -> `backend/app/services/execution.py` -> `backend/app/workers/execution.py` -> `backend/app/workers/browser.py`
+- **组件 / 用例 / 套件 / 步骤编排**: `backend/app/api/v1/cases.py` -> `backend/app/services/component_service.py` / `backend/app/services/test_case_service.py` / `backend/app/services/suite_service.py` / `backend/app/services/step_payload_validator.py` / `backend/app/services/branch_validator.py` -> `backend/app/models/entities.py`
+- **执行批次 / 用例执行 / 步骤结果 / 报告**: `backend/app/api/v1/executions.py` -> `backend/app/services/execution_report.py` / `backend/app/services/execution_status.py` / `backend/app/services/execution_steps.py` / `backend/app/services/execution_readiness.py` -> `backend/app/workers/execution.py` -> `backend/app/workers/browser.py`
+- Compatibility facades: `backend/app/services/cases.py` and `backend/app/services/execution.py` are compatibility-only aggregation layers. Read them only to understand current exports or old callers; do not place new business logic there.
 
 ### 3. Change-Type Map
 - **只改接口字段或响应结构**: 先改 `doc/api/`，再改 `backend/app/schemas/contracts.py`，最后对齐 router/service 返回。
@@ -114,7 +115,7 @@ Use this tree when deciding the first move for a backend task.
 
 ### 5. If the task touches execution, worker, or browser automation
 - Start at `doc/api/06-测试执行与报告API.md` and `doc/database/05-执行与报告模型.md`.
-- Then inspect `backend/app/services/execution.py`.
+- Then inspect the specialized execution modules under `backend/app/services/` first: `execution_report.py`, `execution_status.py`, `execution_steps.py`, `execution_readiness.py`.
 - Then inspect `backend/app/workers/execution.py`.
 - Then inspect `backend/app/workers/browser.py` if browser behavior changes.
 - Preserve the current MVP truth: `BackgroundTasks + process_test_run + Playwright screenshot artifact`.
@@ -163,8 +164,9 @@ Use this tree when deciding the first move for a backend task.
    - Respect workspace isolation through the existing `X-Workspace-Id` mechanism; do not introduce ad-hoc tenancy handling.
    - Keep route handlers thin; do not push business rules into the router layer.
    - Prefer extending existing patterns over introducing new abstractions or unrelated refactors.
-   - Treat the current `FastAPI + SQLAlchemy + SQLite` MVP as the runtime truth unless the task explicitly upgrades the architecture.
-   - When touching `JWT`, `Alembic`, `Celery + Redis`, object storage, or secret management, first compare the current codebase with `doc/backend/服务端技术架构设计文档.md` and `backend/README.md` to avoid implementing against the wrong target state.
+- Treat the current `FastAPI + SQLAlchemy + SQLite` MVP as the runtime truth unless the task explicitly upgrades the architecture.
+- When touching `JWT`, `Alembic`, `Celery + Redis`, object storage, or secret management, first compare the current codebase with `doc/backend/服务端技术架构设计文档.md` and `backend/README.md` to avoid implementing against the wrong target state.
+- Treat `backend/app/services/cases.py` and `backend/app/services/execution.py` as frozen compatibility facades. New business logic must go into the specialized modules they export from, not back into the facade files.
 
 5. **Synchronize docs when contracts change**
    - If API paths, request or response fields, status transitions, business rules, or model fields change, update the matching API and database docs in the same turn.
@@ -192,6 +194,9 @@ Use this tree when deciding the first move for a backend task.
 - Do not change schema or model names in code without aligning docs and dependent layers.
 - Do not bypass existing error response and request ID patterns in `backend/app/core/http.py`.
 - Do not implement speculative enterprise architecture if the task only requires MVP-compatible delivery.
+- Do not add new business logic to frozen compatibility facades: `backend/app/services/cases.py` and `backend/app/services/execution.py`.
+- When a change relates to orchestration or execution, implement it in the specialized modules first, then export through the facade only if an existing caller still depends on that symbol.
+- If you touch a compatibility facade, the default expectation is "rewire exports only". If you believe real logic must be added there, explicitly justify why the specialized module route is insufficient before coding.
 
 ## Handoff Expectations
 When finishing a backend task, report:

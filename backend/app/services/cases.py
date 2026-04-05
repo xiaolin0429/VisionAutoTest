@@ -18,7 +18,55 @@ from app.models import (
     User,
     utc_now,
 )
-from app.services.assets import SUPPORTED_TEMPLATE_MATCH_STRATEGIES
+from app.services.branch_validator import (
+    validate_branch_condition,
+    validate_branch_steps,
+    validate_conditional_branch_payload,
+)
+from app.services.case_service_common import published_at_for_status
+from app.services.component_service import (
+    create_component as create_component_service,
+    get_component as get_component_service,
+    list_component_steps as list_component_steps_service,
+    list_components as list_components_service,
+    update_component as update_component_service,
+)
+from app.services.suite_service import (
+    create_test_suite as create_test_suite_service,
+    get_test_suite as get_test_suite_service,
+    list_suite_cases as list_suite_cases_service,
+    list_test_suites as list_test_suites_service,
+    replace_suite_cases as replace_suite_cases_service,
+    update_test_suite as update_test_suite_service,
+)
+from app.services.test_case_service import (
+    clone_test_case as clone_test_case_service,
+    create_test_case as create_test_case_service,
+    get_test_case as get_test_case_service,
+    list_test_case_steps as list_test_case_steps_service,
+    list_test_cases as list_test_cases_service,
+    update_test_case as update_test_case_service,
+)
+from app.services.step_payload_validator import (
+    validate_interaction_locator,
+    validate_long_press_payload,
+    validate_navigate_payload,
+    validate_ocr_locator_fields,
+    validate_scroll_payload,
+    validate_step_payload,
+    validate_visual_locator_fields,
+)
+from app.services.step_validation_common import (
+    SUPPORTED_INPUT_MODES,
+    SUPPORTED_LOCATOR_TYPES,
+    SUPPORTED_LONG_PRESS_BUTTONS,
+    SUPPORTED_NAVIGATE_WAIT_UNTIL,
+    SUPPORTED_OCR_MATCH_MODES,
+    SUPPORTED_SCROLL_BEHAVIORS,
+    SUPPORTED_SCROLL_DIRECTIONS,
+    SUPPORTED_SCROLL_TARGETS,
+    assert_template,
+)
 from app.services import execution
 from app.services.helpers import (
     apply_keyword,
@@ -27,36 +75,30 @@ from app.services.helpers import (
     validate_ordered_sequence,
 )
 
-SUPPORTED_NAVIGATE_WAIT_UNTIL = {"load", "domcontentloaded", "networkidle"}
-SUPPORTED_SCROLL_TARGETS = {"page", "element"}
-SUPPORTED_SCROLL_DIRECTIONS = {"up", "down", "left", "right"}
-SUPPORTED_SCROLL_BEHAVIORS = {"auto", "smooth"}
-SUPPORTED_LONG_PRESS_BUTTONS = {"left"}
-SUPPORTED_LOCATOR_TYPES = {"selector", "ocr", "visual"}
-SUPPORTED_OCR_MATCH_MODES = {"exact", "contains"}
-SUPPORTED_INPUT_MODES = {"fill", "type", "otp"}
-
 
 def _published_at_for_status(status: str, current_published_at=None):
-    if status == "published" and current_published_at is None:
-        return utc_now()
-    return current_published_at
+    return published_at_for_status(status, current_published_at)
 
 
 def list_components(
-    db: Session, *, user: User, workspace_id: int, page: int, page_size: int
+    db: Session,
+    *,
+    user: User,
+    workspace_id: int,
+    page: int,
+    page_size: int,
+    keyword: str | None = None,
+    status: str | None = None,
 ):
-    require_workspace_access(db, user, workspace_id)
-    stmt = select(Component).where(
-        Component.workspace_id == workspace_id, Component.is_deleted.is_(False)
+    return list_components_service(
+        db,
+        user=user,
+        workspace_id=workspace_id,
+        page=page,
+        page_size=page_size,
+        keyword=keyword,
+        status=status,
     )
-    total = count_total(db, stmt)
-    items = db.scalars(
-        stmt.order_by(Component.id.desc())
-        .offset((page - 1) * page_size)
-        .limit(page_size)
-    ).all()
-    return items, total
 
 
 def create_component(
@@ -69,43 +111,19 @@ def create_component(
     status: str,
     description: str | None,
 ) -> Component:
-    require_workspace_access(db, user, workspace_id)
-    existing = db.scalar(
-        select(Component).where(
-            Component.workspace_id == workspace_id,
-            Component.component_code == component_code,
-            Component.is_deleted.is_(False),
-        )
-    )
-    if existing is not None:
-        raise ApiError(
-            code="COMPONENT_CODE_EXISTS",
-            message="Component code already exists.",
-            status_code=409,
-        )
-    component = Component(
+    return create_component_service(
+        db,
+        user=user,
         workspace_id=workspace_id,
         component_code=component_code,
         component_name=component_name,
         status=status,
         description=description,
-        published_at=_published_at_for_status(status),
-        created_by=user.id,
-        updated_by=user.id,
     )
-    db.add(component)
-    db.commit()
-    db.refresh(component)
-    return component
 
 
 def get_component(db: Session, component_id: int) -> Component:
-    component = db.get(Component, component_id)
-    if component is None or component.is_deleted:
-        raise ApiError(
-            code="COMPONENT_NOT_FOUND", message="Component not found.", status_code=404
-        )
-    return component
+    return get_component_service(db, component_id)
 
 
 def update_component(
@@ -117,31 +135,20 @@ def update_component(
     status: str | None,
     description: str | None,
 ) -> Component:
-    require_workspace_access(db, user, component.workspace_id)
-    if component_name is not None:
-        component.component_name = component_name
-    if status is not None:
-        component.status = status
-        component.published_at = _published_at_for_status(
-            status, component.published_at
-        )
-    if description is not None:
-        component.description = description
-    component.updated_by = user.id
-    db.commit()
-    db.refresh(component)
-    return component
+    return update_component_service(
+        db,
+        user=user,
+        component=component,
+        component_name=component_name,
+        status=status,
+        description=description,
+    )
 
 
 def list_component_steps(
     db: Session, *, user: User, component: Component
 ) -> Sequence[ComponentStep]:
-    require_workspace_access(db, user, component.workspace_id)
-    return db.scalars(
-        select(ComponentStep)
-        .where(ComponentStep.component_id == component.id)
-        .order_by(ComponentStep.step_no.asc())
-    ).all()
+    return list_component_steps_service(db, user=user, component=component)
 
 
 def replace_component_steps(
@@ -187,20 +194,15 @@ def list_test_cases(
     status: str | None,
     keyword: str | None,
 ):
-    require_workspace_access(db, user, workspace_id)
-    stmt = select(TestCase).where(
-        TestCase.workspace_id == workspace_id, TestCase.is_deleted.is_(False)
+    return list_test_cases_service(
+        db,
+        user=user,
+        workspace_id=workspace_id,
+        page=page,
+        page_size=page_size,
+        status=status,
+        keyword=keyword,
     )
-    if status:
-        stmt = stmt.where(TestCase.status == status)
-    stmt = apply_keyword(stmt, keyword, TestCase.case_code, TestCase.case_name)
-    total = count_total(db, stmt)
-    items = db.scalars(
-        stmt.order_by(TestCase.id.desc())
-        .offset((page - 1) * page_size)
-        .limit(page_size)
-    ).all()
-    return items, total
 
 
 def create_test_case(
@@ -214,43 +216,20 @@ def create_test_case(
     priority: str,
     description: str | None,
 ) -> TestCase:
-    require_workspace_access(db, user, workspace_id)
-    existing = db.scalar(
-        select(TestCase).where(
-            TestCase.workspace_id == workspace_id,
-            TestCase.case_code == case_code,
-            TestCase.is_deleted.is_(False),
-        )
-    )
-    if existing is not None:
-        raise ApiError(
-            code="TEST_CASE_CODE_EXISTS",
-            message="Test case code already exists.",
-            status_code=409,
-        )
-    test_case = TestCase(
+    return create_test_case_service(
+        db,
+        user=user,
         workspace_id=workspace_id,
         case_code=case_code,
         case_name=case_name,
         status=status,
         priority=priority,
         description=description,
-        created_by=user.id,
-        updated_by=user.id,
     )
-    db.add(test_case)
-    db.commit()
-    db.refresh(test_case)
-    return test_case
 
 
 def get_test_case(db: Session, test_case_id: int) -> TestCase:
-    test_case = db.get(TestCase, test_case_id)
-    if test_case is None or test_case.is_deleted:
-        raise ApiError(
-            code="TEST_CASE_NOT_FOUND", message="Test case not found.", status_code=404
-        )
-    return test_case
+    return get_test_case_service(db, test_case_id)
 
 
 def update_test_case(
@@ -263,30 +242,21 @@ def update_test_case(
     priority: str | None,
     description: str | None,
 ) -> TestCase:
-    require_workspace_access(db, user, test_case.workspace_id)
-    if case_name is not None:
-        test_case.case_name = case_name
-    if status is not None:
-        test_case.status = status
-    if priority is not None:
-        test_case.priority = priority
-    if description is not None:
-        test_case.description = description
-    test_case.updated_by = user.id
-    db.commit()
-    db.refresh(test_case)
-    return test_case
+    return update_test_case_service(
+        db,
+        user=user,
+        test_case=test_case,
+        case_name=case_name,
+        status=status,
+        priority=priority,
+        description=description,
+    )
 
 
 def list_test_case_steps(
     db: Session, *, user: User, test_case: TestCase
 ) -> Sequence[TestCaseStep]:
-    require_workspace_access(db, user, test_case.workspace_id)
-    return db.scalars(
-        select(TestCaseStep)
-        .where(TestCaseStep.test_case_id == test_case.id)
-        .order_by(TestCaseStep.step_no.asc())
-    ).all()
+    return list_test_case_steps_service(db, user=user, test_case=test_case)
 
 
 def replace_test_case_steps(
@@ -326,59 +296,15 @@ def replace_test_case_steps(
 
 
 def clone_test_case(db: Session, *, user: User, test_case: TestCase) -> TestCase:
-    require_workspace_access(db, user, test_case.workspace_id)
-    timestamp_suffix = utc_now().strftime("%Y%m%d%H%M%S")
-    new_code = f"{test_case.case_code}_copy_{timestamp_suffix}"
-    cloned = TestCase(
-        workspace_id=test_case.workspace_id,
-        case_code=new_code,
-        case_name=f"{test_case.case_name} (副本)",
-        status="draft",
-        priority=test_case.priority,
-        description=test_case.description,
-        created_by=user.id,
-        updated_by=user.id,
-    )
-    db.add(cloned)
-    db.flush()
-    source_steps = db.scalars(
-        select(TestCaseStep)
-        .where(TestCaseStep.test_case_id == test_case.id)
-        .order_by(TestCaseStep.step_no.asc())
-    ).all()
-    for step in source_steps:
-        db.add(
-            TestCaseStep(
-                test_case_id=cloned.id,
-                step_no=step.step_no,
-                step_type=step.step_type,
-                step_name=step.step_name,
-                component_id=step.component_id,
-                template_id=step.template_id,
-                payload_json=step.payload_json,
-                timeout_ms=step.timeout_ms,
-                retry_times=step.retry_times,
-            )
-        )
-    db.commit()
-    db.refresh(cloned)
-    return cloned
+    return clone_test_case_service(db, user=user, test_case=test_case)
 
 
 def list_test_suites(
     db: Session, *, user: User, workspace_id: int, page: int, page_size: int
 ):
-    require_workspace_access(db, user, workspace_id)
-    stmt = select(TestSuite).where(
-        TestSuite.workspace_id == workspace_id, TestSuite.is_deleted.is_(False)
+    return list_test_suites_service(
+        db, user=user, workspace_id=workspace_id, page=page, page_size=page_size
     )
-    total = count_total(db, stmt)
-    items = db.scalars(
-        stmt.order_by(TestSuite.id.desc())
-        .offset((page - 1) * page_size)
-        .limit(page_size)
-    ).all()
-    return items, total
 
 
 def create_test_suite(
@@ -391,44 +317,19 @@ def create_test_suite(
     status: str,
     description: str | None,
 ) -> TestSuite:
-    require_workspace_access(db, user, workspace_id)
-    existing = db.scalar(
-        select(TestSuite).where(
-            TestSuite.workspace_id == workspace_id,
-            TestSuite.suite_code == suite_code,
-            TestSuite.is_deleted.is_(False),
-        )
-    )
-    if existing is not None:
-        raise ApiError(
-            code="TEST_SUITE_CODE_EXISTS",
-            message="Test suite code already exists.",
-            status_code=409,
-        )
-    suite = TestSuite(
+    return create_test_suite_service(
+        db,
+        user=user,
         workspace_id=workspace_id,
         suite_code=suite_code,
         suite_name=suite_name,
         status=status,
         description=description,
-        created_by=user.id,
-        updated_by=user.id,
     )
-    db.add(suite)
-    db.commit()
-    db.refresh(suite)
-    return suite
 
 
 def get_test_suite(db: Session, test_suite_id: int) -> TestSuite:
-    suite = db.get(TestSuite, test_suite_id)
-    if suite is None or suite.is_deleted:
-        raise ApiError(
-            code="TEST_SUITE_NOT_FOUND",
-            message="Test suite not found.",
-            status_code=404,
-        )
-    return suite
+    return get_test_suite_service(db, test_suite_id)
 
 
 def update_test_suite(
@@ -440,668 +341,80 @@ def update_test_suite(
     status: str | None,
     description: str | None,
 ) -> TestSuite:
-    require_workspace_access(db, user, suite.workspace_id)
-    if suite_name is not None:
-        suite.suite_name = suite_name
-    if status is not None:
-        suite.status = status
-    if description is not None:
-        suite.description = description
-    suite.updated_by = user.id
-    db.commit()
-    db.refresh(suite)
-    return suite
+    return update_test_suite_service(
+        db,
+        user=user,
+        suite=suite,
+        suite_name=suite_name,
+        status=status,
+        description=description,
+    )
 
 
 def list_suite_cases(
     db: Session, *, user: User, suite: TestSuite
 ) -> Sequence[SuiteCase]:
-    require_workspace_access(db, user, suite.workspace_id)
-    return db.scalars(
-        select(SuiteCase)
-        .where(SuiteCase.test_suite_id == suite.id)
-        .order_by(SuiteCase.sort_order.asc())
-    ).all()
+    return list_suite_cases_service(db, user=user, suite=suite)
 
 
 def replace_suite_cases(
     db: Session, *, user: User, suite: TestSuite, items: list[dict]
 ) -> list[SuiteCase]:
-    require_workspace_access(db, user, suite.workspace_id)
-    validate_ordered_sequence(
-        [item["sort_order"] for item in items],
-        code="SUITE_CASE_SEQUENCE_INVALID",
-        message="Suite case order must start from 1 and be continuous.",
-    )
-    for item in items:
-        test_case = get_test_case(db, item["test_case_id"])
-        if test_case.workspace_id != suite.workspace_id:
-            raise ApiError(
-                code="TEST_CASE_NOT_FOUND",
-                message="Test case not found in workspace.",
-                status_code=404,
-            )
-    db.execute(delete(SuiteCase).where(SuiteCase.test_suite_id == suite.id))
-    for item in items:
-        db.add(
-            SuiteCase(
-                test_suite_id=suite.id,
-                test_case_id=item["test_case_id"],
-                sort_order=item["sort_order"],
-            )
-        )
-    db.commit()
-    return list(list_suite_cases(db, user=user, suite=suite))
+    return replace_suite_cases_service(db, user=user, suite=suite, items=items)
 
 
 def _assert_template(db: Session, workspace_id: int, template_id: int) -> None:
-    template = db.get(Template, template_id)
-    if template is None or template.workspace_id != workspace_id or template.is_deleted:
-        raise ApiError(
-            code="TEMPLATE_NOT_FOUND", message="Template not found.", status_code=404
-        )
+    assert_template(db, workspace_id, template_id)
 
 
 def _validate_step_payload(
     db: Session, *, workspace_id: int, item: dict, allow_component_call: bool
 ) -> None:
-    step_type = item.get("step_type")
-    payload = item.get("payload_json") or {}
-    template_id = item.get("template_id")
-
-    if step_type == "conditional_branch":
-        if not allow_component_call:
-            raise ApiError(
-                code="STEP_CONFIGURATION_INVALID",
-                message="conditional_branch is not supported inside component steps.",
-                status_code=422,
-            )
-        _validate_conditional_branch_payload(
-            db, workspace_id=workspace_id, payload=payload
-        )
-        return
-
-    if step_type == "component_call":
-        if not allow_component_call:
-            raise ApiError(
-                code="STEP_CONFIGURATION_INVALID",
-                message="component_call is not supported inside component steps.",
-                status_code=422,
-            )
-        if item.get("component_id") is None:
-            raise ApiError(
-                code="STEP_CONFIGURATION_INVALID",
-                message="component_call step requires component_id.",
-                status_code=422,
-            )
-        return
-
-    if template_id is not None:
-        _assert_template(db, workspace_id, template_id)
-        template = db.get(Template, template_id)
-        assert template is not None
-        if template.match_strategy not in SUPPORTED_TEMPLATE_MATCH_STRATEGIES:
-            raise ApiError(
-                code="STEP_CONFIGURATION_INVALID",
-                message="Referenced template match_strategy is not supported in the current version.",
-                status_code=422,
-            )
-
-    if payload.get("locator") == "visual":
-        visual_template_id = payload.get("template_id")
-        if isinstance(visual_template_id, bool) or not isinstance(
-            visual_template_id, int
-        ):
-            raise ApiError(
-                code="STEP_CONFIGURATION_INVALID",
-                message="visual locator requires payload_json.template_id.",
-                status_code=422,
-            )
-        _assert_template(db, workspace_id, visual_template_id)
-        visual_template = db.get(Template, visual_template_id)
-        assert visual_template is not None
-        if visual_template.current_baseline_revision_id is None:
-            raise ApiError(
-                code="BASELINE_REVISION_REQUIRED",
-                message="visual locator requires template current baseline revision.",
-                status_code=422,
-            )
-
-    if step_type == "template_assert":
-        if template_id is None:
-            raise ApiError(
-                code="STEP_CONFIGURATION_INVALID",
-                message="template_assert step requires template_id.",
-                status_code=422,
-            )
-        template = db.get(Template, template_id)
-        assert template is not None
-        if template.match_strategy != "template":
-            raise ApiError(
-                code="STEP_CONFIGURATION_INVALID",
-                message="template_assert step requires template match_strategy `template`.",
-                status_code=422,
-            )
-        threshold = payload.get("threshold")
-        if threshold is not None and (
-            isinstance(threshold, bool) or not isinstance(threshold, (int, float))
-        ):
-            raise ApiError(
-                code="STEP_CONFIGURATION_INVALID",
-                message="template_assert threshold must be numeric.",
-                status_code=422,
-            )
-        if isinstance(threshold, (int, float)) and not (0 <= float(threshold) <= 1):
-            raise ApiError(
-                code="STEP_CONFIGURATION_INVALID",
-                message="template_assert threshold must be between 0 and 1.",
-                status_code=422,
-            )
-        return
-
-    if step_type == "ocr_assert":
-        selector = payload.get("selector")
-        expected_text = payload.get("expected_text")
-        if not isinstance(selector, str) or not selector.strip():
-            raise ApiError(
-                code="STEP_CONFIGURATION_INVALID",
-                message="ocr_assert step requires payload_json.selector.",
-                status_code=422,
-            )
-        if not isinstance(expected_text, str) or not expected_text.strip():
-            raise ApiError(
-                code="STEP_CONFIGURATION_INVALID",
-                message="ocr_assert step requires payload_json.expected_text.",
-                status_code=422,
-            )
-        if template_id is not None:
-            template = db.get(Template, template_id)
-            assert template is not None
-            if template.match_strategy != "ocr":
-                raise ApiError(
-                    code="STEP_CONFIGURATION_INVALID",
-                    message="ocr_assert step requires template match_strategy `ocr`.",
-                    status_code=422,
-                )
-        match_mode = payload.get("match_mode")
-        if match_mode is not None and match_mode not in {"exact", "contains"}:
-            raise ApiError(
-                code="STEP_CONFIGURATION_INVALID",
-                message="ocr_assert match_mode must be `exact` or `contains`.",
-                status_code=422,
-            )
-        case_sensitive = payload.get("case_sensitive")
-        if case_sensitive is not None and not isinstance(case_sensitive, bool):
-            raise ApiError(
-                code="STEP_CONFIGURATION_INVALID",
-                message="ocr_assert case_sensitive must be boolean.",
-                status_code=422,
-            )
-        return
-
-    if step_type == "click":
-        _validate_interaction_locator(payload, step_type, require_selector=True)
-        return
-
-    if step_type == "input":
-        _validate_interaction_locator(payload, step_type, require_selector=True)
-        text = payload.get("text")
-        if not isinstance(text, str) or not text.strip():
-            raise ApiError(
-                code="STEP_CONFIGURATION_INVALID",
-                message="input step requires payload_json.text.",
-                status_code=422,
-            )
-        input_mode = payload.get("input_mode")
-        if input_mode is not None and input_mode not in SUPPORTED_INPUT_MODES:
-            raise ApiError(
-                code="STEP_CONFIGURATION_INVALID",
-                message="input input_mode must be `fill`, `type`, or `otp`.",
-                status_code=422,
-            )
-
-        otp_length = payload.get("otp_length")
-        if otp_length is not None:
-            if (
-                isinstance(otp_length, bool)
-                or not isinstance(otp_length, int)
-                or otp_length < 1
-            ):
-                raise ApiError(
-                    code="STEP_CONFIGURATION_INVALID",
-                    message="input otp_length must be a positive integer.",
-                    status_code=422,
-                )
-
-        per_char_delay_ms = payload.get("per_char_delay_ms")
-        if per_char_delay_ms is not None:
-            if (
-                isinstance(per_char_delay_ms, bool)
-                or not isinstance(per_char_delay_ms, (int, float))
-                or float(per_char_delay_ms) < 0
-            ):
-                raise ApiError(
-                    code="STEP_CONFIGURATION_INVALID",
-                    message="input per_char_delay_ms must be a numeric value greater than or equal to 0.",
-                    status_code=422,
-                )
-        return
-
-    if step_type == "navigate":
-        _validate_navigate_payload(payload)
-        return
-
-    if step_type == "scroll":
-        _validate_scroll_payload(payload)
-        return
-
-    if step_type == "long_press":
-        _validate_long_press_payload(payload)
+    validate_step_payload(
+        db,
+        workspace_id=workspace_id,
+        item=item,
+        allow_component_call=allow_component_call,
+    )
 
 
 def _validate_navigate_payload(payload: dict) -> None:
-    url = payload.get("url")
-    if not isinstance(url, str) or not url.strip():
-        raise ApiError(
-            code="STEP_CONFIGURATION_INVALID",
-            message="navigate step requires payload_json.url.",
-            status_code=422,
-        )
-    parsed_url = urlparse(url)
-    if parsed_url.scheme:
-        if parsed_url.scheme not in {"http", "https"}:
-            raise ApiError(
-                code="STEP_CONFIGURATION_INVALID",
-                message="navigate url must be an absolute http/https URL or a path starting with `/`.",
-                status_code=422,
-            )
-    elif not url.startswith("/"):
-        raise ApiError(
-            code="STEP_CONFIGURATION_INVALID",
-            message="navigate url must be an absolute http/https URL or a path starting with `/`.",
-            status_code=422,
-        )
-
-    wait_until = payload.get("wait_until")
-    if wait_until is not None and wait_until not in SUPPORTED_NAVIGATE_WAIT_UNTIL:
-        raise ApiError(
-            code="STEP_CONFIGURATION_INVALID",
-            message="navigate wait_until must be `load`, `domcontentloaded`, or `networkidle`.",
-            status_code=422,
-        )
+    validate_navigate_payload(payload)
 
 
 def _validate_scroll_payload(payload: dict) -> None:
-    target = payload.get("target")
-    if target not in SUPPORTED_SCROLL_TARGETS:
-        raise ApiError(
-            code="STEP_CONFIGURATION_INVALID",
-            message="scroll target must be `page` or `element`.",
-            status_code=422,
-        )
-
-    if target == "element":
-        _validate_interaction_locator(payload, "scroll", require_selector=True)
-
-    direction = payload.get("direction")
-    if direction not in SUPPORTED_SCROLL_DIRECTIONS:
-        raise ApiError(
-            code="STEP_CONFIGURATION_INVALID",
-            message="scroll direction must be `up`, `down`, `left`, or `right`.",
-            status_code=422,
-        )
-
-    distance = payload.get("distance")
-    if (
-        isinstance(distance, bool)
-        or not isinstance(distance, (int, float))
-        or float(distance) <= 0
-    ):
-        raise ApiError(
-            code="STEP_CONFIGURATION_INVALID",
-            message="scroll distance must be a numeric value greater than 0.",
-            status_code=422,
-        )
-
-    behavior = payload.get("behavior")
-    if behavior is not None and behavior not in SUPPORTED_SCROLL_BEHAVIORS:
-        raise ApiError(
-            code="STEP_CONFIGURATION_INVALID",
-            message="scroll behavior must be `auto` or `smooth`.",
-            status_code=422,
-        )
+    validate_scroll_payload(payload)
 
 
 def _validate_long_press_payload(payload: dict) -> None:
-    _validate_interaction_locator(payload, "long_press", require_selector=True)
-
-    duration_ms = payload.get("duration_ms")
-    if (
-        isinstance(duration_ms, bool)
-        or not isinstance(duration_ms, (int, float))
-        or float(duration_ms) <= 0
-    ):
-        raise ApiError(
-            code="STEP_CONFIGURATION_INVALID",
-            message="long_press duration_ms must be a numeric value greater than 0.",
-            status_code=422,
-        )
-
-    button = payload.get("button")
-    if button is not None and button not in SUPPORTED_LONG_PRESS_BUTTONS:
-        raise ApiError(
-            code="STEP_CONFIGURATION_INVALID",
-            message="long_press button currently only supports `left`.",
-            status_code=422,
-        )
+    validate_long_press_payload(payload)
 
 
 def _validate_interaction_locator(
     payload: dict, step_type: str, *, require_selector: bool
 ) -> None:
-    """Validate locator fields for interaction steps (click, input, scroll element, long_press).
-
-    When locator is ``"ocr"`` the OCR-specific fields are validated.
-    Otherwise (default ``"selector"``) the CSS selector field is required.
-    """
-    locator_type = payload.get("locator", "selector")
-    if locator_type not in SUPPORTED_LOCATOR_TYPES:
-        raise ApiError(
-            code="STEP_CONFIGURATION_INVALID",
-            message=f"{step_type} locator must be `selector`, `ocr`, or `visual`.",
-            status_code=422,
-        )
-
-    if locator_type == "ocr":
-        _validate_ocr_locator_fields(payload, step_type)
-    elif locator_type == "visual":
-        _validate_visual_locator_fields(payload, step_type)
-    elif require_selector:
-        selector = payload.get("selector")
-        if not isinstance(selector, str) or not selector.strip():
-            raise ApiError(
-                code="STEP_CONFIGURATION_INVALID",
-                message=f"{step_type} step requires payload_json.selector.",
-                status_code=422,
-            )
+    validate_interaction_locator(payload, step_type, require_selector=require_selector)
 
 
 def _validate_ocr_locator_fields(payload: dict, step_type: str) -> None:
-    ocr_text = payload.get("ocr_text")
-    if not isinstance(ocr_text, str) or not ocr_text.strip():
-        raise ApiError(
-            code="STEP_CONFIGURATION_INVALID",
-            message=f"{step_type} step with OCR locator requires payload_json.ocr_text.",
-            status_code=422,
-        )
-
-    ocr_match_mode = payload.get("ocr_match_mode")
-    if ocr_match_mode is not None and ocr_match_mode not in SUPPORTED_OCR_MATCH_MODES:
-        raise ApiError(
-            code="STEP_CONFIGURATION_INVALID",
-            message=f"{step_type} ocr_match_mode must be `exact` or `contains`.",
-            status_code=422,
-        )
-
-    ocr_case_sensitive = payload.get("ocr_case_sensitive")
-    if ocr_case_sensitive is not None and not isinstance(ocr_case_sensitive, bool):
-        raise ApiError(
-            code="STEP_CONFIGURATION_INVALID",
-            message=f"{step_type} ocr_case_sensitive must be boolean.",
-            status_code=422,
-        )
-
-    ocr_occurrence = payload.get("ocr_occurrence")
-    if ocr_occurrence is not None:
-        if (
-            isinstance(ocr_occurrence, bool)
-            or not isinstance(ocr_occurrence, int)
-            or ocr_occurrence < 1
-        ):
-            raise ApiError(
-                code="STEP_CONFIGURATION_INVALID",
-                message=f"{step_type} ocr_occurrence must be a positive integer.",
-                status_code=422,
-            )
+    validate_ocr_locator_fields(payload, step_type)
 
 
 def _validate_visual_locator_fields(payload: dict, step_type: str) -> None:
-    template_id = payload.get("template_id")
-    if (
-        isinstance(template_id, bool)
-        or not isinstance(template_id, int)
-        or template_id < 1
-    ):
-        raise ApiError(
-            code="STEP_CONFIGURATION_INVALID",
-            message=f"{step_type} step with visual locator requires payload_json.template_id.",
-            status_code=422,
-        )
-
-    threshold = payload.get("threshold")
-    if threshold is not None and (
-        isinstance(threshold, bool) or not isinstance(threshold, (int, float))
-    ):
-        raise ApiError(
-            code="STEP_CONFIGURATION_INVALID",
-            message=f"{step_type} visual locator threshold must be numeric.",
-            status_code=422,
-        )
-
-    if isinstance(threshold, (int, float)) and not (0 <= float(threshold) <= 1):
-        raise ApiError(
-            code="STEP_CONFIGURATION_INVALID",
-            message=f"{step_type} visual locator threshold must be between 0 and 1.",
-            status_code=422,
-        )
-
-    for key in ("anchor_x_ratio", "anchor_y_ratio"):
-        value = payload.get(key)
-        if value is None:
-            continue
-        if isinstance(value, bool) or not isinstance(value, (int, float)):
-            raise ApiError(
-                code="STEP_CONFIGURATION_INVALID",
-                message=f"{step_type} visual locator {key} must be numeric.",
-                status_code=422,
-            )
-        if not (0 <= float(value) <= 1):
-            raise ApiError(
-                code="STEP_CONFIGURATION_INVALID",
-                message=f"{step_type} visual locator {key} must be between 0 and 1.",
-                status_code=422,
-            )
+    validate_visual_locator_fields(payload, step_type)
 
 
 def _validate_conditional_branch_payload(
     db: Session, *, workspace_id: int, payload: dict
 ) -> None:
-    branches = payload.get("branches")
-    if not isinstance(branches, list) or not branches:
-        raise ApiError(
-            code="STEP_CONFIGURATION_INVALID",
-            message="conditional_branch step requires payload_json.branches.",
-            status_code=422,
-        )
-    if len(branches) > 3:
-        raise ApiError(
-            code="STEP_CONFIGURATION_INVALID",
-            message="conditional_branch step supports at most 3 branches.",
-            status_code=422,
-        )
-
-    seen_branch_keys: set[str] = set()
-    for branch in branches:
-        if not isinstance(branch, dict):
-            raise ApiError(
-                code="STEP_CONFIGURATION_INVALID",
-                message="conditional_branch branches must be objects.",
-                status_code=422,
-            )
-        branch_key = branch.get("branch_key")
-        if not isinstance(branch_key, str) or not branch_key.strip():
-            raise ApiError(
-                code="STEP_CONFIGURATION_INVALID",
-                message="conditional_branch branch requires branch_key.",
-                status_code=422,
-            )
-        if branch_key in seen_branch_keys:
-            raise ApiError(
-                code="STEP_CONFIGURATION_INVALID",
-                message="conditional_branch branch_key must be unique.",
-                status_code=422,
-            )
-        seen_branch_keys.add(branch_key)
-        _validate_branch_condition(
-            db, workspace_id=workspace_id, condition=branch.get("condition")
-        )
-        _validate_branch_steps(db, workspace_id=workspace_id, steps=branch.get("steps"))
-
-    else_branch = payload.get("else_branch")
-    if else_branch is None:
-        return
-    if not isinstance(else_branch, dict):
-        raise ApiError(
-            code="STEP_CONFIGURATION_INVALID",
-            message="conditional_branch else_branch must be an object.",
-            status_code=422,
-        )
-    if else_branch.get("enabled") is True:
-        _validate_branch_steps(
-            db,
-            workspace_id=workspace_id,
-            steps=else_branch.get("steps"),
-        )
+    validate_conditional_branch_payload(db, workspace_id=workspace_id, payload=payload)
 
 
 def _validate_branch_condition(
     db: Session, *, workspace_id: int, condition: object
 ) -> None:
-    if not isinstance(condition, dict):
-        raise ApiError(
-            code="STEP_CONFIGURATION_INVALID",
-            message="conditional_branch branch requires condition object.",
-            status_code=422,
-        )
-
-    condition_type = condition.get("type")
-    if condition_type == "ocr_text_visible":
-        expected_text = condition.get("expected_text")
-        if not isinstance(expected_text, str) or not expected_text.strip():
-            raise ApiError(
-                code="STEP_CONFIGURATION_INVALID",
-                message="ocr_text_visible requires expected_text.",
-                status_code=422,
-            )
-        match_mode = condition.get("match_mode")
-        if match_mode is not None and match_mode not in {"exact", "contains"}:
-            raise ApiError(
-                code="STEP_CONFIGURATION_INVALID",
-                message="ocr_text_visible match_mode must be `exact` or `contains`.",
-                status_code=422,
-            )
-        case_sensitive = condition.get("case_sensitive")
-        if case_sensitive is not None and not isinstance(case_sensitive, bool):
-            raise ApiError(
-                code="STEP_CONFIGURATION_INVALID",
-                message="ocr_text_visible case_sensitive must be boolean.",
-                status_code=422,
-            )
-        return
-
-    if condition_type == "template_visible":
-        template_id = condition.get("template_id")
-        if isinstance(template_id, bool) or not isinstance(template_id, int):
-            raise ApiError(
-                code="STEP_CONFIGURATION_INVALID",
-                message="template_visible requires template_id.",
-                status_code=422,
-            )
-        _assert_template(db, workspace_id, template_id)
-        template = db.get(Template, template_id)
-        assert template is not None
-        if template.current_baseline_revision_id is None:
-            raise ApiError(
-                code="BASELINE_REVISION_REQUIRED",
-                message="template_visible requires template current baseline revision.",
-                status_code=422,
-            )
-        threshold = condition.get("threshold")
-        if threshold is not None and (
-            isinstance(threshold, bool) or not isinstance(threshold, (int, float))
-        ):
-            raise ApiError(
-                code="STEP_CONFIGURATION_INVALID",
-                message="template_visible threshold must be numeric.",
-                status_code=422,
-            )
-        if isinstance(threshold, (int, float)) and not (0 <= float(threshold) <= 1):
-            raise ApiError(
-                code="STEP_CONFIGURATION_INVALID",
-                message="template_visible threshold must be between 0 and 1.",
-                status_code=422,
-            )
-        return
-
-    if condition_type == "selector_exists":
-        selector = condition.get("selector")
-        if not isinstance(selector, str) or not selector.strip():
-            raise ApiError(
-                code="STEP_CONFIGURATION_INVALID",
-                message="selector_exists requires selector.",
-                status_code=422,
-            )
-        return
-
-    raise ApiError(
-        code="STEP_CONFIGURATION_INVALID",
-        message="conditional_branch condition type is not supported.",
-        status_code=422,
-    )
+    validate_branch_condition(db, workspace_id=workspace_id, condition=condition)
 
 
 def _validate_branch_steps(db: Session, *, workspace_id: int, steps: object) -> None:
-    if not isinstance(steps, list) or not steps:
-        raise ApiError(
-            code="STEP_CONFIGURATION_INVALID",
-            message="conditional_branch branch requires non-empty steps.",
-            status_code=422,
-        )
-
-    for index, raw_step in enumerate(steps, start=1):
-        if not isinstance(raw_step, dict):
-            raise ApiError(
-                code="STEP_CONFIGURATION_INVALID",
-                message="conditional_branch branch step must be an object.",
-                status_code=422,
-            )
-        step_type = raw_step.get("step_type")
-        if step_type in {"component_call", "conditional_branch"}:
-            raise ApiError(
-                code="STEP_CONFIGURATION_INVALID",
-                message=f"conditional_branch branch step {index} does not support {step_type}.",
-                status_code=422,
-            )
-        if (
-            not isinstance(raw_step.get("step_name"), str)
-            or not raw_step.get("step_name", "").strip()
-        ):
-            raise ApiError(
-                code="STEP_CONFIGURATION_INVALID",
-                message=f"conditional_branch branch step {index} requires step_name.",
-                status_code=422,
-            )
-        _validate_step_payload(
-            db,
-            workspace_id=workspace_id,
-            item={
-                "step_type": step_type,
-                "step_name": raw_step.get("step_name"),
-                "template_id": raw_step.get("template_id"),
-                "component_id": raw_step.get("component_id"),
-                "payload_json": raw_step.get("payload_json") or {},
-                "timeout_ms": raw_step.get("timeout_ms", 15000),
-                "retry_times": raw_step.get("retry_times", 0),
-            },
-            allow_component_call=False,
-        )
+    validate_branch_steps(db, workspace_id=workspace_id, steps=steps)
