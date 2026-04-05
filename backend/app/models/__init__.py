@@ -1,30 +1,33 @@
-from app.models.entities import (
-    Base,
+from app.models.assets import (
     BaselineRevision,
-    Component,
-    ComponentStep,
-    DeviceProfile,
-    EnvironmentProfile,
-    EnvironmentVariable,
     MediaObject,
-    RefreshToken,
-    ReportArtifact,
-    RunReport,
-    StepResult,
-    SuiteCase,
     Template,
     TemplateMaskRegion,
     TemplateOCRResult,
+)
+from app.models.base import Base, utc_now
+from app.models.cases import (
+    Component,
+    ComponentStep,
+    SuiteCase,
     TestCase,
-    TestCaseRun,
     TestCaseStep,
-    TestRun,
     TestSuite,
-    User,
-    UserSession,
+)
+from app.models.execution import (
+    ReportArtifact,
+    RunReport,
+    StepResult,
+    TestCaseRun,
+    TestRun,
+)
+from app.models.iam import RefreshToken, User, UserSession
+from app.models.workspace import (
+    DeviceProfile,
+    EnvironmentProfile,
+    EnvironmentVariable,
     Workspace,
     WorkspaceMember,
-    utc_now,
 )
 
 __all__ = [

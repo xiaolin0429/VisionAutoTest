@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import MetricCard from '@/components/MetricCard.vue'
 import SectionCard from '@/components/SectionCard.vue'
 import StatusTag from '@/components/StatusTag.vue'
-import { createTestRun, getRunDetail, listTestRuns } from '@/api/modules/testRuns'
+import { cancelTestRun, createTestRun, getRunDetail, listTestRuns } from '@/api/modules/testRuns'
+import { ApiError } from '@/api/client'
 import { listDeviceProfiles, listEnvironmentProfiles } from '@/api/modules/environments'
 import { listTestSuites } from '@/api/modules/testSuites'
 import { formatDateTime } from '@/utils/format'
@@ -231,6 +232,30 @@ async function openRunRepair(testRunId: number) {
     repairingRunId.value = null
   }
 }
+
+async function handleCancelRun(testRunId: number) {
+  try {
+    await ElMessageBox.confirm(
+      '取消后正在执行的用例将中止，已完成的用例结果将保留。',
+      '确认取消执行',
+      { confirmButtonText: '确认取消', cancelButtonText: '返回', type: 'warning' }
+    )
+  } catch {
+    return
+  }
+
+  try {
+    await cancelTestRun(testRunId)
+    ElMessage.success('执行批次已标记为取消中')
+    await loadTestRuns()
+  } catch (error) {
+    if (error instanceof ApiError && error.code === 'TEST_RUN_STATUS_CONFLICT') {
+      ElMessage.warning('该批次状态已变更，无法取消')
+    } else {
+      ElMessage.error('取消执行失败，请稍后重试')
+    }
+  }
+}
 </script>
 
 <template>
@@ -370,7 +395,7 @@ async function openRunRepair(testRunId: number) {
         </el-table-column>
         <el-table-column
           label="操作"
-          width="120"
+          width="160"
         >
           <template #default="{ row }">
             <el-button
@@ -379,6 +404,14 @@ async function openRunRepair(testRunId: number) {
               @click="openRunDetail(row.id)"
             >
               查看详情
+            </el-button>
+            <el-button
+              v-if="row.status === 'queued' || row.status === 'running'"
+              link
+              type="danger"
+              @click="handleCancelRun(row.id)"
+            >
+              取消
             </el-button>
           </template>
         </el-table-column>

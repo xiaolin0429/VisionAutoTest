@@ -8,6 +8,7 @@ from urllib.parse import urljoin, urlparse
 
 from app.core.config import get_settings
 from app.models import DeviceProfile, utc_now
+from app.workers.browser_step_registry import get_step_handler
 from app.workers.vision import (
     OcrLocateResult,
     TemplateAssertionContext,
@@ -294,137 +295,18 @@ class PlaywrightBrowserExecutionAdapter:
     ) -> StepExecutionOutcome:
         payload = step.payload_json or {}
         timeout_ms = int(step.timeout_ms)
-        if step.step_type == "wait":
-            wait_ms = self._payload_int(payload, "ms")
-            if wait_ms < 0:
-                raise ValueError("wait step `ms` must be greater than or equal to 0.")
-            page.wait_for_timeout(wait_ms)
-            return StepExecutionOutcome(status="passed", score_value=1.0)
-        if step.step_type == "click":
-            if self._uses_visual_locator(payload):
-                loc = self._resolve_interaction_target(
-                    page, payload, template_contexts=template_contexts
-                )
-                point = self._resolve_visual_anchor_point(payload, loc)
-                page.mouse.click(point.x, point.y)
-            else:
-                selector = self._payload_str(payload, "selector")
-                page.locator(selector).click(timeout=timeout_ms)
-            return StepExecutionOutcome(status="passed", score_value=1.0)
-        if step.step_type == "input":
-            text = self._payload_str(payload, "text")
-            input_mode = payload.get("input_mode", "fill")
-            if input_mode not in {"fill", "type", "otp"}:
-                raise ValueError("input `input_mode` must be `fill`, `type`, or `otp`.")
-            per_char_delay_ms = self._optional_non_negative_int(
-                payload, "per_char_delay_ms", default=80
-            )
-            if self._uses_visual_locator(payload):
-                loc = self._resolve_interaction_target(
-                    page, payload, template_contexts=template_contexts
-                )
-                point = self._resolve_visual_anchor_point(payload, loc)
-                page.mouse.click(point.x, point.y)
-                self._prepare_input_focus(page, input_mode=input_mode)
-                self._input_via_keyboard(
-                    page,
-                    text=text,
-                    input_mode=input_mode,
-                    otp_length=self._optional_positive_int(payload, "otp_length"),
-                    per_char_delay_ms=per_char_delay_ms,
-                )
-                self._verify_input_applied(
-                    page,
-                    text=text,
-                    input_mode=input_mode,
-                    otp_length=self._optional_positive_int(payload, "otp_length"),
-                )
-            else:
-                selector = self._payload_str(payload, "selector")
-                locator = page.locator(selector)
-                if input_mode == "fill":
-                    locator.fill(text, timeout=timeout_ms)
-                    current_value = locator.input_value(timeout=timeout_ms)
-                    if current_value != text:
-                        raise RuntimeError(
-                            "Input fill did not persist the expected value."
-                        )
-                else:
-                    locator.click(timeout=timeout_ms)
-                    self._prepare_input_focus(page, input_mode=input_mode)
-                    self._input_via_keyboard(
-                        page,
-                        text=text,
-                        input_mode=input_mode,
-                        otp_length=self._optional_positive_int(payload, "otp_length"),
-                        per_char_delay_ms=per_char_delay_ms,
-                    )
-                    self._verify_input_applied(
-                        page,
-                        text=text,
-                        input_mode=input_mode,
-                        otp_length=self._optional_positive_int(payload, "otp_length"),
-                    )
-            return StepExecutionOutcome(status="passed", score_value=1.0)
-        if step.step_type == "navigate":
-            return self._execute_navigate(
-                page, step=step, base_url=base_url, timeout_ms=timeout_ms
-            )
-        if step.step_type == "scroll":
-            return self._execute_scroll(
+        handler = get_step_handler(step.step_type)
+        if handler is not None:
+            return handler(
+                self,
                 page,
-                step=step,
-                timeout_ms=timeout_ms,
-                template_contexts=template_contexts,
-            )
-        if step.step_type == "long_press":
-            return self._execute_long_press(
-                page,
-                step=step,
-                timeout_ms=timeout_ms,
-                template_contexts=template_contexts,
-            )
-        if step.step_type == "template_assert":
-            return self._execute_template_assert(
-                page,
+                base_url=base_url,
                 step=step,
                 case_run_id=case_run_id,
-                template_contexts=template_contexts,
-            )
-        if step.step_type == "ocr_assert":
-            return self._execute_ocr_assert(
-                page, step=step, case_run_id=case_run_id, timeout_ms=timeout_ms
-            )
-        if step.step_type == "conditional_branch":
-            return self._execute_conditional_branch(
-                page,
-                step=step,
+                timeout_ms=timeout_ms,
                 template_contexts=template_contexts,
             )
         raise UnsupportedStepError(f"Unsupported step type: {step.step_type}")
-
-    def _execute_conditional_branch(
-        self,
-        page,
-        *,
-        step: BrowserStep,
-        template_contexts: dict[int, TemplateAssertionContext],
-    ) -> StepExecutionOutcome:
-        selected = self._select_matching_branch(
-            page,
-            payload=step.payload_json or {},
-            template_contexts=template_contexts,
-        )
-        if selected is None:
-            raise RuntimeError(
-                "conditional_branch did not match any branch and no else_branch was configured."
-            )
-        label = selected.get("branch_name") or selected.get("branch_key") or "默认分支"
-        return StepExecutionOutcome(
-            status="passed",
-            score_value=1.0,
-            error_message=f"命中分支：{label}",
-        )
 
     def _should_execute_branch_step(
         self,
@@ -674,65 +556,6 @@ class PlaywrightBrowserExecutionAdapter:
         page.wait_for_timeout(duration_ms)
         page.mouse.up(button=button)
         return StepExecutionOutcome(status="passed", score_value=1.0)
-
-    def _execute_template_assert(
-        self,
-        page,
-        *,
-        step: BrowserStep,
-        case_run_id: int,
-        template_contexts: dict[int, TemplateAssertionContext],
-    ) -> StepExecutionOutcome:
-        if step.template_id is None or step.template_id not in template_contexts:
-            raise ValueError("Template assertion context is missing.")
-        payload = step.payload_json or {}
-        threshold_override = payload.get("threshold")
-        if threshold_override is not None:
-            threshold_override = self._payload_float(payload, "threshold")
-        screenshot_bytes = page.screenshot(type="png", full_page=True)
-        outcome = self._vision_adapter.assert_template(
-            context=template_contexts[step.template_id],
-            actual_png_bytes=screenshot_bytes,
-            actual_file_name=f"case-run-{case_run_id}-step-{step.step_no}-actual.png",
-            threshold_override=threshold_override,
-        )
-        return StepExecutionOutcome(
-            status=outcome.status,
-            score_value=outcome.score_value,
-            error_message=outcome.error_message,
-            expected_media_object_id=outcome.expected_media_object_id,
-            actual_artifact=outcome.actual_artifact,
-            diff_artifact=outcome.diff_artifact,
-        )
-
-    def _execute_ocr_assert(
-        self, page, *, step: BrowserStep, case_run_id: int, timeout_ms: int
-    ) -> StepExecutionOutcome:
-        payload = step.payload_json or {}
-        selector = self._payload_str(payload, "selector")
-        expected_text = self._payload_str(payload, "expected_text")
-        match_mode = payload.get("match_mode", "contains")
-        if match_mode not in {"exact", "contains"}:
-            raise ValueError(
-                "ocr_assert `match_mode` must be either `exact` or `contains`."
-            )
-        case_sensitive = payload.get("case_sensitive", False)
-        if not isinstance(case_sensitive, bool):
-            raise ValueError("ocr_assert `case_sensitive` must be boolean.")
-        image_bytes = page.locator(selector).screenshot(type="png", timeout=timeout_ms)
-        outcome = self._vision_adapter.assert_ocr(
-            image_png_bytes=image_bytes,
-            image_file_name=f"case-run-{case_run_id}-step-{step.step_no}-ocr.png",
-            expected_text=expected_text,
-            match_mode=match_mode,
-            case_sensitive=case_sensitive,
-        )
-        return StepExecutionOutcome(
-            status=outcome.status,
-            score_value=outcome.score_value,
-            error_message=outcome.error_message,
-            actual_artifact=outcome.actual_artifact,
-        )
 
     def _capture_artifact(self, page, case_run_id: int) -> BrowserArtifact | None:
         screenshot_bytes = page.screenshot(type="png", full_page=True)

@@ -33,6 +33,8 @@ def list_components(
     request: Request,
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
+    keyword: str | None = Query(None),
+    status: str | None = Query(None),
     workspace_id: int | None = Depends(get_workspace_header),
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
@@ -40,7 +42,8 @@ def list_components(
     page, page_size = page_bounds(page, page_size)
     workspace_id = require_workspace_id(workspace_id)
     items, total = cases.list_components(
-        db, user=current_user, workspace_id=workspace_id, page=page, page_size=page_size
+        db, user=current_user, workspace_id=workspace_id, page=page, page_size=page_size,
+        keyword=keyword, status=status,
     )
     return paginated_response(
         request,

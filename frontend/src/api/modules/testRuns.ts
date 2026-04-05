@@ -174,6 +174,14 @@ export async function createTestRun(payload: {
   return mapRun(response, reference)
 }
 
+export async function cancelTestRun(testRunId: number): Promise<void> {
+  await requestData<TestRunReadDTO>({
+    method: 'patch',
+    url: `/test-runs/${testRunId}`,
+    data: { status: 'cancelling' }
+  })
+}
+
 export async function getRunDetail(testRunId: number): Promise<RunDetail> {
   const [testRun, caseRuns, reference] = await Promise.all([
     requestData<TestRunReadDTO>({
