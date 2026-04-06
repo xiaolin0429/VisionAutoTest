@@ -2239,3 +2239,236 @@ def test_draft_component_cannot_create_test_run():
         )
         assert run_resp.status_code == 422
         assert run_resp.json()["error"]["code"] == "PUBLISHED_VERSION_REQUIRED"
+
+
+# ── Rerun failed cases ────────────────────────────────────────────────────────
+
+
+@pytest.mark.vision
+def test_rerun_failed_cases_creates_new_run_with_only_failed_cases(monkeypatch):
+    """重跑：新批次仅包含原批次 failed/error 的用例，继承配置并填充 description。"""
+    _reset_local_data()
+    _install_visual_browser_adapter(monkeypatch, template_status="failed")
+
+    with app_client() as client:
+        login_resp = client.post(
+            "/api/v1/sessions",
+            json={"username": TEST_ADMIN_USERNAME, "password": TEST_ADMIN_PASSWORD},
+        )
+        token = login_resp.json()["data"]["access_token"]
+        headers = {"Authorization": f"Bearer {token}"}
+
+        workspace_resp = client.post(
+            "/api/v1/workspaces",
+            json={"workspace_code": "rerun_ws", "workspace_name": "Rerun WS"},
+            headers=headers,
+        )
+        workspace_id = workspace_resp.json()["data"]["id"]
+        workspace_headers = headers | {"X-Workspace-Id": str(workspace_id)}
+
+        env_resp = client.post(
+            "/api/v1/environment-profiles",
+            json={"profile_name": "dev", "base_url": "https://example.com"},
+            headers=workspace_headers,
+        )
+        environment_profile_id = env_resp.json()["data"]["id"]
+
+        # 用例 A：wait 步骤（必过）
+        pass_case_resp = client.post(
+            "/api/v1/test-cases",
+            json={"case_code": "rerun_pass_case", "case_name": "Rerun Pass Case", "status": "published"},
+            headers=workspace_headers,
+        )
+        pass_case_id = pass_case_resp.json()["data"]["id"]
+        client.put(
+            f"/api/v1/test-cases/{pass_case_id}/steps",
+            json=[{"step_no": 1, "step_type": "wait", "step_name": "Wait", "payload_json": {"ms": 100}}],
+            headers=workspace_headers,
+        )
+
+        # 用例 B：template_assert 步骤（visual adapter 设为 failed 必跑失败）
+        media_id = _create_media_object(client, headers=workspace_headers)
+        template_id = _create_template(
+            client,
+            headers=workspace_headers,
+            media_object_id=media_id,
+            template_code="tpl_rerun_fail",
+            template_name="Rerun Fail Template",
+        )
+        fail_case_resp = client.post(
+            "/api/v1/test-cases",
+            json={"case_code": "rerun_fail_case", "case_name": "Rerun Fail Case", "status": "published"},
+            headers=workspace_headers,
+        )
+        fail_case_id = fail_case_resp.json()["data"]["id"]
+        client.put(
+            f"/api/v1/test-cases/{fail_case_id}/steps",
+            json=[{"step_no": 1, "step_type": "template_assert", "step_name": "Assert", "template_id": template_id, "payload_json": {}}],
+            headers=workspace_headers,
+        )
+
+        suite_resp = client.post(
+            "/api/v1/test-suites",
+            json={"suite_code": "rerun_suite", "suite_name": "Rerun Suite", "status": "active"},
+            headers=workspace_headers,
+        )
+        test_suite_id = suite_resp.json()["data"]["id"]
+        client.put(
+            f"/api/v1/test-suites/{test_suite_id}/cases",
+            json=[
+                {"test_case_id": pass_case_id, "sort_order": 1},
+                {"test_case_id": fail_case_id, "sort_order": 2},
+            ],
+            headers=workspace_headers,
+        )
+
+        # 触发原批次，应为 partial_failed（1 通过 + 1 失败）
+        orig_resp = client.post(
+            "/api/v1/test-runs",
+            json={
+                "test_suite_id": test_suite_id,
+                "environment_profile_id": environment_profile_id,
+                "trigger_source": "manual",
+            },
+            headers=workspace_headers | {"Idempotency-Key": "run-rerun-orig"},
+        )
+        assert orig_resp.status_code == 201
+        original_run_id = orig_resp.json()["data"]["id"]
+
+        orig_detail = client.get(
+            f"/api/v1/test-runs/{original_run_id}", headers=workspace_headers
+        ).json()["data"]
+        assert orig_detail["status"] == "partial_failed"
+        assert orig_detail["failed_case_count"] == 1
+        assert orig_detail["passed_case_count"] == 1
+
+        # 重跑失败项
+        rerun_resp = client.post(
+            "/api/v1/test-runs",
+            json={"rerun_from_run_id": original_run_id, "rerun_filter": "failed"},
+            headers=workspace_headers,
+        )
+        assert rerun_resp.status_code == 201
+        rerun_data = rerun_resp.json()["data"]
+
+        # 新批次仅包含 1 个用例
+        assert rerun_data["total_case_count"] == 1
+        # description 自动填充
+        assert rerun_data["description"] == f"重跑自 #{original_run_id}"
+        # 继承套件和环境配置
+        assert rerun_data["test_suite_id"] == test_suite_id
+        assert rerun_data["environment_profile_id"] == environment_profile_id
+
+        # case-runs 仅含失败用例
+        case_runs = client.get(
+            f"/api/v1/test-runs/{rerun_data['id']}/case-runs", headers=workspace_headers
+        ).json()["data"]
+        case_ids_in_rerun = [cr["test_case_id"] for cr in case_runs]
+        assert fail_case_id in case_ids_in_rerun
+        assert pass_case_id not in case_ids_in_rerun
+
+
+def test_rerun_all_passed_run_returns_no_failed_cases_error(monkeypatch):
+    """重跑：原批次全部通过时返回 NO_FAILED_CASES_TO_RERUN (422)。"""
+    _reset_local_data()
+    _install_fake_browser_adapter(monkeypatch)
+
+    with app_client() as client:
+        login_resp = client.post(
+            "/api/v1/sessions",
+            json={"username": TEST_ADMIN_USERNAME, "password": TEST_ADMIN_PASSWORD},
+        )
+        token = login_resp.json()["data"]["access_token"]
+        headers = {"Authorization": f"Bearer {token}"}
+
+        workspace_resp = client.post(
+            "/api/v1/workspaces",
+            json={"workspace_code": "rerun_pass_ws", "workspace_name": "Rerun Pass WS"},
+            headers=headers,
+        )
+        workspace_id = workspace_resp.json()["data"]["id"]
+        workspace_headers = headers | {"X-Workspace-Id": str(workspace_id)}
+
+        env_resp = client.post(
+            "/api/v1/environment-profiles",
+            json={"profile_name": "dev", "base_url": "https://example.com"},
+            headers=workspace_headers,
+        )
+        environment_profile_id = env_resp.json()["data"]["id"]
+
+        case_resp = client.post(
+            "/api/v1/test-cases",
+            json={"case_code": "pass_only_case", "case_name": "Pass Only Case", "status": "published"},
+            headers=workspace_headers,
+        )
+        case_id = case_resp.json()["data"]["id"]
+        client.put(
+            f"/api/v1/test-cases/{case_id}/steps",
+            json=[{"step_no": 1, "step_type": "wait", "step_name": "Wait", "payload_json": {"ms": 100}}],
+            headers=workspace_headers,
+        )
+
+        suite_resp = client.post(
+            "/api/v1/test-suites",
+            json={"suite_code": "pass_only_suite", "suite_name": "Pass Only Suite", "status": "active"},
+            headers=workspace_headers,
+        )
+        test_suite_id = suite_resp.json()["data"]["id"]
+        client.put(
+            f"/api/v1/test-suites/{test_suite_id}/cases",
+            json=[{"test_case_id": case_id, "sort_order": 1}],
+            headers=workspace_headers,
+        )
+
+        orig_resp = client.post(
+            "/api/v1/test-runs",
+            json={
+                "test_suite_id": test_suite_id,
+                "environment_profile_id": environment_profile_id,
+                "trigger_source": "manual",
+            },
+            headers=workspace_headers | {"Idempotency-Key": "run-pass-only"},
+        )
+        assert orig_resp.status_code == 201
+        original_run_id = orig_resp.json()["data"]["id"]
+
+        orig_detail = client.get(
+            f"/api/v1/test-runs/{original_run_id}", headers=workspace_headers
+        ).json()["data"]
+        assert orig_detail["status"] == "passed"
+
+        # 重跑一个全部通过的批次 → NO_FAILED_CASES_TO_RERUN
+        rerun_resp = client.post(
+            "/api/v1/test-runs",
+            json={"rerun_from_run_id": original_run_id, "rerun_filter": "failed"},
+            headers=workspace_headers,
+        )
+        assert rerun_resp.status_code == 422
+        assert rerun_resp.json()["error"]["code"] == "NO_FAILED_CASES_TO_RERUN"
+
+
+def test_rerun_nonexistent_run_returns_not_found():
+    """重跑：原批次不存在时返回 TEST_RUN_NOT_FOUND (404)。"""
+    with app_client(reset=True) as client:
+        login_resp = client.post(
+            "/api/v1/sessions",
+            json={"username": TEST_ADMIN_USERNAME, "password": TEST_ADMIN_PASSWORD},
+        )
+        token = login_resp.json()["data"]["access_token"]
+        headers = {"Authorization": f"Bearer {token}"}
+
+        workspace_resp = client.post(
+            "/api/v1/workspaces",
+            json={"workspace_code": "rerun_404_ws", "workspace_name": "Rerun 404 WS"},
+            headers=headers,
+        )
+        workspace_id = workspace_resp.json()["data"]["id"]
+        workspace_headers = headers | {"X-Workspace-Id": str(workspace_id)}
+
+        rerun_resp = client.post(
+            "/api/v1/test-runs",
+            json={"rerun_from_run_id": 99999, "rerun_filter": "failed"},
+            headers=workspace_headers,
+        )
+        assert rerun_resp.status_code == 404
+        assert rerun_resp.json()["error"]["code"] == "TEST_RUN_NOT_FOUND"

@@ -44,6 +44,7 @@ class TestRun(Base, TimestampMixin):
         ForeignKey("iam_users.id"), nullable=True
     )
     idempotency_key: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    description: Mapped[str | None] = mapped_column(String(256), nullable=True)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="queued")
     started_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True

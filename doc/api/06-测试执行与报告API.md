@@ -32,6 +32,22 @@
 }
 ```
 
+重跑模式（`rerun_from_run_id` 与 `rerun_filter` 同时传入时生效）：
+
+```json
+{
+  "rerun_from_run_id": 100,
+  "rerun_filter": "failed"
+}
+```
+
+重跑模式说明：
+
+- `rerun_from_run_id`：指定要从哪个已完成的执行批次中提取失败用例。
+- `rerun_filter`：目前仅支持 `"failed"`，提取状态为 `failed` 或 `error` 的用例执行实例。
+- 重跑模式下 `test_suite_id`、`environment_profile_id`、`device_profile_id` 均可省略，自动继承原批次的配置；若显式传入则覆盖继承值。
+- 新批次的 `description` 自动填充为 `"重跑自 #<原批次ID>"`（调用方未传时）。
+
 ### 3.2 查询执行批次列表
 
 - 方法：`GET`
@@ -143,6 +159,7 @@
 | `REPORT_NOT_FOUND` | 报告不存在 |
 | `IDEMPOTENCY_KEY_CONFLICT` | 幂等键冲突 |
 | `TEST_SUITE_EMPTY` | 套件未包含任何可执行用例 |
+| `NO_FAILED_CASES_TO_RERUN` | 原批次中没有失败或异常的用例，无法创建重跑批次 |
 | `TEST_SUITE_NOT_ACTIVE` | 套件未处于可执行状态 |
 | `PUBLISHED_VERSION_REQUIRED` | 套件内引用了未发布的用例或组件 |
 | `STEP_CONFIGURATION_INVALID` | 步骤配置与模板策略不兼容 |

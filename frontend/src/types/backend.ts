@@ -322,6 +322,7 @@ export interface TestRunReadDTO {
   trigger_source: string
   triggered_by: number | null
   idempotency_key: string | null
+  description: string | null
   status: string
   started_at: string | null
   finished_at: string | null
