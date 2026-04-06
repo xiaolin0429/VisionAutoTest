@@ -12,6 +12,7 @@ from app.api.v1.workspace_management import router as workspace_management_route
 from app.api.v1.workspace_members import router as workspace_members_router
 
 router = APIRouter(tags=["workspaces"])
+# Aggregation router only: concrete workspace sub-resources live in dedicated modules below.
 router.include_router(workspace_management_router)
 router.include_router(workspace_execution_readiness_router)
 router.include_router(workspace_members_router)

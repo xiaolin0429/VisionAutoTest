@@ -148,6 +148,7 @@ const reportArtifactTypeEntries = computed(() => {
 })
 
 function clearPollTimer() {
+  // Stops the active detail polling loop, if one is running.
   if (pollTimer === null) {
     return
   }
@@ -157,10 +158,13 @@ function clearPollTimer() {
 }
 
 function shouldPollRunDetail(detail: RunDetail) {
+  // @param detail Current run detail snapshot.
+  // @returns True while the run is still in an active status that can change server-side.
   return ACTIVE_RUN_STATUSES.has(detail.status)
 }
 
 function scheduleRunDetailRefresh() {
+  // Schedules the next silent refresh while the run is still progressing.
   clearPollTimer()
   pollTimer = window.setTimeout(() => {
     void loadRunDetail({ silent: true })
@@ -216,6 +220,8 @@ function buildReportPreviewGroup(artifacts: ReportArtifact[]): MediaPreviewItem[
 }
 
 async function ensureMediaLoaded(mediaObjectId: number) {
+  // @param mediaObjectId Media object that should be available for preview/download.
+  // @returns Resolves once preview metadata and blob URL are cached, or no-op if already loading/loaded.
   if (mediaPreviewMap.value[mediaObjectId] || mediaLoadingMap.value[mediaObjectId]) {
     return
   }
@@ -255,6 +261,7 @@ async function ensureMediaLoaded(mediaObjectId: number) {
 }
 
 async function warmupCurrentCaseMedia(caseRun: CaseRun | null) {
+  // @param caseRun Currently selected case run whose step media should be preloaded for fast preview.
   if (!caseRun) {
     return
   }
@@ -267,6 +274,7 @@ async function warmupCurrentCaseMedia(caseRun: CaseRun | null) {
 }
 
 async function warmupReportArtifactMedia(artifacts: ReportArtifact[]) {
+  // @param artifacts Report artifacts whose media previews should be prefetched.
   const mediaIds = artifacts
     .map((item) => item.mediaObjectId)
     .filter((item): item is number => item !== null)
@@ -275,6 +283,7 @@ async function warmupReportArtifactMedia(artifacts: ReportArtifact[]) {
 }
 
 async function loadRunReport(testRunId: number) {
+  // @param testRunId Test run whose report summary and report artifacts should be loaded.
   reportLoading.value = true
 
   try {
@@ -295,6 +304,8 @@ async function loadRunReport(testRunId: number) {
 }
 
 async function syncRunReport(testRunId: number, detail: RunDetail) {
+  // @param testRunId Test run whose report state should stay aligned with the detail view.
+  // @param detail Latest run detail snapshot used to decide whether report polling is meaningful yet.
   if (shouldPollRunDetail(detail) && runReport.value === null) {
     reportArtifacts.value = []
     return
@@ -304,6 +315,7 @@ async function syncRunReport(testRunId: number, detail: RunDetail) {
 }
 
 async function loadRunDetail(options: { silent?: boolean } = {}) {
+  // @param options.silent When true, refresh in place without showing the page-level loading skeleton.
   if (!options.silent || runDetail.value === null) {
     loading.value = true
   }
@@ -370,6 +382,9 @@ async function openMediaPreview(
   title: string,
   group: MediaPreviewItem[] = [{ mediaObjectId, title }]
 ) {
+  // @param mediaObjectId Media object that should be focused first in the preview dialog.
+  // @param title Default preview title for single-item preview flows.
+  // @param group Optional preview group so users can browse related media within one dialog.
   try {
     await Promise.all(group.map((item) => ensureMediaLoaded(item.mediaObjectId)))
     const url = mediaPreviewMap.value[mediaObjectId]
@@ -422,6 +437,7 @@ function selectCaseRun(caseRun: CaseRun) {
 }
 
 function buildRunSummaryText(detail: RunDetail): string {
+  // @param detail Run detail snapshot to turn into a copy-friendly summary string.
   const passRate = detail.summary.totalCases > 0
     ? Math.round((detail.summary.passedCases / detail.summary.totalCases) * 100)
     : 0
@@ -474,6 +490,8 @@ function navigateBackToRuns() {
 }
 
 function navigateToRepairTarget(path: string, query: Record<string, string | undefined>) {
+  // @param path Target route returned by run-failure repair resolution.
+  // @param query Query params that preserve failure context in the repair page.
   void router.push({ path, query })
 }
 
@@ -491,6 +509,7 @@ async function copyRunSummary() {
 }
 
 async function handleRerun() {
+  // Recreates a new run from the same suite/environment/device combination as the current run.
   const detail = runDetail.value
   if (!detail) {
     return
@@ -513,6 +532,7 @@ async function handleRerun() {
 }
 
 async function handleRerunFailed() {
+  // Creates a new run containing only failed/errored cases from the current batch.
   const detail = runDetail.value
   if (!detail) {
     return
@@ -535,6 +555,7 @@ async function handleRerunFailed() {
 }
 
 async function handleCancelRun() {
+  // Requests server-side cancellation; the detail page keeps polling until the terminal status settles.
   const detail = runDetail.value
   if (!detail) {
     return

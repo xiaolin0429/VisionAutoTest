@@ -39,11 +39,28 @@ def list_components(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
+    """List components in the current workspace.
+
+    Args:
+        request: FastAPI request used for paginated response wrapping.
+        page: Requested page number.
+        page_size: Requested page size.
+        keyword: Optional component keyword filter.
+        status: Optional component status filter.
+        workspace_id: Workspace id resolved from ``X-Workspace-Id``.
+        db: Active database session.
+        current_user: Authenticated user.
+    """
     page, page_size = page_bounds(page, page_size)
     workspace_id = require_workspace_id(workspace_id)
     items, total = cases.list_components(
-        db, user=current_user, workspace_id=workspace_id, page=page, page_size=page_size,
-        keyword=keyword, status=status,
+        db,
+        user=current_user,
+        workspace_id=workspace_id,
+        page=page,
+        page_size=page_size,
+        keyword=keyword,
+        status=status,
     )
     return paginated_response(
         request,
@@ -129,6 +146,15 @@ def put_component_steps(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
+    """Replace the full ordered component-step list.
+
+    Args:
+        component_id: Target component id.
+        payload: Ordered component-step payload list.
+        request: FastAPI request used for response wrapping.
+        db: Active database session.
+        current_user: Authenticated user.
+    """
     component = cases.get_component(db, component_id)
     items = cases.replace_component_steps(
         db,
@@ -259,6 +285,15 @@ def put_test_case_steps(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
+    """Replace the full ordered test-case step list.
+
+    Args:
+        test_case_id: Target test-case id.
+        payload: Ordered test-case step payload list.
+        request: FastAPI request used for response wrapping.
+        db: Active database session.
+        current_user: Authenticated user.
+    """
     test_case = cases.get_test_case(db, test_case_id)
     items = cases.replace_test_case_steps(
         db,
@@ -384,6 +419,15 @@ def put_suite_cases(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
+    """Replace the full ordered case membership of a suite.
+
+    Args:
+        test_suite_id: Target suite id.
+        payload: Ordered suite-case payload list.
+        request: FastAPI request used for response wrapping.
+        db: Active database session.
+        current_user: Authenticated user.
+    """
     suite = cases.get_test_suite(db, test_suite_id)
     items = cases.replace_suite_cases(
         db,

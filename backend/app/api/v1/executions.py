@@ -32,6 +32,16 @@ def create_test_run(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
+    """Create a test run and dispatch it asynchronously.
+
+    Args:
+        payload: Validated run-creation payload from the client.
+        request: FastAPI request used for response wrapping and idempotency header access.
+        background_tasks: FastAPI background task container used by the dispatcher.
+        workspace_id: Workspace id resolved from ``X-Workspace-Id``.
+        db: Active database session.
+        current_user: Authenticated user.
+    """
     workspace_id = require_workspace_id(workspace_id)
     test_run = execution.create_test_run(
         db,
@@ -61,6 +71,17 @@ def list_test_runs(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
+    """List test runs in the current workspace.
+
+    Args:
+        request: FastAPI request used for paginated response wrapping.
+        page: Requested page number.
+        page_size: Requested page size.
+        status: Optional run status filter.
+        workspace_id: Workspace id resolved from ``X-Workspace-Id``.
+        db: Active database session.
+        current_user: Authenticated user.
+    """
     page, page_size = page_bounds(page, page_size)
     workspace_id = require_workspace_id(workspace_id)
     items, total = execution.list_test_runs(
@@ -119,6 +140,15 @@ def patch_test_run(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
+    """Apply the supported manual status transition to a test run.
+
+    Args:
+        test_run_id: Target run id.
+        payload: Patch payload carrying the requested status transition.
+        request: FastAPI request used for response wrapping.
+        db: Active database session.
+        current_user: Authenticated user.
+    """
     test_run = execution.get_test_run(db, test_run_id)
     updated = execution.update_test_run_status(
         db, user=current_user, test_run=test_run, status=payload.status

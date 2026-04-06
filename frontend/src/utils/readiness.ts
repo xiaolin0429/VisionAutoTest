@@ -27,13 +27,17 @@ const readinessActionLabelMap: Record<string, string> = {
 }
 
 export function getReadinessSuggestion(issue: ExecutionReadinessIssue) {
+  // @param issue Execution-readiness issue returned by backend readiness inspection.
   return readinessSuggestionMap[issue.code] ?? '根据阻塞提示修复对应资源后，再重新检查执行就绪度。'
 }
 
 export function getReadinessActionLabel(issue: ExecutionReadinessIssue) {
+  // @param issue Execution-readiness issue returned by backend readiness inspection.
   return readinessActionLabelMap[issue.code] ?? '去处理'
 }
 
 export function canResolveReadinessByNavigation(issue: ExecutionReadinessIssue) {
+  // @param issue Execution-readiness issue returned by backend readiness inspection.
+  // @returns Whether the UI can offer a direct navigation action instead of a retry-only hint.
   return issue.code !== 'READINESS_LOAD_FAILED'
 }

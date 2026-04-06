@@ -217,6 +217,7 @@ function resetViewport() {
 }
 
 function setScale(nextScale: number) {
+  // @param nextScale Requested zoom level before clamping to the canvas min/max scale range.
   const normalizedScale = clamp(Number(nextScale.toFixed(2)), MIN_SCALE, MAX_SCALE)
   viewport.scale = normalizedScale
 
@@ -235,6 +236,7 @@ function zoomOut() {
 }
 
 function createRegionStyle(region: MaskRegion) {
+  // @param region Ratio-based mask region rendered on top of the current image.
   return {
     left: `${region.xRatio * 100}%`,
     top: `${region.yRatio * 100}%`,
@@ -276,6 +278,8 @@ function cloneRegion(region: MaskRegion): MaskRegion {
 }
 
 function normalizeRegions(items: MaskRegion[]) {
+  // @param items Region list that may contain unsorted or partially edited draft regions.
+  // @returns Regions sorted by sortOrder and rewritten to a continuous 1-based sequence.
   return [...items]
     .sort((left, right) => left.sortOrder - right.sortOrder)
     .map((item, index) => ({
@@ -285,11 +289,14 @@ function normalizeRegions(items: MaskRegion[]) {
 }
 
 function getRegionNextDraftId() {
+  // @returns A negative draft id so newly created regions never collide with persisted positive ids.
   const minimumId = props.regions.reduce((currentMin, item) => Math.min(currentMin, item.id), 0)
   return minimumId - 1
 }
 
 function getBoardPoint(event: MouseEvent) {
+  // @param event Pointer event projected into the board/stage coordinate system.
+  // @returns Ratio coordinates clamped into the visible canvas, or null before the board is mounted.
   const stage = stageRef.value ?? boardRef.value
   if (!stage) {
     return null
@@ -306,6 +313,8 @@ function getBoardPoint(event: MouseEvent) {
 }
 
 function clampRegion(region: MaskRegion): MaskRegion {
+  // @param region Candidate region that may overflow the canvas or be smaller than the minimum editable size.
+  // @returns A normalized region kept inside the canvas and above the minimum ratio size.
   const widthRatio = clamp(region.widthRatio, MIN_REGION_RATIO, 1)
   const heightRatio = clamp(region.heightRatio, MIN_REGION_RATIO, 1)
   const xRatio = clamp(region.xRatio, 0, 1 - widthRatio)
@@ -327,6 +336,12 @@ function createRegionFromBounds(
   startPoint: PointRatio,
   endPoint: PointRatio
 ) {
+  // @param id Draft or persisted region id.
+  // @param name Region label shown in the canvas and side panel.
+  // @param sortOrder Current display order for the region.
+  // @param startPoint Drag start ratio point.
+  // @param endPoint Drag end ratio point.
+  // @returns A clamped region built from the drag rectangle bounds.
   const xRatio = Math.min(startPoint.x, endPoint.x)
   const yRatio = Math.min(startPoint.y, endPoint.y)
   const widthRatio = Math.max(Math.abs(endPoint.x - startPoint.x), MIN_REGION_RATIO)
@@ -344,6 +359,7 @@ function createRegionFromBounds(
 }
 
 function replaceRegion(nextRegion: MaskRegion) {
+  // @param nextRegion Region that should replace the existing one or be appended as a new draft region.
   const baseRegions = props.regions.some((item) => item.id === nextRegion.id)
     ? props.regions
     : [...props.regions, nextRegion]

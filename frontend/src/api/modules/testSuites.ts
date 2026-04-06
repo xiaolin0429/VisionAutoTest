@@ -14,6 +14,7 @@ import type {
 } from '@/types/models'
 
 function mapTestSuiteSummary(item: TestSuiteReadDTO): TestSuite {
+  // @param item Backend suite summary DTO.
   return {
     id: item.id,
     code: item.suite_code,
@@ -29,6 +30,7 @@ function mapTestSuiteSummary(item: TestSuiteReadDTO): TestSuite {
 function mapExecutionReadiness(
   item: ExecutionReadinessSummaryReadDTO
 ): ExecutionReadinessSummary {
+  // @param item Backend readiness DTO for the suite execution gate.
   return {
     scope: item.scope,
     status: item.status,
@@ -49,6 +51,7 @@ function mapExecutionReadiness(
 }
 
 async function listCaseIndex() {
+  // Loads a case lookup map so suite-case rows can display case names and statuses.
   const response = await requestPage<TestCaseReadDTO>({
     method: 'get',
     url: '/test-cases',
@@ -62,6 +65,7 @@ async function listCaseIndex() {
 }
 
 export async function listTestSuites(): Promise<TestSuite[]> {
+  // Loads suite summaries for list pages and trigger dialogs.
   const response = await requestPage<TestSuiteReadDTO>({
     method: 'get',
     url: '/test-suites',
@@ -75,6 +79,7 @@ export async function listTestSuites(): Promise<TestSuite[]> {
 }
 
 export async function getTestSuiteDetail(testSuiteId: number): Promise<TestSuite> {
+  // @param testSuiteId Suite id whose summary and ordered case list should be aggregated.
   const [suite, suiteCases, caseIndex] = await Promise.all([
     requestData<TestSuiteReadDTO>({
       method: 'get',
@@ -104,6 +109,7 @@ export async function getTestSuiteDetail(testSuiteId: number): Promise<TestSuite
 }
 
 export async function createTestSuite(payload: TestSuiteCreatePayload): Promise<TestSuite> {
+  // @param payload Frontend create payload for a suite.
   const response = await requestData<TestSuiteReadDTO>({
     method: 'post',
     url: '/test-suites',
@@ -122,6 +128,8 @@ export async function updateTestSuite(
   testSuiteId: number,
   payload: TestSuiteUpdatePayload
 ): Promise<TestSuite> {
+  // @param testSuiteId Suite id being updated.
+  // @param payload Frontend update payload.
   const response = await requestData<TestSuiteReadDTO>({
     method: 'patch',
     url: `/test-suites/${testSuiteId}`,
@@ -139,6 +147,8 @@ export async function replaceSuiteCases(
   testSuiteId: number,
   payload: SuiteCaseWritePayload[]
 ): Promise<void> {
+  // @param testSuiteId Suite id whose case ordering should be fully replaced.
+  // @param payload Ordered suite-case payload list.
   await requestData<SuiteCaseDTO[]>({
     method: 'put',
     url: `/test-suites/${testSuiteId}/cases`,
@@ -152,6 +162,7 @@ export async function replaceSuiteCases(
 export async function getTestSuiteExecutionReadiness(
   testSuiteId: number
 ): Promise<ExecutionReadinessSummary> {
+  // @param testSuiteId Suite id whose execution-readiness summary should be loaded.
   const response = await requestData<ExecutionReadinessSummaryReadDTO>({
     method: 'get',
     url: `/test-suites/${testSuiteId}/execution-readiness`

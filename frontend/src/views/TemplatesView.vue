@@ -365,6 +365,8 @@ const listEmptyDescription = computed(() => {
 })
 
 function blockMaskDraftInterruption(actionLabel: string) {
+  // @param actionLabel Human-readable action name used in the warning copy.
+  // @returns True when the caller should stop because there are unsaved mask edits.
   if (!hasPendingMaskDraft.value) {
     return false
   }
@@ -374,6 +376,7 @@ function blockMaskDraftInterruption(actionLabel: string) {
 }
 
 function syncSelectedBaselineRevision(template: Template | null) {
+  // @param template Current template detail whose baseline list should drive workbench state.
   if (!template || template.baselineRevisions.length === 0) {
     selectedBaselineRevisionId.value = null
     return
@@ -385,6 +388,7 @@ function syncSelectedBaselineRevision(template: Template | null) {
 }
 
 function resetDerivedWorkbenchState() {
+  // Resets OCR and processed-preview state whenever the selected template/baseline changes.
   const baselineRevisionId = currentBaselineRevision.value?.id ?? null
   ocrSnapshot.value = null
   selectedOcrResultId.value = null
@@ -396,6 +400,9 @@ function resetDerivedWorkbenchState() {
 }
 
 async function ensurePreviewUrl(mediaObjectId: number, contentUrl?: string | null) {
+  // @param mediaObjectId Media object id used as the cache key for generated object URLs.
+  // @param contentUrl Optional direct content URL; falls back to the media-object content API when omitted.
+  // @returns A cached or newly created object URL for preview rendering.
   if (previewUrlCache.value[mediaObjectId]) {
     return previewUrlCache.value[mediaObjectId]
   }
@@ -415,6 +422,7 @@ async function ensurePreviewUrl(mediaObjectId: number, contentUrl?: string | nul
 }
 
 async function loadWorkbenchImage() {
+  // Loads the baseline image currently displayed as the workbench source image.
   if (!currentBaselineRevision.value) {
     baselinePreviewUrl.value = ''
     baselinePreviewError.value = '当前模板暂无可用基准图。'
@@ -437,6 +445,7 @@ async function loadWorkbenchImage() {
 }
 
 function buildPreviewMaskPayload() {
+  // @returns The draft mask payload used for preview generation, or undefined in view mode.
   if (editorMode.value !== 'edit') {
     return undefined
   }
@@ -452,6 +461,7 @@ function buildPreviewMaskPayload() {
 }
 
 async function loadPreviewImages() {
+  // Regenerates processed preview images against the selected baseline and current mask draft state.
   if (!currentTemplate.value || !currentBaselineRevision.value) {
     processedPreviewState.value = createIdlePreviewState('当前基准版本不可用于生成预览。', null)
     return
@@ -487,6 +497,8 @@ async function loadPreviewImages() {
 }
 
 async function loadTemplates(options: { preferredTemplateId?: number | null } = {}) {
+  // @param options.preferredTemplateId Optional template id that should win when the refreshed list contains it.
+  // @returns The latest template list, or an empty array when loading fails.
   listLoading.value = true
   listError.value = ''
 
@@ -548,6 +560,7 @@ async function loadTemplates(options: { preferredTemplateId?: number | null } = 
 }
 
 async function loadTemplateDetail(templateId: number) {
+  // @param templateId Template id whose detail, baseline state, and workbench state should be hydrated.
   detailLoading.value = true
   detailError.value = ''
 

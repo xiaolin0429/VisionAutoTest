@@ -37,22 +37,30 @@ export function useStepEditor(options: UseStepEditorOptions) {
   })
 
   function normalizeStepDrafts(items: StepDraft[]) {
+    // @param items Step drafts in arbitrary order or shape before standard editor normalization.
     stepDrafts.value = normalizeStepDraftItems(items)
   }
 
   function getStepError(index: number, field: keyof StepValidationErrors) {
+    // @param index Step index in the current draft list.
+    // @param field Validation field name to read from the computed error map.
     return stepValidationErrors.value[index]?.[field] ?? ''
   }
 
   function updateStepType(step: StepDraft, nextType: StepType) {
+    // @param step Mutable draft that should be reshaped to the newly selected type.
+    // @param nextType Target step type chosen by the user.
     Object.assign(step, normalizeStepByType(step, nextType))
   }
 
   function handleStepTypeModelUpdate(step: StepDraft, value: string | number | boolean) {
+    // @param step Mutable draft bound to the current editor row.
+    // @param value Raw component-model value narrowed back to a StepType.
     updateStepType(step, value as StepType)
   }
 
   function initFromSteps(steps: Step[]) {
+    // @param steps Persisted steps loaded from the backend for the current resource.
     stepSubmitAttempted.value = false
     normalizeStepDrafts(steps.map((step) => buildStepDraft(step)))
     if (stepDrafts.value.length === 0) {
@@ -84,6 +92,7 @@ export function useStepEditor(options: UseStepEditorOptions) {
   }
 
   function shouldOpenAdvancedPayload(index: number) {
+    // @param index Step index whose payload editor mode should be evaluated.
     const draft = stepDrafts.value[index]
     if (!draft) {
       return false
@@ -92,10 +101,13 @@ export function useStepEditor(options: UseStepEditorOptions) {
   }
 
   function buildPayload(): StepWritePayload[] {
+    // @returns Step write payload in backend save order with normalized step numbers.
     return stepDrafts.value.map((step, index) => buildStepWritePayload(step, index))
   }
 
   async function saveSteps(saveFn: (payload: StepWritePayload[]) => Promise<void>) {
+    // @param saveFn Caller-provided save implementation for component/case step persistence.
+    // @returns True when save succeeds, otherwise false after local validation or request failure.
     stepSubmitAttempted.value = true
 
     if (hasStepValidationErrors.value) {
@@ -123,6 +135,7 @@ export function useStepEditor(options: UseStepEditorOptions) {
   }
 
   function resetState() {
+    // Clears transient submit state without modifying the current draft list.
     stepSubmitAttempted.value = false
   }
 

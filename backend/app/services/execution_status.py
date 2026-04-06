@@ -11,6 +11,15 @@ from app.services.execution_report import build_report_summary
 
 
 def truncate_failure_summary(message: str | None, *, limit: int = 500) -> str | None:
+    """Trim failure text to the report-friendly maximum length.
+
+    Args:
+        message: Raw failure summary collected from execution.
+        limit: Maximum persisted character count after normalization.
+
+    Returns:
+        The normalized summary, truncated with an ellipsis when needed.
+    """
     if message is None:
         return None
     normalized = message.strip()
@@ -20,6 +29,15 @@ def truncate_failure_summary(message: str | None, *, limit: int = 500) -> str | 
 
 
 def finalize_cancelled_test_run(db: Session, test_run: TestRun) -> TestRun:
+    """Finalize a run that has entered the cancellation path.
+
+    Args:
+        db: Active database session.
+        test_run: Run being transitioned into its terminal cancelled state.
+
+    Returns:
+        The refreshed ``TestRun`` after case counts and report summary are updated.
+    """
     now = utc_now()
     cancellation_code = "TEST_RUN_CANCELLED"
     cancellation_summary = "Test run was cancelled."
@@ -43,6 +61,8 @@ def finalize_cancelled_test_run(db: Session, test_run: TestRun) -> TestRun:
             error_count += 1
             continue
         if case_run.status != "cancelled":
+            # Cancellation is applied as a terminal sweep over any unfinished case run so
+            # the report can account for every scheduled case in a single final snapshot.
             case_run.status = "cancelled"
             case_run.finished_at = case_run.finished_at or now
             if case_run.started_at is not None and case_run.duration_ms is None:
@@ -104,7 +124,25 @@ def finalize_completed_test_run(
     failed_count: int,
     error_count: int,
 ) -> TestRun:
+    """Finalize a running test run using aggregated case outcome counts.
+
+    Args:
+        db: Active database session.
+        test_run: Run expected to still be in ``running`` state.
+        passed_count: Number of case runs that completed successfully.
+        failed_count: Number of case runs that ended in assertion failure.
+        error_count: Number of case runs that ended in execution error.
+
+    Returns:
+        The latest persisted ``TestRun``. If completion lost a race with cancellation,
+        this may be the result of the cancellation finalizer instead.
+
+    Raises:
+        ApiError: If the target run no longer exists.
+    """
     now = utc_now()
+    # `partial_failed` is the mixed terminal state: at least one case passed, and at least
+    # one other case failed or errored. This keeps fully failed runs distinct from mixed ones.
     if passed_count == 0 and failed_count == 0 and error_count > 0:
         final_status = "error"
     elif failed_count > 0 and error_count == 0 and passed_count == 0:
@@ -135,6 +173,8 @@ def finalize_completed_test_run(
         )
     )
     if not update_result.rowcount:
+        # Completion races with cancellation are resolved by reloading the run and letting
+        # the cancellation finalizer produce the authoritative terminal status.
         db.expire_all()
         latest_test_run = db.get(TestRun, test_run.id)
         if latest_test_run is not None and latest_test_run.status == "cancelling":
@@ -189,6 +229,17 @@ def finalize_errored_test_run(
     failure_reason_code: str = "TEST_RUN_EXECUTION_ERROR",
     error_message: str,
 ) -> TestRun:
+    """Finalize a run when execution aborts with a top-level runtime error.
+
+    Args:
+        db: Active database session.
+        test_run: Run being force-finished as errored.
+        failure_reason_code: Stable error code written to unfinished case runs and report.
+        error_message: Human-readable summary used for case and report failure text.
+
+    Returns:
+        The refreshed ``TestRun`` after error counts and report summary are updated.
+    """
     now = utc_now()
     case_runs = db.scalars(
         select(TestCaseRun)
@@ -257,6 +308,16 @@ def normalize_failure_payload(
     failure_code: str | None,
     failure_summary: str | None,
 ) -> tuple[str, str]:
+    """Normalize failure code and summary for report-level consumption.
+
+    Args:
+        status: Terminal case or run status that drives the default fallback reason.
+        failure_code: Original failure code, if the caller already has one.
+        failure_summary: Original human-readable summary, if available.
+
+    Returns:
+        A tuple of ``(failure_code, failure_summary)`` with defaults filled in.
+    """
     if failure_code and failure_summary:
         return failure_code, failure_summary
     default_code = {
@@ -275,6 +336,17 @@ def normalize_failure_payload(
 def resolve_run_failure(
     *, case_runs: list[TestCaseRun], final_status: str
 ) -> tuple[str | None, str | None]:
+    """Choose the representative failure reason for a finalized test run.
+
+    Args:
+        case_runs: Ordered case runs belonging to the finalized run.
+        final_status: Terminal run status already derived from aggregate counts.
+
+    Returns:
+        A failure code/summary pair for the run report, or ``(None, None)`` for passed runs.
+    """
+    # Report summary uses the first terminal case failure as the representative reason.
+    # This keeps list/detail views stable without attempting to aggregate every low-level error.
     if final_status == "passed":
         return None, None
     if final_status == "cancelled":

@@ -108,10 +108,12 @@ const currentComponentReadinessIssues = computed(() => {
 })
 
 function resolveStepRowClassName(scope: { row: { stepNo: number } }) {
+  // @param scope Table row scope used to highlight a routed step in the component step list.
   return scope.row.stepNo === highlightedStepNo.value ? 'vat-step-highlight' : ''
 }
 
 async function loadComponents() {
+  // Loads component summaries plus workspace-level readiness issues filtered down to component resources.
   loading.value = true
   try {
     const options: { keyword?: string; status?: string } = {}
@@ -150,6 +152,7 @@ async function loadComponents() {
 }
 
 async function loadTemplates() {
+  // Loads template options used by template_assert / ocr_assert step editors.
   try {
     templates.value = await listTemplates()
   } catch {
@@ -158,6 +161,7 @@ async function loadTemplates() {
 }
 
 async function selectComponent(componentId: number) {
+  // @param componentId Component id whose summary and steps should hydrate the detail panel.
   selectedComponentId.value = componentId
   loading.value = true
   try {
@@ -206,6 +210,7 @@ function openEditComponentDialog() {
 }
 
 async function submitComponentForm() {
+  // Creates or updates the component dialog form depending on the active dialog mode.
   savingComponent.value = true
   try {
     if (componentDialogMode.value === 'create') {
@@ -241,6 +246,7 @@ async function submitComponentForm() {
 }
 
 function openStepDialog() {
+  // Opens the shared step editor with the current component steps as the draft source.
   if (!currentComponent.value) {
     ElMessage.warning('请先选择一个组件。')
     return
@@ -250,6 +256,7 @@ function openStepDialog() {
 }
 
 async function submitSteps() {
+  // Persists the full ordered step list for the current component through the shared step editor flow.
   if (!currentComponent.value) return
   const success = await stepEditor.saveSteps(async (payload) => {
     await replaceComponentSteps(currentComponent.value!.id, payload)
@@ -261,6 +268,7 @@ async function submitSteps() {
 }
 
 function getStepTemplateOptions(step: StepDraft) {
+  // @param step Current step draft whose assertion type determines the compatible template strategy.
   if (step.type !== 'template_assert' && step.type !== 'ocr_assert') return []
   const expectedStrategy = step.type === 'template_assert' ? 'template' : 'ocr'
   return templates.value

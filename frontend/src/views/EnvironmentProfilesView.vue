@@ -73,6 +73,7 @@ const selectedVariable = computed(() => {
 })
 
 async function loadEnvironmentData() {
+  // Loads environment profiles and device profiles in parallel, then reconciles current selections.
   loading.value = true
 
   try {
@@ -96,6 +97,7 @@ async function loadEnvironmentData() {
 }
 
 async function loadEnvironmentVariables(environmentProfileId: number | null) {
+  // @param environmentProfileId Selected profile id whose variables should populate the right-side panel.
   if (!environmentProfileId) {
     currentVariables.value = []
     selectedVariableId.value = null
@@ -131,6 +133,7 @@ function openEditProfileDialog() {
 }
 
 async function handleDeleteProfile() {
+  // Deletes the selected environment profile after confirmation, then refreshes dependent selections and variables.
   if (!selectedEnvironment.value) {
     ElMessage.warning('请先选择一个环境档案。')
     return
@@ -176,6 +179,7 @@ function openEditVariableDialog() {
 }
 
 async function handleDeleteVariable() {
+  // Deletes the selected environment variable after confirmation and refreshes profile/variable state.
   if (!selectedVariable.value) {
     ElMessage.warning('请先选择一个环境变量。')
     return
@@ -211,6 +215,7 @@ function openEditDeviceDialog() {
 }
 
 async function handleProfileSaved(environmentId: number) {
+  // @param environmentId Saved profile id returned by the profile dialog so the page can keep focus on it.
   profileDialogVisible.value = false
   selectedEnvironmentId.value = environmentId
   await loadEnvironmentData()
@@ -218,12 +223,14 @@ async function handleProfileSaved(environmentId: number) {
 }
 
 async function handleVariableSaved() {
+  // Refreshes both profile counts and the variable list after a variable dialog save succeeds.
   variableDialogVisible.value = false
   await loadEnvironmentData()
   await loadEnvironmentVariables(selectedEnvironment.value?.id ?? null)
 }
 
 async function handleDeviceSaved(deviceId: number) {
+  // @param deviceId Saved device-profile id returned by the device dialog so the page can keep focus on it.
   deviceDialogVisible.value = false
   selectedDeviceId.value = deviceId
   await loadEnvironmentData()

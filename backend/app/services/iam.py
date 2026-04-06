@@ -28,12 +28,42 @@ def _as_utc(value: datetime) -> datetime:
     return value.astimezone(timezone.utc)
 
 
-def create_session(db: Session, username: str, password: str, *, client_ip: str | None, user_agent: str | None) -> dict:
-    user = db.scalar(select(User).where(User.username == username, User.is_deleted.is_(False)))
+def create_session(
+    db: Session,
+    username: str,
+    password: str,
+    *,
+    client_ip: str | None,
+    user_agent: str | None,
+) -> dict:
+    """Authenticate a user and create a fresh session plus refresh token pair.
+
+    Args:
+        db: Active database session.
+        username: Submitted username.
+        password: Submitted plaintext password.
+        client_ip: Optional client IP captured by the API layer.
+        user_agent: Optional user-agent captured by the API layer.
+
+    Returns:
+        Session payload returned to the frontend, including user summary and token pair.
+
+    Raises:
+        ApiError: If credentials are invalid or the user is disabled.
+    """
+    user = db.scalar(
+        select(User).where(User.username == username, User.is_deleted.is_(False))
+    )
     if user is None or not verify_secret(password, user.password_hash):
-        raise ApiError(code="INVALID_CREDENTIALS", message="Username or password is invalid.", status_code=401)
+        raise ApiError(
+            code="INVALID_CREDENTIALS",
+            message="Username or password is invalid.",
+            status_code=401,
+        )
     if user.status != "active":
-        raise ApiError(code="USER_DISABLED", message="User is not active.", status_code=403)
+        raise ApiError(
+            code="USER_DISABLED", message="User is not active.", status_code=403
+        )
 
     now = utc_now()
     session_code = generate_token("ses")
@@ -85,37 +115,79 @@ def create_session(db: Session, username: str, password: str, *, client_ip: str 
 
 
 def refresh_session(db: Session, refresh_token: str) -> dict:
+    """Consume one refresh token and mint the next access/refresh token pair.
+
+    Args:
+        db: Active database session.
+        refresh_token: Plaintext refresh token presented by the client.
+
+    Returns:
+        A payload containing the next token pair and access-token TTL.
+
+    Raises:
+        ApiError: If the refresh token or backing session is missing, expired, or revoked.
+    """
     token_hash = hash_secret(refresh_token)
     token = db.scalar(select(RefreshToken).where(RefreshToken.token_hash == token_hash))
     if token is None:
-        raise ApiError(code="REFRESH_TOKEN_INVALID", message="Refresh token is invalid.", status_code=401)
+        raise ApiError(
+            code="REFRESH_TOKEN_INVALID",
+            message="Refresh token is invalid.",
+            status_code=401,
+        )
 
     now = utc_now()
     session = db.get(UserSession, token.session_id)
     if session is None:
-        raise ApiError(code="SESSION_NOT_FOUND", message="Session not found.", status_code=404)
+        raise ApiError(
+            code="SESSION_NOT_FOUND", message="Session not found.", status_code=404
+        )
     if session.status == "revoked":
         if token.status == "active":
             token.status = "revoked"
             token.revoked_at = now
             db.commit()
-        raise ApiError(code="REFRESH_TOKEN_REVOKED", message="Refresh token is revoked.", status_code=401)
+        raise ApiError(
+            code="REFRESH_TOKEN_REVOKED",
+            message="Refresh token is revoked.",
+            status_code=401,
+        )
 
     if token.status == "revoked":
-        raise ApiError(code="REFRESH_TOKEN_REVOKED", message="Refresh token is revoked.", status_code=401)
+        raise ApiError(
+            code="REFRESH_TOKEN_REVOKED",
+            message="Refresh token is revoked.",
+            status_code=401,
+        )
     if token.status == "expired":
-        raise ApiError(code="REFRESH_TOKEN_EXPIRED", message="Refresh token is expired.", status_code=401)
+        raise ApiError(
+            code="REFRESH_TOKEN_EXPIRED",
+            message="Refresh token is expired.",
+            status_code=401,
+        )
     if token.status != "active":
-        raise ApiError(code="REFRESH_TOKEN_INVALID", message="Refresh token is invalid.", status_code=401)
+        raise ApiError(
+            code="REFRESH_TOKEN_INVALID",
+            message="Refresh token is invalid.",
+            status_code=401,
+        )
     if _as_utc(token.expires_at) <= now:
         token.status = "expired"
         db.commit()
-        raise ApiError(code="REFRESH_TOKEN_EXPIRED", message="Refresh token is expired.", status_code=401)
+        raise ApiError(
+            code="REFRESH_TOKEN_EXPIRED",
+            message="Refresh token is expired.",
+            status_code=401,
+        )
 
     if session.status == "expired":
-        raise ApiError(code="SESSION_NOT_FOUND", message="Session not found.", status_code=404)
+        raise ApiError(
+            code="SESSION_NOT_FOUND", message="Session not found.", status_code=404
+        )
     if session.status != "active":
-        raise ApiError(code="SESSION_NOT_FOUND", message="Session not found.", status_code=404)
+        raise ApiError(
+            code="SESSION_NOT_FOUND", message="Session not found.", status_code=404
+        )
 
     token.status = "used"
     token.consumed_at = now
@@ -149,20 +221,47 @@ def refresh_session(db: Session, refresh_token: str) -> dict:
 
 
 def get_current_user_by_token(db: Session, token: str) -> tuple[User, UserSession]:
+    """Resolve an access token into the active user and session.
+
+    Args:
+        db: Active database session.
+        token: Bearer access token from the request.
+
+    Returns:
+        A tuple of ``(user, session)`` for downstream authenticated flows.
+
+    Raises:
+        ApiError: If the token, session, or user can no longer be trusted.
+    """
     try:
         claims = decode_access_token(token)
     except Exception as exc:  # noqa: BLE001
         if is_token_expired_error(exc):
-            raise ApiError(code="TOKEN_EXPIRED", message="Access token is expired.", status_code=401) from exc
+            raise ApiError(
+                code="TOKEN_EXPIRED",
+                message="Access token is expired.",
+                status_code=401,
+            ) from exc
         if is_token_invalid_error(exc):
-            raise ApiError(code="TOKEN_REVOKED", message="Access token is invalid.", status_code=401) from exc
+            raise ApiError(
+                code="TOKEN_REVOKED",
+                message="Access token is invalid.",
+                status_code=401,
+            ) from exc
         raise
 
     session_id = claims.get("sid")
     token_jti = claims.get("jti")
     subject = claims.get("sub")
-    if not isinstance(session_id, str) or not session_id or not isinstance(token_jti, str) or not token_jti:
-        raise ApiError(code="TOKEN_REVOKED", message="Access token is invalid.", status_code=401)
+    if (
+        not isinstance(session_id, str)
+        or not session_id
+        or not isinstance(token_jti, str)
+        or not token_jti
+    ):
+        raise ApiError(
+            code="TOKEN_REVOKED", message="Access token is invalid.", status_code=401
+        )
 
     session = db.scalar(
         select(UserSession).where(
@@ -172,44 +271,79 @@ def get_current_user_by_token(db: Session, token: str) -> tuple[User, UserSessio
         )
     )
     if session is None:
-        raise ApiError(code="TOKEN_REVOKED", message="Access token is invalid.", status_code=401)
+        raise ApiError(
+            code="TOKEN_REVOKED", message="Access token is invalid.", status_code=401
+        )
     if _as_utc(session.expires_at) <= utc_now():
         session.status = "expired"
         db.commit()
-        raise ApiError(code="TOKEN_EXPIRED", message="Access token is expired.", status_code=401)
+        raise ApiError(
+            code="TOKEN_EXPIRED", message="Access token is expired.", status_code=401
+        )
     user = db.get(User, session.user_id)
     if user is None or user.is_deleted or str(user.id) != str(subject):
-        raise ApiError(code="USER_NOT_FOUND", message="User not found.", status_code=404)
+        raise ApiError(
+            code="USER_NOT_FOUND", message="User not found.", status_code=404
+        )
     session.last_seen_at = utc_now()
     db.commit()
     return user, session
 
 
 def revoke_current_session(db: Session, session: UserSession) -> None:
+    """Revoke the current session and all still-active refresh tokens bound to it.
+
+    Args:
+        db: Active database session.
+        session: Session being revoked.
+    """
     now = utc_now()
     session.status = "revoked"
     session.revoked_at = now
-    tokens = db.scalars(select(RefreshToken).where(RefreshToken.session_id == session.id, RefreshToken.status == "active")).all()
+    tokens = db.scalars(
+        select(RefreshToken).where(
+            RefreshToken.session_id == session.id, RefreshToken.status == "active"
+        )
+    ).all()
     for token in tokens:
         token.status = "revoked"
         token.revoked_at = now
     db.commit()
 
 
-def list_users(db: Session, *, page: int, page_size: int, status: str | None, keyword: str | None):
+def list_users(
+    db: Session, *, page: int, page_size: int, status: str | None, keyword: str | None
+):
     stmt = select(User).where(User.is_deleted.is_(False))
     if status:
         stmt = stmt.where(User.status == status)
     stmt = apply_keyword(stmt, keyword, User.username, User.display_name)
     total = count_total(db, stmt)
-    items = db.scalars(stmt.order_by(User.id.desc()).offset((page - 1) * page_size).limit(page_size)).all()
+    items = db.scalars(
+        stmt.order_by(User.id.desc()).offset((page - 1) * page_size).limit(page_size)
+    ).all()
     return items, total
 
 
-def create_user(db: Session, *, username: str, display_name: str, password: str, email: str | None, mobile: str | None, status: str):
-    existing = db.scalar(select(User).where(User.username == username, User.is_deleted.is_(False)))
+def create_user(
+    db: Session,
+    *,
+    username: str,
+    display_name: str,
+    password: str,
+    email: str | None,
+    mobile: str | None,
+    status: str,
+):
+    existing = db.scalar(
+        select(User).where(User.username == username, User.is_deleted.is_(False))
+    )
     if existing is not None:
-        raise ApiError(code="USERNAME_ALREADY_EXISTS", message="Username already exists.", status_code=409)
+        raise ApiError(
+            code="USERNAME_ALREADY_EXISTS",
+            message="Username already exists.",
+            status_code=409,
+        )
     user = User(
         username=username,
         display_name=display_name,
@@ -227,11 +361,21 @@ def create_user(db: Session, *, username: str, display_name: str, password: str,
 def get_user(db: Session, user_id: int) -> User:
     user = db.get(User, user_id)
     if user is None or user.is_deleted:
-        raise ApiError(code="USER_NOT_FOUND", message="User not found.", status_code=404)
+        raise ApiError(
+            code="USER_NOT_FOUND", message="User not found.", status_code=404
+        )
     return user
 
 
-def update_user(db: Session, user: User, *, display_name: str | None, email: str | None, mobile: str | None, status: str | None) -> User:
+def update_user(
+    db: Session,
+    user: User,
+    *,
+    display_name: str | None,
+    email: str | None,
+    mobile: str | None,
+    status: str | None,
+) -> User:
     if display_name is not None:
         user.display_name = display_name
     if email is not None:

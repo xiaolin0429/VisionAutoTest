@@ -8,6 +8,7 @@ import type {
 import type { ExecutionReadinessSummary, Workspace } from '@/types/models'
 
 function getStoredUserId() {
+  // @returns The persisted current-user id used to infer workspace role client-side, or null when unavailable.
   const raw = localStorage.getItem(AUTH_USER_STORAGE_KEY)
   if (!raw) {
     return null
@@ -18,6 +19,8 @@ function getStoredUserId() {
 }
 
 export async function listWorkspaces(): Promise<Workspace[]> {
+  // Loads workspace summaries, then enriches each item with member-derived role and member count.
+  // @returns Workspace models enriched with client-side role and member count.
   const currentUserId = getStoredUserId()
   const response = await requestPage<WorkspaceReadDTO>({
     method: 'get',
@@ -56,6 +59,8 @@ export async function listWorkspaces(): Promise<Workspace[]> {
 }
 
 function mapExecutionReadiness(summary: ExecutionReadinessSummaryReadDTO): ExecutionReadinessSummary {
+  // @param summary Backend readiness DTO using snake_case fields.
+  // @returns Frontend readiness model consumed by suite/template/case pages.
   return {
     scope: summary.scope,
     status: summary.status,
@@ -78,6 +83,7 @@ function mapExecutionReadiness(summary: ExecutionReadinessSummaryReadDTO): Execu
 export async function getWorkspaceExecutionReadiness(
   workspaceId: number
 ): Promise<ExecutionReadinessSummary> {
+  // @param workspaceId Workspace whose execution-readiness summary should be loaded.
   const response = await requestData<ExecutionReadinessSummaryReadDTO>({
     method: 'get',
     url: `/workspaces/${workspaceId}/execution-readiness`

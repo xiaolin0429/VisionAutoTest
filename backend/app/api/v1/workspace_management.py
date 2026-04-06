@@ -24,6 +24,17 @@ def list_workspaces(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
+    """List workspaces visible to the current user.
+
+    Args:
+        request: FastAPI request used for paginated response wrapping.
+        page: Requested page number.
+        page_size: Requested page size.
+        status: Optional workspace status filter.
+        keyword: Optional keyword filter matched against workspace code/name.
+        db: Active database session.
+        current_user: Authenticated user.
+    """
     page, page_size = page_bounds(page, page_size)
     items, total = workspace_service.list_workspaces(
         db,
@@ -49,6 +60,14 @@ def create_workspace(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
+    """Create a workspace owned by the current user.
+
+    Args:
+        payload: Workspace-create payload.
+        request: FastAPI request used for response wrapping.
+        db: Active database session.
+        current_user: Authenticated user.
+    """
     workspace = workspace_service.create_workspace(
         db,
         user=current_user,
@@ -83,6 +102,15 @@ def patch_workspace(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
+    """Update a workspace.
+
+    Args:
+        workspace_id: Target workspace id.
+        payload: Workspace-update payload.
+        request: FastAPI request used for response wrapping.
+        db: Active database session.
+        current_user: Authenticated user.
+    """
     workspace = workspace_service.require_workspace(db, workspace_id)
     updated = workspace_service.update_workspace(
         db,

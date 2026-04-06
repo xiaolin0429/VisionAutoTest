@@ -17,6 +17,7 @@ import type {
 } from '@/types/models'
 
 function mapEnvironmentVariable(item: EnvironmentVariableReadDTO): EnvironmentVariable {
+  // @param item Backend environment-variable DTO with masked/decrypted display_value already resolved server-side.
   return {
     id: item.id,
     environmentProfileId: item.environment_profile_id,
@@ -30,6 +31,7 @@ function mapEnvironmentVariable(item: EnvironmentVariableReadDTO): EnvironmentVa
 }
 
 export async function listEnvironmentProfiles(): Promise<EnvironmentProfile[]> {
+  // Loads profile summaries, then enriches each profile with variableCount from the profile-scoped variables API.
   const response = await requestPage<EnvironmentProfileReadDTO>({
     method: 'get',
     url: '/environment-profiles',
@@ -64,6 +66,7 @@ export async function listEnvironmentProfiles(): Promise<EnvironmentProfile[]> {
 export async function createEnvironmentProfile(
   payload: EnvironmentProfileCreatePayload
 ): Promise<EnvironmentProfile> {
+  // @param payload Frontend create payload for an environment profile.
   const item = await requestData<EnvironmentProfileReadDTO>({
     method: 'post',
     url: '/environment-profiles',
@@ -92,6 +95,8 @@ export async function updateEnvironmentProfile(
   environmentProfileId: number,
   payload: EnvironmentProfileUpdatePayload
 ): Promise<EnvironmentProfile> {
+  // @param environmentProfileId Environment-profile id being updated.
+  // @param payload Frontend update payload.
   const item = await requestData<EnvironmentProfileReadDTO>({
     method: 'patch',
     url: `/environment-profiles/${environmentProfileId}`,
@@ -128,6 +133,7 @@ export async function deleteEnvironmentProfile(environmentProfileId: number): Pr
 export async function listEnvironmentVariables(
   environmentProfileId: number
 ): Promise<EnvironmentVariable[]> {
+  // @param environmentProfileId Parent environment-profile id.
   const response = await requestData<EnvironmentVariableReadDTO[]>({
     method: 'get',
     url: `/environment-profiles/${environmentProfileId}/variables`
@@ -140,6 +146,8 @@ export async function createEnvironmentVariable(
   environmentProfileId: number,
   payload: EnvironmentVariableCreatePayload
 ): Promise<EnvironmentVariable> {
+  // @param environmentProfileId Parent environment-profile id.
+  // @param payload Frontend create payload for one environment variable.
   const response = await requestData<EnvironmentVariableReadDTO>({
     method: 'post',
     url: `/environment-profiles/${environmentProfileId}/variables`,
@@ -158,6 +166,8 @@ export async function updateEnvironmentVariable(
   environmentVariableId: number,
   payload: EnvironmentVariableUpdatePayload
 ): Promise<EnvironmentVariable> {
+  // @param environmentVariableId Environment-variable id being updated.
+  // @param payload Frontend update payload for one variable.
   const response = await requestData<EnvironmentVariableReadDTO>({
     method: 'patch',
     url: `/environment-variables/${environmentVariableId}`,
@@ -179,6 +189,7 @@ export async function deleteEnvironmentVariable(environmentVariableId: number): 
 }
 
 export async function listDeviceProfiles(): Promise<DeviceProfile[]> {
+  // Loads device-profile summaries for suite/run trigger forms and environment management.
   const response = await requestPage<DeviceProfileReadDTO>({
     method: 'get',
     url: '/device-profiles',
@@ -204,6 +215,7 @@ export async function listDeviceProfiles(): Promise<DeviceProfile[]> {
 }
 
 function mapDeviceProfile(item: DeviceProfileReadDTO): DeviceProfile {
+  // @param item Backend device-profile DTO.
   return {
     id: item.id,
     workspaceId: item.workspace_id,
@@ -222,6 +234,7 @@ function mapDeviceProfile(item: DeviceProfileReadDTO): DeviceProfile {
 export async function createDeviceProfile(
   payload: DeviceProfileCreatePayload
 ): Promise<DeviceProfile> {
+  // @param payload Frontend create payload for a device profile.
   const response = await requestData<DeviceProfileReadDTO>({
     method: 'post',
     url: '/device-profiles',
@@ -243,6 +256,8 @@ export async function updateDeviceProfile(
   deviceProfileId: number,
   payload: DeviceProfileUpdatePayload
 ): Promise<DeviceProfile> {
+  // @param deviceProfileId Device-profile id being updated.
+  // @param payload Frontend update payload.
   const response = await requestData<DeviceProfileReadDTO>({
     method: 'patch',
     url: `/device-profiles/${deviceProfileId}`,

@@ -1,14 +1,18 @@
 import type { CaseRun, RunDetail, StepResult, TestRun } from '@/types/models'
 
 export function isAttentionRunStatus(status: string) {
+  // @param status Run status shown in run list/detail pages.
   return status === 'failed' || status === 'partial_failed' || status === 'error'
 }
 
 export function buildRunRepairQuery(testCaseId: number) {
+  // @param testCaseId Test-case id used as the default repair target when no finer-grained resource is available.
   return { testCaseId: String(testCaseId) }
 }
 
 export function buildResourceRepairTarget(step: StepResult | null, fallbackTestCaseId: number) {
+  // @param step First failed/error step enriched with backend repair metadata, if available.
+  // @param fallbackTestCaseId Test-case id used when repair metadata is absent.
   if (!step || !step.repairRoutePath || !step.repairResourceType || step.repairResourceId === null) {
     return {
       path: '/cases',
@@ -52,6 +56,7 @@ export function buildResourceRepairTarget(step: StepResult | null, fallbackTestC
 }
 
 export function getPrimaryRepairStep(caseRun: CaseRun | null): StepResult | null {
+  // @param caseRun Failed/errored case run whose first failing step should be surfaced for repair navigation.
   if (!caseRun) {
     return null
   }
@@ -60,6 +65,7 @@ export function getPrimaryRepairStep(caseRun: CaseRun | null): StepResult | null
 }
 
 export function getPrimaryFailedCaseRun(detail: RunDetail | null): CaseRun | null {
+  // @param detail Run-detail snapshot used to locate the first failed or errored case run.
   if (!detail) {
     return null
   }
@@ -68,6 +74,7 @@ export function getPrimaryFailedCaseRun(detail: RunDetail | null): CaseRun | nul
 }
 
 export function resolveRunRepairTarget(detail: RunDetail | null) {
+  // @param detail Run-detail snapshot used to resolve the best repair target for CTA buttons.
   const failedCaseRun = getPrimaryFailedCaseRun(detail)
   if (!failedCaseRun) {
     return null
@@ -83,6 +90,7 @@ export function resolveRunRepairTarget(detail: RunDetail | null) {
 }
 
 export function getRunFailureSuggestion(run: TestRun) {
+  // @param run Run summary item whose terminal status drives the suggested next action text.
   if (run.status === 'failed') {
     return '查看失败用例详情，并回到对应测试用例检查断言与步骤配置。'
   }

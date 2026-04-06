@@ -24,6 +24,14 @@ def list_workspace_members(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
+    """List members of a workspace.
+
+    Args:
+        workspace_id: Target workspace id.
+        request: FastAPI request used for response wrapping.
+        db: Active database session.
+        current_user: Authenticated user.
+    """
     items = workspace_service.list_members(
         db, user=current_user, workspace_id=workspace_id
     )
@@ -38,6 +46,15 @@ def create_workspace_member(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
+    """Add a member to a workspace.
+
+    Args:
+        workspace_id: Target workspace id.
+        payload: Member-create payload carrying user id and workspace role.
+        request: FastAPI request used for response wrapping.
+        db: Active database session.
+        current_user: Authenticated user.
+    """
     member = workspace_service.add_member(
         db,
         user=current_user,
@@ -59,6 +76,16 @@ def patch_workspace_member(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
+    """Update role or status of a workspace member.
+
+    Args:
+        workspace_id: Target workspace id used to guard cross-workspace access.
+        member_id: Workspace-member id being modified.
+        payload: Member-update payload.
+        request: FastAPI request used for response wrapping.
+        db: Active database session.
+        current_user: Authenticated user.
+    """
     member = workspace_service.get_member(db, member_id)
     if member.workspace_id != workspace_id:
         raise ApiError(
@@ -83,6 +110,14 @@ def delete_workspace_member(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
+    """Remove a workspace member.
+
+    Args:
+        workspace_id: Target workspace id used to guard cross-workspace access.
+        member_id: Workspace-member id being deleted.
+        db: Active database session.
+        current_user: Authenticated user.
+    """
     member = workspace_service.get_member(db, member_id)
     if member.workspace_id != workspace_id:
         raise ApiError(

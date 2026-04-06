@@ -100,6 +100,27 @@ def create_test_run(
     rerun_from_run_id: int | None = None,
     rerun_filter: str | None = None,
 ) -> TestRun:
+    """Create a queued test run from a suite or from a rerun source batch.
+
+    Args:
+        db: Active database session.
+        user: User triggering the run.
+        workspace_id: Workspace scope for suite, environment, and device validation.
+        test_suite_id: Target suite id, or ``None`` when inherited from a rerun source.
+        environment_profile_id: Target environment profile id, or ``None`` when inherited from a rerun source.
+        device_profile_id: Optional device profile id, or ``None`` when omitted/inherited.
+        trigger_source: Source label for auditing how the run was created.
+        idempotency_key: Optional request-level idempotency key.
+        description: Optional operator-facing run description.
+        rerun_from_run_id: Optional source run id when creating a rerun batch.
+        rerun_filter: Optional rerun filter metadata persisted with the request.
+
+    Returns:
+        The newly created queued ``TestRun`` with pending ``TestCaseRun`` rows.
+
+    Raises:
+        ApiError: If readiness validation, idempotency, or referenced resources are invalid.
+    """
     require_workspace_access(db, user, workspace_id)
 
     # ── 重跑模式：从原批次继承配置并提取失败用例 ──────────────────────────
@@ -253,6 +274,19 @@ def list_test_runs(
     page_size: int,
     status: str | None,
 ):
+    """List test runs in one workspace with optional status filtering.
+
+    Args:
+        db: Active database session.
+        user: User requesting run access.
+        workspace_id: Workspace that owns the runs.
+        page: 1-based page number.
+        page_size: Maximum items returned for the page.
+        status: Optional terminal/active status filter.
+
+    Returns:
+        A tuple of ``(items, total)`` for paginated run listing.
+    """
     require_workspace_access(db, user, workspace_id)
     stmt = select(TestRun).where(TestRun.workspace_id == workspace_id)
     if status:
@@ -276,6 +310,20 @@ def get_test_run(db: Session, test_run_id: int) -> TestRun:
 def update_test_run_status(
     db: Session, *, user: User, test_run: TestRun, status: str
 ) -> TestRun:
+    """Apply the supported manual status transition for a test run.
+
+    Args:
+        db: Active database session.
+        user: User requesting the status change.
+        test_run: Run being updated.
+        status: Target status requested by the API caller.
+
+    Returns:
+        The refreshed run after the transition is persisted.
+
+    Raises:
+        ApiError: If the requested transition is not currently allowed.
+    """
     require_workspace_access(db, user, test_run.workspace_id)
     if status != "cancelling" or test_run.status not in {"queued", "running"}:
         raise ApiError(
@@ -308,6 +356,15 @@ def get_case_run(db: Session, case_run_id: int) -> TestCaseRun:
 
 
 def list_step_results(db: Session, case_run_id: int):
+    """List step results enriched with repair-target metadata for the UI.
+
+    Args:
+        db: Active database session.
+        case_run_id: Case-run id whose step results should be expanded.
+
+    Returns:
+        A list of step-result dicts enriched with media ids and repair navigation metadata.
+    """
     case_run = get_case_run(db, case_run_id)
     test_case = db.get(TestCase, case_run.test_case_id)
     steps = db.scalars(
@@ -381,6 +438,15 @@ def get_report(db: Session, report_id: int) -> RunReport:
 
 
 def get_report_by_test_run(db: Session, test_run_id: int) -> RunReport | None:
+    """Fetch the report row linked to a test run, if report generation has completed.
+
+    Args:
+        db: Active database session.
+        test_run_id: Test-run id whose report should be loaded.
+
+    Returns:
+        The matching report or ``None`` when the run has not produced one yet.
+    """
     return db.scalar(select(RunReport).where(RunReport.test_run_id == test_run_id))
 
 
