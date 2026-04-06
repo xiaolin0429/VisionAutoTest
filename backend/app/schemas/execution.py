@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 
 from app.schemas.base import ORMModel
 
@@ -17,6 +17,7 @@ class TestRunRead(ORMModel):
     trigger_source: str
     triggered_by: int | None = None
     idempotency_key: str | None = None
+    description: str | None = None
     status: str
     started_at: datetime | None = None
     finished_at: datetime | None = None
@@ -29,10 +30,22 @@ class TestRunRead(ORMModel):
 
 
 class TestRunCreate(BaseModel):
-    test_suite_id: int
-    environment_profile_id: int
+    test_suite_id: int | None = None
+    environment_profile_id: int | None = None
     device_profile_id: int | None = None
     trigger_source: str = "manual"
+    description: str | None = None
+    rerun_from_run_id: int | None = None
+    rerun_filter: Literal["failed"] | None = None
+
+    @model_validator(mode="after")
+    def _check_required_fields(self) -> "TestRunCreate":
+        if self.rerun_from_run_id is None:
+            if self.test_suite_id is None:
+                raise ValueError("test_suite_id is required when rerun_from_run_id is not set")
+            if self.environment_profile_id is None:
+                raise ValueError("environment_profile_id is required when rerun_from_run_id is not set")
+        return self
 
 
 class TestRunUpdate(BaseModel):

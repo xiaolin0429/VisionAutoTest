@@ -91,13 +91,54 @@ def create_test_run(
     *,
     user: User,
     workspace_id: int,
-    test_suite_id: int,
-    environment_profile_id: int,
+    test_suite_id: int | None,
+    environment_profile_id: int | None,
     device_profile_id: int | None,
     trigger_source: str,
     idempotency_key: str | None,
+    description: str | None = None,
+    rerun_from_run_id: int | None = None,
+    rerun_filter: str | None = None,
 ) -> TestRun:
     require_workspace_access(db, user, workspace_id)
+
+    # ── 重跑模式：从原批次继承配置并提取失败用例 ──────────────────────────
+    case_items: list[tuple[int, int]] | None = None  # [(test_case_id, sort_order)]
+    if rerun_from_run_id is not None:
+        original_run = db.get(TestRun, rerun_from_run_id)
+        if original_run is None or original_run.workspace_id != workspace_id:
+            raise ApiError(
+                code="TEST_RUN_NOT_FOUND",
+                message="Original test run not found.",
+                status_code=404,
+            )
+        # 继承原批次配置（调用方显式传入时优先）
+        if test_suite_id is None:
+            test_suite_id = original_run.test_suite_id
+        if environment_profile_id is None:
+            environment_profile_id = original_run.environment_profile_id
+        if device_profile_id is None:
+            device_profile_id = original_run.device_profile_id
+        if description is None:
+            description = f"重跑自 #{rerun_from_run_id}"
+
+        failed_case_runs = db.scalars(
+            select(TestCaseRun)
+            .where(
+                TestCaseRun.test_run_id == rerun_from_run_id,
+                TestCaseRun.status.in_(["failed", "error"]),
+            )
+            .order_by(TestCaseRun.sort_order.asc())
+        ).all()
+        if not failed_case_runs:
+            raise ApiError(
+                code="NO_FAILED_CASES_TO_RERUN",
+                message="No failed or errored cases found in the original test run.",
+                status_code=422,
+            )
+        case_items = [(cr.test_case_id, cr.sort_order) for cr in failed_case_runs]
+
+    # ── 幂等键检查 ────────────────────────────────────────────────────────
     if idempotency_key:
         existing = db.scalar(
             select(TestRun).where(
@@ -111,6 +152,11 @@ def create_test_run(
                 message="Idempotency key already exists.",
                 status_code=409,
             )
+
+    # ── 套件 & 环境 & 设备校验 ────────────────────────────────────────────
+    assert test_suite_id is not None  # schema validator guarantees this path
+    assert environment_profile_id is not None
+
     suite = db.get(TestSuite, test_suite_id)
     if suite is None or suite.workspace_id != workspace_id or suite.is_deleted:
         raise ApiError(
@@ -144,22 +190,32 @@ def create_test_run(
                 status_code=404,
             )
 
-    suite_cases = db.scalars(
-        select(SuiteCase)
-        .where(SuiteCase.test_suite_id == test_suite_id)
-        .order_by(SuiteCase.sort_order.asc())
-    ).all()
-    if not suite_cases:
-        raise ApiError(
-            code="TEST_SUITE_EMPTY",
-            message="Test suite must contain at least one test case before execution.",
-            status_code=422,
-        )
-    for suite_case in suite_cases:
-        validate_case_execution_readiness(
-            db, workspace_id=workspace_id, test_case_id=suite_case.test_case_id
-        )
+    # ── 普通模式：从套件加载用例 ──────────────────────────────────────────
+    if case_items is None:
+        suite_cases = db.scalars(
+            select(SuiteCase)
+            .where(SuiteCase.test_suite_id == test_suite_id)
+            .order_by(SuiteCase.sort_order.asc())
+        ).all()
+        if not suite_cases:
+            raise ApiError(
+                code="TEST_SUITE_EMPTY",
+                message="Test suite must contain at least one test case before execution.",
+                status_code=422,
+            )
+        for suite_case in suite_cases:
+            validate_case_execution_readiness(
+                db, workspace_id=workspace_id, test_case_id=suite_case.test_case_id
+            )
+        case_items = [(sc.test_case_id, sc.sort_order) for sc in suite_cases]
+    else:
+        # 重跑模式同样校验就绪状态
+        for test_case_id, _ in case_items:
+            validate_case_execution_readiness(
+                db, workspace_id=workspace_id, test_case_id=test_case_id
+            )
 
+    # ── 创建执行批次 ──────────────────────────────────────────────────────
     test_run = TestRun(
         workspace_id=workspace_id,
         test_suite_id=test_suite_id,
@@ -168,17 +224,18 @@ def create_test_run(
         trigger_source=trigger_source,
         triggered_by=user.id,
         idempotency_key=idempotency_key,
+        description=description,
         status="queued",
-        total_case_count=len(suite_cases),
+        total_case_count=len(case_items),
     )
     db.add(test_run)
     db.flush()
-    for suite_case in suite_cases:
+    for test_case_id, sort_order in case_items:
         db.add(
             TestCaseRun(
                 test_run_id=test_run.id,
-                test_case_id=suite_case.test_case_id,
-                sort_order=suite_case.sort_order,
+                test_case_id=test_case_id,
+                sort_order=sort_order,
                 status="pending",
             )
         )

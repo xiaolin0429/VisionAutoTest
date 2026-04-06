@@ -75,6 +75,7 @@ function mapRun(
     deviceName: device?.profile_name ?? '未指定设备',
     status: item.status,
     triggerSource: item.trigger_source,
+    description: item.description,
     createdAt: item.created_at,
     startedAt: item.started_at,
     finishedAt: item.finished_at,
@@ -171,6 +172,19 @@ export async function createTestRun(payload: {
     }
   })
 
+  return mapRun(response, reference)
+}
+
+export async function rerunFailedCases(originalRunId: number): Promise<TestRun> {
+  const reference = await loadReferenceMaps()
+  const response = await requestData<TestRunReadDTO>({
+    method: 'post',
+    url: '/test-runs',
+    data: {
+      rerun_from_run_id: originalRunId,
+      rerun_filter: 'failed'
+    }
+  })
   return mapRun(response, reference)
 }
 

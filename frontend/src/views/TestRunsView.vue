@@ -5,7 +5,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import MetricCard from '@/components/MetricCard.vue'
 import SectionCard from '@/components/SectionCard.vue'
 import StatusTag from '@/components/StatusTag.vue'
-import { cancelTestRun, createTestRun, getRunDetail, listTestRuns } from '@/api/modules/testRuns'
+import { cancelTestRun, createTestRun, getRunDetail, listTestRuns, rerunFailedCases } from '@/api/modules/testRuns'
 import { ApiError } from '@/api/client'
 import { listDeviceProfiles, listEnvironmentProfiles } from '@/api/modules/environments'
 import { listTestSuites } from '@/api/modules/testSuites'
@@ -21,6 +21,7 @@ const router = useRouter()
 const loading = ref(false)
 const testRuns = ref<TestRun[]>([])
 const repairingRunId = ref<number | null>(null)
+const rerunFailedRunId = ref<number | null>(null)
 let pollTimer: number | null = null
 
 const ACTIVE_RUN_STATUSES = new Set(['queued', 'running', 'cancelling'])
@@ -256,6 +257,23 @@ async function handleCancelRun(testRunId: number) {
     }
   }
 }
+
+async function handleRerunFailed(testRunId: number) {
+  rerunFailedRunId.value = testRunId
+  try {
+    const newRun = await rerunFailedCases(testRunId)
+    ElMessage.success('重跑批次已创建，正在跳转…')
+    void router.push(`/runs/${newRun.id}`)
+  } catch (error) {
+    if (error instanceof ApiError && error.code === 'NO_FAILED_CASES_TO_RERUN') {
+      ElMessage.warning('该批次无失败用例，无需重跑')
+    } else {
+      ElMessage.error('重跑失败，请稍后重试')
+    }
+  } finally {
+    rerunFailedRunId.value = null
+  }
+}
 </script>
 
 <template>
@@ -404,6 +422,15 @@ async function handleCancelRun(testRunId: number) {
               @click="openRunDetail(row.id)"
             >
               查看详情
+            </el-button>
+            <el-button
+              v-if="row.status === 'failed' || row.status === 'partial_failed' || row.status === 'error'"
+              link
+              type="warning"
+              :loading="rerunFailedRunId === row.id"
+              @click="handleRerunFailed(row.id)"
+            >
+              重跑失败项
             </el-button>
             <el-button
               v-if="row.status === 'queued' || row.status === 'running'"

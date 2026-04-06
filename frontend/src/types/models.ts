@@ -504,6 +504,7 @@ export interface TestRun {
   deviceName: string
   status: string
   triggerSource: string
+  description: string | null
   createdAt: string
   startedAt: string | null
   finishedAt: string | null

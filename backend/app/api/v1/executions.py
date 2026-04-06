@@ -42,6 +42,9 @@ def create_test_run(
         device_profile_id=payload.device_profile_id,
         trigger_source=payload.trigger_source,
         idempotency_key=request.headers.get("Idempotency-Key"),
+        description=payload.description,
+        rerun_from_run_id=payload.rerun_from_run_id,
+        rerun_filter=payload.rerun_filter,
     )
     dispatcher = get_test_run_dispatcher(background_tasks)
     dispatcher.dispatch_test_run(test_run.id)

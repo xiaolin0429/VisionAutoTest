@@ -11,7 +11,8 @@ import {
   createTestRun,
   getRunDetail,
   getTestRunReport,
-  listReportArtifacts
+  listReportArtifacts,
+  rerunFailedCases
 } from '@/api/modules/testRuns'
 import { ApiError } from '@/api/client'
 import { formatDateTime } from '@/utils/format'
@@ -42,6 +43,7 @@ const router = useRouter()
 const loading = ref(false)
 const reportLoading = ref(false)
 const rerunLoading = ref(false)
+const rerunFailedLoading = ref(false)
 const cancelLoading = ref(false)
 const runDetail = ref<RunDetail | null>(null)
 const runReport = ref<RunReport | null>(null)
@@ -510,6 +512,28 @@ async function handleRerun() {
   }
 }
 
+async function handleRerunFailed() {
+  const detail = runDetail.value
+  if (!detail) {
+    return
+  }
+
+  rerunFailedLoading.value = true
+  try {
+    const newRun = await rerunFailedCases(detail.id)
+    ElMessage.success('重跑批次已创建，正在跳转…')
+    void router.push(`/runs/${newRun.id}`)
+  } catch (error) {
+    if (error instanceof ApiError && error.code === 'NO_FAILED_CASES_TO_RERUN') {
+      ElMessage.warning('该批次无失败用例，无需重跑')
+    } else {
+      ElMessage.error('重跑失败，请稍后重试')
+    }
+  } finally {
+    rerunFailedLoading.value = false
+  }
+}
+
 async function handleCancelRun() {
   const detail = runDetail.value
   if (!detail) {
@@ -611,6 +635,16 @@ onBeforeUnmount(() => {
             @click="handleRerun"
           >
             重新执行
+          </el-button>
+          <el-button
+            v-if="runDetail && !ACTIVE_RUN_STATUSES.has(runDetail.status) && (runDetail.summary.failedCases > 0 || runDetail.summary.errorCases > 0)"
+            :loading="rerunFailedLoading"
+            plain
+            size="small"
+            type="warning"
+            @click="handleRerunFailed"
+          >
+            重跑失败项
           </el-button>
         </div>
       </template>
