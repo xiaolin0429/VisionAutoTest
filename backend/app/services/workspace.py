@@ -22,7 +22,21 @@ from app.services.helpers import (
     require_workspace_admin,
     validate_ordered_sequence,
 )
-def _workspace_member_row(db: Session, *, workspace_id: int, user_id: int) -> WorkspaceMember | None:
+
+
+def _workspace_member_row(
+    db: Session, *, workspace_id: int, user_id: int
+) -> WorkspaceMember | None:
+    """Fetch a workspace-member row for one user inside one workspace.
+
+    Args:
+        db: Active database session.
+        workspace_id: Workspace being inspected.
+        user_id: User whose membership row should be loaded.
+
+    Returns:
+        The matching membership row, or ``None`` when no row exists.
+    """
     return db.scalar(
         select(WorkspaceMember).where(
             WorkspaceMember.workspace_id == workspace_id,
@@ -31,26 +45,85 @@ def _workspace_member_row(db: Session, *, workspace_id: int, user_id: int) -> Wo
     )
 
 
-def list_workspaces(db: Session, *, user: User, page: int, page_size: int, status: str | None, keyword: str | None):
-    accessible_ids = select(WorkspaceMember.workspace_id).where(WorkspaceMember.user_id == user.id, WorkspaceMember.status == "active")
+def list_workspaces(
+    db: Session,
+    *,
+    user: User,
+    page: int,
+    page_size: int,
+    status: str | None,
+    keyword: str | None,
+):
+    """List workspaces visible to the current user with optional filtering.
+
+    Args:
+        db: Active database session.
+        user: Current user requesting the workspace list.
+        page: 1-based page number.
+        page_size: Maximum items returned for the page.
+        status: Optional workspace status filter.
+        keyword: Optional keyword matched against code/name fields.
+
+    Returns:
+        A tuple of ``(items, total)`` for paginated workspace listing.
+    """
+    accessible_ids = select(WorkspaceMember.workspace_id).where(
+        WorkspaceMember.user_id == user.id, WorkspaceMember.status == "active"
+    )
     stmt = select(Workspace).where(
         Workspace.is_deleted.is_(False),
         (Workspace.owner_user_id == user.id) | (Workspace.id.in_(accessible_ids)),
     )
     if status:
         stmt = stmt.where(Workspace.status == status)
-    stmt = apply_keyword(stmt, keyword, Workspace.workspace_code, Workspace.workspace_name)
+    stmt = apply_keyword(
+        stmt, keyword, Workspace.workspace_code, Workspace.workspace_name
+    )
     total = count_total(db, stmt)
-    items = db.scalars(stmt.order_by(Workspace.id.desc()).offset((page - 1) * page_size).limit(page_size)).all()
+    items = db.scalars(
+        stmt.order_by(Workspace.id.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+    ).all()
     return items, total
 
 
-def create_workspace(db: Session, *, user: User, workspace_code: str, name: str, description: str | None, status: str) -> Workspace:
+def create_workspace(
+    db: Session,
+    *,
+    user: User,
+    workspace_code: str,
+    name: str,
+    description: str | None,
+    status: str,
+) -> Workspace:
+    """Create a workspace and seed the owner as the first workspace admin.
+
+    Args:
+        db: Active database session.
+        user: User creating and owning the workspace.
+        workspace_code: Unique workspace code.
+        name: Human-readable workspace name.
+        description: Optional workspace description.
+        status: Initial workspace status.
+
+    Returns:
+        The newly created workspace entity.
+
+    Raises:
+        ApiError: If the workspace code already exists.
+    """
     existing = db.scalar(
-        select(Workspace).where(Workspace.workspace_code == workspace_code, Workspace.is_deleted.is_(False))
+        select(Workspace).where(
+            Workspace.workspace_code == workspace_code, Workspace.is_deleted.is_(False)
+        )
     )
     if existing is not None:
-        raise ApiError(code="WORKSPACE_CODE_EXISTS", message="Workspace code already exists.", status_code=409)
+        raise ApiError(
+            code="WORKSPACE_CODE_EXISTS",
+            message="Workspace code already exists.",
+            status_code=409,
+        )
     workspace = Workspace(
         workspace_code=workspace_code,
         workspace_name=name,
@@ -75,7 +148,28 @@ def create_workspace(db: Session, *, user: User, workspace_code: str, name: str,
     return workspace
 
 
-def update_workspace(db: Session, workspace: Workspace, *, user: User, name: str | None, description: str | None, status: str | None) -> Workspace:
+def update_workspace(
+    db: Session,
+    workspace: Workspace,
+    *,
+    user: User,
+    name: str | None,
+    description: str | None,
+    status: str | None,
+) -> Workspace:
+    """Update editable workspace fields after admin permission check.
+
+    Args:
+        db: Active database session.
+        workspace: Workspace being updated.
+        user: User requesting the update.
+        name: Optional replacement workspace name.
+        description: Optional replacement description.
+        status: Optional replacement status.
+
+    Returns:
+        The refreshed workspace entity.
+    """
     require_workspace_admin(db, user, workspace.id)
     if name is not None:
         workspace.workspace_name = name
@@ -92,16 +186,24 @@ def update_workspace(db: Session, workspace: Workspace, *, user: User, name: str
 def list_members(db: Session, *, user: User, workspace_id: int):
     require_workspace_access(db, user, workspace_id)
     return db.scalars(
-        select(WorkspaceMember).where(WorkspaceMember.workspace_id == workspace_id).order_by(WorkspaceMember.id.asc())
+        select(WorkspaceMember)
+        .where(WorkspaceMember.workspace_id == workspace_id)
+        .order_by(WorkspaceMember.id.asc())
     ).all()
 
 
-def add_member(db: Session, *, user: User, workspace_id: int, user_id: int, workspace_role: str) -> WorkspaceMember:
+def add_member(
+    db: Session, *, user: User, workspace_id: int, user_id: int, workspace_role: str
+) -> WorkspaceMember:
     require_workspace_admin(db, user, workspace_id)
     require_user(db, user_id)
     existing = _workspace_member_row(db, workspace_id=workspace_id, user_id=user_id)
     if existing is not None:
-        raise ApiError(code="WORKSPACE_MEMBER_EXISTS", message="Workspace member already exists.", status_code=409)
+        raise ApiError(
+            code="WORKSPACE_MEMBER_EXISTS",
+            message="Workspace member already exists.",
+            status_code=409,
+        )
     member = WorkspaceMember(
         workspace_id=workspace_id,
         user_id=user_id,
@@ -114,7 +216,14 @@ def add_member(db: Session, *, user: User, workspace_id: int, user_id: int, work
     return member
 
 
-def update_member(db: Session, *, user: User, member: WorkspaceMember, workspace_role: str | None, status: str | None) -> WorkspaceMember:
+def update_member(
+    db: Session,
+    *,
+    user: User,
+    member: WorkspaceMember,
+    workspace_role: str | None,
+    status: str | None,
+) -> WorkspaceMember:
     require_workspace_admin(db, user, member.workspace_id)
     if workspace_role is not None:
         member.workspace_role = workspace_role
@@ -128,12 +237,20 @@ def update_member(db: Session, *, user: User, member: WorkspaceMember, workspace
 
 def remove_member(db: Session, *, user: User, member: WorkspaceMember) -> None:
     require_workspace_admin(db, user, member.workspace_id)
-    _guard_last_admin(db, member.workspace_id, member.id, "workspace_member", "inactive")
+    _guard_last_admin(
+        db, member.workspace_id, member.id, "workspace_member", "inactive"
+    )
     db.delete(member)
     db.commit()
 
 
-def _guard_last_admin(db: Session, workspace_id: int, target_member_id: int, next_role: str | None, next_status: str | None) -> None:
+def _guard_last_admin(
+    db: Session,
+    workspace_id: int,
+    target_member_id: int,
+    next_role: str | None,
+    next_status: str | None,
+) -> None:
     admins = db.scalars(
         select(WorkspaceMember).where(
             WorkspaceMember.workspace_id == workspace_id,
@@ -158,18 +275,28 @@ def _guard_last_admin(db: Session, workspace_id: int, target_member_id: int, nex
 def get_member(db: Session, member_id: int) -> WorkspaceMember:
     member = db.get(WorkspaceMember, member_id)
     if member is None:
-        raise ApiError(code="WORKSPACE_MEMBER_NOT_FOUND", message="Workspace member not found.", status_code=404)
+        raise ApiError(
+            code="WORKSPACE_MEMBER_NOT_FOUND",
+            message="Workspace member not found.",
+            status_code=404,
+        )
     return member
 
 
-def list_environment_profiles(db: Session, *, user: User, workspace_id: int, page: int, page_size: int):
+def list_environment_profiles(
+    db: Session, *, user: User, workspace_id: int, page: int, page_size: int
+):
     require_workspace_access(db, user, workspace_id)
     stmt = select(EnvironmentProfile).where(
         EnvironmentProfile.workspace_id == workspace_id,
         EnvironmentProfile.is_deleted.is_(False),
     )
     total = count_total(db, stmt)
-    items = db.scalars(stmt.order_by(EnvironmentProfile.id.desc()).offset((page - 1) * page_size).limit(page_size)).all()
+    items = db.scalars(
+        stmt.order_by(EnvironmentProfile.id.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+    ).all()
     return items, total
 
 
@@ -183,6 +310,23 @@ def create_environment_profile(
     description: str | None,
     status: str,
 ) -> EnvironmentProfile:
+    """Create an environment profile inside the given workspace.
+
+    Args:
+        db: Active database session.
+        user: User creating the environment profile.
+        workspace_id: Workspace that will own the profile.
+        profile_name: Unique profile name inside the workspace.
+        base_url: Target application base URL used by test execution.
+        description: Optional profile description.
+        status: Initial profile status.
+
+    Returns:
+        The newly created environment profile.
+
+    Raises:
+        ApiError: If another active profile in the workspace already uses the same name.
+    """
     require_workspace_access(db, user, workspace_id)
     existing = db.scalar(
         select(EnvironmentProfile).where(
@@ -212,7 +356,9 @@ def create_environment_profile(
     return profile
 
 
-def get_environment_profile(db: Session, environment_profile_id: int) -> EnvironmentProfile:
+def get_environment_profile(
+    db: Session, environment_profile_id: int
+) -> EnvironmentProfile:
     profile = db.get(EnvironmentProfile, environment_profile_id)
     if profile is None or profile.is_deleted:
         raise ApiError(
@@ -248,7 +394,9 @@ def update_environment_profile(
     return profile
 
 
-def delete_environment_profile(db: Session, *, user: User, profile: EnvironmentProfile) -> None:
+def delete_environment_profile(
+    db: Session, *, user: User, profile: EnvironmentProfile
+) -> None:
     require_workspace_access(db, user, profile.workspace_id)
     profile.is_deleted = True
     db.commit()
@@ -273,6 +421,23 @@ def create_environment_variable(
     is_secret: bool,
     description: str | None,
 ) -> EnvironmentVariable:
+    """Create one environment variable under an environment profile.
+
+    Args:
+        db: Active database session.
+        user: User creating the variable.
+        profile: Parent environment profile.
+        var_key: Unique variable key inside the profile.
+        value: Plaintext value to persist, encrypted at rest.
+        is_secret: Whether the value should be masked in API responses.
+        description: Optional operator-facing description.
+
+    Returns:
+        The newly created environment variable entity.
+
+    Raises:
+        ApiError: If the profile already contains the same variable key.
+    """
     require_workspace_access(db, user, profile.workspace_id)
     existing = db.scalar(
         select(EnvironmentVariable).where(
@@ -281,7 +446,11 @@ def create_environment_variable(
         )
     )
     if existing is not None:
-        raise ApiError(code="ENVIRONMENT_VARIABLE_KEY_EXISTS", message="Environment variable key already exists.", status_code=409)
+        raise ApiError(
+            code="ENVIRONMENT_VARIABLE_KEY_EXISTS",
+            message="Environment variable key already exists.",
+            status_code=409,
+        )
     variable = EnvironmentVariable(
         environment_profile_id=profile.id,
         var_key=var_key,
@@ -295,10 +464,16 @@ def create_environment_variable(
     return variable
 
 
-def get_environment_variable(db: Session, environment_variable_id: int) -> EnvironmentVariable:
+def get_environment_variable(
+    db: Session, environment_variable_id: int
+) -> EnvironmentVariable:
     variable = db.get(EnvironmentVariable, environment_variable_id)
     if variable is None:
-        raise ApiError(code="ENVIRONMENT_VARIABLE_NOT_FOUND", message="Environment variable not found.", status_code=404)
+        raise ApiError(
+            code="ENVIRONMENT_VARIABLE_NOT_FOUND",
+            message="Environment variable not found.",
+            status_code=404,
+        )
     return variable
 
 
@@ -324,7 +499,9 @@ def update_environment_variable(
     return variable
 
 
-def delete_environment_variable(db: Session, *, user: User, variable: EnvironmentVariable) -> None:
+def delete_environment_variable(
+    db: Session, *, user: User, variable: EnvironmentVariable
+) -> None:
     profile = get_environment_profile(db, variable.environment_profile_id)
     require_workspace_access(db, user, profile.workspace_id)
     db.delete(variable)
@@ -332,7 +509,19 @@ def delete_environment_variable(db: Session, *, user: User, variable: Environmen
 
 
 def environment_variable_view(variable: EnvironmentVariable) -> dict:
-    display_value = "******" if variable.is_secret else decrypt_sensitive_value(variable.var_value_ciphertext)
+    """Build the response payload for one environment variable.
+
+    Args:
+        variable: Persisted environment variable entity.
+
+    Returns:
+        A response dict with masked or decrypted display value depending on secrecy.
+    """
+    display_value = (
+        "******"
+        if variable.is_secret
+        else decrypt_sensitive_value(variable.var_value_ciphertext)
+    )
     payload = {
         "id": variable.id,
         "environment_profile_id": variable.environment_profile_id,
@@ -346,11 +535,19 @@ def environment_variable_view(variable: EnvironmentVariable) -> dict:
     return payload
 
 
-def list_device_profiles(db: Session, *, user: User, workspace_id: int, page: int, page_size: int):
+def list_device_profiles(
+    db: Session, *, user: User, workspace_id: int, page: int, page_size: int
+):
     require_workspace_access(db, user, workspace_id)
-    stmt = select(DeviceProfile).where(DeviceProfile.workspace_id == workspace_id, DeviceProfile.is_deleted.is_(False))
+    stmt = select(DeviceProfile).where(
+        DeviceProfile.workspace_id == workspace_id, DeviceProfile.is_deleted.is_(False)
+    )
     total = count_total(db, stmt)
-    items = db.scalars(stmt.order_by(DeviceProfile.id.desc()).offset((page - 1) * page_size).limit(page_size)).all()
+    items = db.scalars(
+        stmt.order_by(DeviceProfile.id.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+    ).all()
     return items, total
 
 
@@ -391,7 +588,11 @@ def create_device_profile(
 def get_device_profile(db: Session, device_profile_id: int) -> DeviceProfile:
     profile = db.get(DeviceProfile, device_profile_id)
     if profile is None or profile.is_deleted:
-        raise ApiError(code="DEVICE_PROFILE_NOT_FOUND", message="Device profile not found.", status_code=404)
+        raise ApiError(
+            code="DEVICE_PROFILE_NOT_FOUND",
+            message="Device profile not found.",
+            status_code=404,
+        )
     return profile
 
 
@@ -432,7 +633,9 @@ def update_device_profile(
     return profile
 
 
-def _clear_default_device_profile(db: Session, workspace_id: int, exclude_id: int | None = None) -> None:
+def _clear_default_device_profile(
+    db: Session, workspace_id: int, exclude_id: int | None = None
+) -> None:
     profiles = db.scalars(
         select(DeviceProfile).where(
             DeviceProfile.workspace_id == workspace_id,

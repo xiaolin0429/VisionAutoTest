@@ -201,6 +201,7 @@ const DEFAULT_OTP_PER_CHAR_DELAY_MS = 80
 const DEFAULT_VISUAL_ANCHOR_RATIO = 0.5
 
 function createConditionalBranchDraft(index: number): ConditionalBranchDraft {
+  // @param index Zero-based branch index used for draft ids, default labels, and branch keys.
   return {
     id: -Date.now() - index,
     branchKey: `branch_${index + 1}`,
@@ -217,6 +218,7 @@ function createConditionalBranchDraft(index: number): ConditionalBranchDraft {
 }
 
 export function createBranchChildStepDraft(index: number): StepDraft {
+  // @param index Zero-based child-step index used to seed stepNo and stable draft ids.
   return {
     id: -Date.now() - index,
     stepNo: index + 1,
@@ -270,6 +272,7 @@ function isNavigateWaitUntil(value: unknown): value is NavigateWaitUntil {
 }
 
 function isSupportedNavigateUrl(value: string) {
+  // @param value User-entered navigate target that may be a relative path or absolute URL.
   const normalized = value.trim()
   if (!normalized) {
     return false
@@ -316,6 +319,7 @@ function isInputMode(value: unknown): value is InputMode {
 }
 
 function stringifyPayload(payload: Record<string, unknown>) {
+  // @param payload Structured payload fields to be preserved in the advanced payload editor.
   const keys = Object.keys(payload)
   if (keys.length === 0) {
     return '{}'
@@ -333,6 +337,7 @@ function formatTextValue(value: unknown) {
 }
 
 function buildLocatorSummary(payload: Record<string, unknown>) {
+  // @param payload Step payload used to build a readable locator summary in step overviews.
   const locator = isLocatorType(payload.locator) ? payload.locator : 'selector'
   if (locator === 'ocr') {
     const matchMode = isOcrLocatorMatchMode(payload.ocr_match_mode)
@@ -388,6 +393,7 @@ export function getStepTypeLabel(type: StepType) {
 }
 
 export function createStepTypeOptions(options: { allowComponentCall: boolean }): StepTypeOption[] {
+  // @param options.allowComponentCall Whether the caller supports component-call as a selectable step type.
   const values: StepType[] = [
     'wait',
     'click',
@@ -411,6 +417,7 @@ export function createStepTypeOptions(options: { allowComponentCall: boolean }):
 }
 
 export function createEmptyStepDraft(index: number): StepDraft {
+  // @param index Zero-based step index used to seed draft ids and initial `stepNo`.
   return {
     id: -Date.now() - index,
     stepNo: index + 1,
@@ -456,6 +463,7 @@ export function createEmptyStepDraft(index: number): StepDraft {
 }
 
 export function normalizeStepDrafts(items: StepDraft[]) {
+  // @param items Draft list whose `stepNo` values should be rewritten into continuous editor order.
   return items.map((item, index) => ({
     ...item,
     stepNo: index + 1
@@ -463,6 +471,8 @@ export function normalizeStepDrafts(items: StepDraft[]) {
 }
 
 export function parseExtraPayloadJson(step: Pick<StepDraft, 'extraPayloadJson'>) {
+  // @param step Step draft slice containing the raw advanced-payload JSON string.
+  // @returns Parsed payload object or a validation error for the advanced payload editor.
   const raw = step.extraPayloadJson.trim()
   if (!raw) {
     return {
@@ -493,6 +503,9 @@ export function supportsOcrLocator(type: StepType): boolean {
 }
 
 export function normalizeStepByType(step: StepDraft, nextType: StepType): StepDraft {
+  // @param step Existing draft that may contain fields from a previous step type.
+  // @param nextType Target step type chosen by the user.
+  // @returns A draft reshaped so only fields relevant to the target type remain active.
   const keepLocator = supportsOcrLocator(nextType)
   return {
     ...step,
@@ -567,6 +580,7 @@ export function normalizeStepByType(step: StepDraft, nextType: StepType): StepDr
 }
 
 export function buildStepDraft(step: Step): StepDraft {
+  // @param step Persisted backend step converted into the editor's richer draft structure.
   const payload = isRecord(step.payloadJson) ? { ...step.payloadJson } : {}
   const draft = createEmptyStepDraft(step.stepNo - 1)
 

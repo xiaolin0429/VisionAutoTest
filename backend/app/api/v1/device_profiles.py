@@ -27,6 +27,16 @@ def list_device_profiles(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
+    """List device profiles in the current workspace.
+
+    Args:
+        request: FastAPI request used for paginated response wrapping.
+        page: Requested page number.
+        page_size: Requested page size.
+        workspace_id: Workspace id resolved from ``X-Workspace-Id``.
+        db: Active database session.
+        current_user: Authenticated user.
+    """
     page, page_size = page_bounds(page, page_size)
     workspace_id = require_workspace_id(workspace_id)
     items, total = workspace_service.list_device_profiles(
@@ -53,6 +63,15 @@ def create_device_profile(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
+    """Create a device profile in the current workspace.
+
+    Args:
+        payload: Device-profile create payload.
+        request: FastAPI request used for response wrapping.
+        workspace_id: Workspace id resolved from ``X-Workspace-Id``.
+        db: Active database session.
+        current_user: Authenticated user.
+    """
     workspace_id = require_workspace_id(workspace_id)
     profile = workspace_service.create_device_profile(
         db,
@@ -79,6 +98,15 @@ def patch_device_profile(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
+    """Update a device profile.
+
+    Args:
+        device_profile_id: Target device-profile id.
+        payload: Device-profile update payload.
+        request: FastAPI request used for response wrapping.
+        db: Active database session.
+        current_user: Authenticated user.
+    """
     profile = workspace_service.get_device_profile(db, device_profile_id)
     updated = workspace_service.update_device_profile(
         db,

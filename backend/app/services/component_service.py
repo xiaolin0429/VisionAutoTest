@@ -25,6 +25,20 @@ def list_components(
     keyword: str | None = None,
     status: str | None = None,
 ):
+    """List components in one workspace with optional keyword/status filters.
+
+    Args:
+        db: Active database session.
+        user: User requesting component access.
+        workspace_id: Workspace that owns the components.
+        page: 1-based page number.
+        page_size: Maximum items returned for the page.
+        keyword: Optional keyword matched against component code/name.
+        status: Optional component status filter.
+
+    Returns:
+        A tuple of ``(items, total)`` for paginated component listing.
+    """
     require_workspace_access(db, user, workspace_id)
     stmt = select(Component).where(
         Component.workspace_id == workspace_id, Component.is_deleted.is_(False)
@@ -53,6 +67,23 @@ def create_component(
     status: str,
     description: str | None,
 ) -> Component:
+    """Create a reusable component inside one workspace.
+
+    Args:
+        db: Active database session.
+        user: User creating the component.
+        workspace_id: Workspace that will own the component.
+        component_code: Unique component code inside the workspace.
+        component_name: Human-readable component name.
+        status: Initial component status.
+        description: Optional component description.
+
+    Returns:
+        The newly created component entity.
+
+    Raises:
+        ApiError: If the component code already exists.
+    """
     require_workspace_access(db, user, workspace_id)
     existing = db.scalar(
         select(Component).where(
@@ -101,6 +132,19 @@ def update_component(
     status: str | None,
     description: str | None,
 ) -> Component:
+    """Update editable component fields inside the current workspace.
+
+    Args:
+        db: Active database session.
+        user: User requesting the update.
+        component: Component being modified.
+        component_name: Optional replacement component name.
+        status: Optional replacement status.
+        description: Optional replacement description.
+
+    Returns:
+        The refreshed component entity.
+    """
     require_workspace_access(db, user, component.workspace_id)
     if component_name is not None:
         component.component_name = component_name

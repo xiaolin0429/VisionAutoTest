@@ -10,6 +10,7 @@ import type {
 import { formatStepSummary } from '@/utils/steps'
 
 function mapStep(item: TestCaseStepDTO) {
+  // @param item Backend test-case-step DTO that still uses backend naming and payload structure.
   const summary = formatStepSummary({
     type: item.step_type as StepType,
     payloadJson: item.payload_json,
@@ -35,6 +36,7 @@ function mapStep(item: TestCaseStepDTO) {
 }
 
 function mapTestCaseSummary(item: TestCaseReadDTO): TestCase {
+  // @param item Backend test-case summary DTO.
   return {
     id: item.id,
     code: item.case_code,
@@ -53,6 +55,7 @@ export async function listTestCases(options?: {
   keyword?: string
   status?: string
 }): Promise<TestCase[]> {
+  // @param options Optional keyword/status filters for the list page.
   const params: Record<string, string | number> = { page: 1, page_size: 100 }
   if (options?.keyword) {
     params.keyword = options.keyword
@@ -71,6 +74,7 @@ export async function listTestCases(options?: {
 }
 
 export async function getTestCaseDetail(testCaseId: number): Promise<TestCase> {
+  // @param testCaseId Test-case id whose summary and ordered steps should be aggregated.
   const [testCase, steps] = await Promise.all([
     requestData<TestCaseReadDTO>({
       method: 'get',
@@ -92,6 +96,7 @@ export async function getTestCaseDetail(testCaseId: number): Promise<TestCase> {
 }
 
 export async function createTestCase(payload: TestCaseCreatePayload): Promise<TestCase> {
+  // @param payload Frontend create payload using camelCase field names.
   const response = await requestData<TestCaseReadDTO>({
     method: 'post',
     url: '/test-cases',
@@ -111,6 +116,8 @@ export async function updateTestCase(
   testCaseId: number,
   payload: TestCaseUpdatePayload
 ): Promise<TestCase> {
+  // @param testCaseId Test-case id being updated.
+  // @param payload Frontend update payload using camelCase field names.
   const response = await requestData<TestCaseReadDTO>({
     method: 'patch',
     url: `/test-cases/${testCaseId}`,
@@ -126,6 +133,7 @@ export async function updateTestCase(
 }
 
 export async function cloneTestCase(testCaseId: number): Promise<TestCase> {
+  // @param testCaseId Source test-case id to clone into a new draft copy.
   const response = await requestData<TestCaseReadDTO>({
     method: 'post',
     url: `/test-cases/${testCaseId}/clone`
@@ -138,6 +146,8 @@ export async function replaceTestCaseSteps(
   testCaseId: number,
   steps: StepWritePayload[]
 ): Promise<TestCase['steps']> {
+  // @param testCaseId Test-case id whose steps should be fully replaced.
+  // @param steps Ordered frontend step payload list.
   const response = await requestData<TestCaseStepDTO[]>({
     method: 'put',
     url: `/test-cases/${testCaseId}/steps`,

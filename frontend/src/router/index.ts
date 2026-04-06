@@ -152,6 +152,8 @@ const router = createRouter({
 })
 
 function createLoginRedirect(fullPath: string) {
+  // @param fullPath Protected route the user originally tried to access.
+  // @returns A router location object that preserves the intended post-login redirect target.
   return {
     path: '/login',
     query: {
@@ -161,9 +163,13 @@ function createLoginRedirect(fullPath: string) {
 }
 
 async function ensureRouteSession(fullPath: string) {
+  // @param fullPath Current protected route used to build the fallback login redirect.
+  // @returns Null when the stored session is still usable, otherwise a login redirect target.
   const authStore = useAuthStore(pinia)
 
   try {
+    // Route guards do not perform login; they only verify that an already persisted
+    // session can still be refreshed and resolved into a valid current session.
     await authStore.bootstrapStoredSession()
     return null
   } catch (error) {
@@ -189,11 +195,15 @@ async function ensureRouteSession(fullPath: string) {
 }
 
 router.beforeEach(async (to) => {
+  // @param to Target route being entered.
+  // @returns `true` to continue navigation or a redirect target when session/workspace recovery is required.
   const authStore = useAuthStore(pinia)
   const workspaceStore = useWorkspaceStore(pinia)
   const isPublicRoute = Boolean(to.meta.public)
   const requiresWorkspace = to.meta.requiresWorkspace !== false
 
+  // Login is handled as a dedicated branch because it must support both first entry
+  // and "session exists but should not see login again" recovery behavior.
   if (to.path === '/login') {
     if (!authStore.hasSession) {
       return true
@@ -206,6 +216,8 @@ router.beforeEach(async (to) => {
       return true
     }
 
+    // Workspace bootstrap only happens after session validation so protected resource
+    // requests never run with a stale token during page entry.
     if (workspaceStore.workspaces.length === 0) {
       try {
         await workspaceStore.bootstrap()
@@ -258,6 +270,8 @@ router.beforeEach(async (to) => {
     }
   }
 
+  // `workspace-empty` is an explicit sink route for authenticated users without any
+  // accessible workspace. Keeping it separate avoids redirect loops in normal pages.
   if (authStore.hasSession && !workspaceStore.hasWorkspace && requiresWorkspace) {
     return '/workspace-empty'
   }

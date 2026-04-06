@@ -24,6 +24,7 @@ const authHttp = axios.create({
 })
 
 function readStoredSession() {
+  // @returns The persisted auth session used by auth-only requests, or null when missing/corrupted.
   const raw = localStorage.getItem(AUTH_SESSION_STORAGE_KEY)
   if (!raw) {
     return null
@@ -38,6 +39,7 @@ function readStoredSession() {
 }
 
 function createAuthorizationHeaders() {
+  // @returns Authorization headers for auth-only requests that bypass the shared client interceptors.
   const storedSession = readStoredSession()
   if (!storedSession?.accessToken) {
     return undefined
@@ -49,6 +51,7 @@ function createAuthorizationHeaders() {
 }
 
 function mapUser(item: { id: number; username: string; display_name: string }) {
+  // @param item Backend user DTO embedded inside auth responses.
   return {
     id: item.id,
     username: item.username,
@@ -60,6 +63,7 @@ export async function createSession(payload: {
   username: string
   password: string
 }): Promise<SessionPayload> {
+  // @param payload Login form payload.
   try {
     const response = await authHttp.request<ApiEnvelope<SessionResponseDTO>>({
       method: 'post',
@@ -82,6 +86,7 @@ export async function createSession(payload: {
 }
 
 export async function refreshSession(refreshToken: string): Promise<SessionRefreshPayload> {
+  // @param refreshToken Current refresh token presented by the client.
   try {
     const response = await authHttp.request<ApiEnvelope<SessionRefreshResponseDTO>>({
       method: 'post',
@@ -104,6 +109,7 @@ export async function refreshSession(refreshToken: string): Promise<SessionRefre
 }
 
 export async function getCurrentSession(): Promise<CurrentSession> {
+  // Loads `/sessions/current` using the persisted access token, independent of the shared API client.
   try {
     const response = await authHttp.request<ApiEnvelope<CurrentSessionReadDTO>>({
       method: 'get',
@@ -123,6 +129,7 @@ export async function getCurrentSession(): Promise<CurrentSession> {
 }
 
 export async function deleteCurrentSession(): Promise<void> {
+  // Revokes the current session through the auth-only HTTP client.
   try {
     await authHttp.request({
       method: 'delete',

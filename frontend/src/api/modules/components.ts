@@ -4,6 +4,8 @@ import type { Component, Step, StepType, StepWritePayload } from '@/types/models
 import { formatStepSummary } from '@/utils/steps'
 
 function mapComponent(item: ComponentReadDTO): Component {
+  // @param item Backend component summary DTO.
+  // @returns Frontend component model used by list/detail views.
   return {
     id: item.id,
     workspaceId: item.workspace_id,
@@ -18,6 +20,8 @@ function mapComponent(item: ComponentReadDTO): Component {
 }
 
 function mapStep(item: TestCaseStepDTO): Step {
+  // @param item Backend step DTO reused by component-step endpoints.
+  // @returns Frontend step model enriched with summary text for table rendering.
   const summary = formatStepSummary({
     type: item.step_type as StepType,
     payloadJson: item.payload_json,
@@ -43,6 +47,7 @@ function mapStep(item: TestCaseStepDTO): Step {
 }
 
 export async function listComponents(options?: { keyword?: string; status?: string }): Promise<Component[]> {
+  // @param options Optional keyword/status filters for the component list page.
   const response = await requestPage<ComponentReadDTO>({
     method: 'get',
     url: '/components',
@@ -61,6 +66,7 @@ export async function createComponent(payload: {
   name: string
   description?: string
 }): Promise<Component> {
+  // @param payload Frontend create payload for a component.
   const response = await requestData<ComponentReadDTO>({
     method: 'post',
     url: '/components',
@@ -75,6 +81,7 @@ export async function createComponent(payload: {
 }
 
 export async function getComponentDetail(componentId: number): Promise<Component> {
+  // @param componentId Component id whose summary should be loaded.
   const response = await requestData<ComponentReadDTO>({
     method: 'get',
     url: `/components/${componentId}`
@@ -87,6 +94,8 @@ export async function updateComponent(
   componentId: number,
   payload: { name?: string; description?: string; status?: string }
 ): Promise<void> {
+  // @param componentId Component id being updated.
+  // @param payload Frontend update payload.
   await requestVoid({
     method: 'patch',
     url: `/components/${componentId}`,
@@ -99,6 +108,7 @@ export async function updateComponent(
 }
 
 export async function getComponentSteps(componentId: number): Promise<Step[]> {
+  // @param componentId Component id whose ordered steps should be loaded.
   const response = await requestData<TestCaseStepDTO[]>({
     method: 'get',
     url: `/components/${componentId}/steps`
@@ -111,6 +121,8 @@ export async function replaceComponentSteps(
   componentId: number,
   steps: StepWritePayload[]
 ): Promise<void> {
+  // @param componentId Component id whose steps should be fully replaced.
+  // @param steps Ordered frontend step payload list.
   await requestVoid({
     method: 'put',
     url: `/components/${componentId}/steps`,

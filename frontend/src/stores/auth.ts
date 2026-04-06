@@ -47,6 +47,8 @@ export const useAuthStore = defineStore('auth', () => {
   const sessionCheckStatus = ref<SessionCheckStatus>('idle')
   const refreshing = ref(false)
 
+  // Concurrent callers share the same in-flight promise so router guards, bootstrapping,
+  // and failed-request recovery do not stampede the refresh/session endpoints.
   let refreshPromise: Promise<StoredSession | null> | null = null
   let sessionValidationPromise: Promise<CurrentSession | null> | null = null
   let refreshTimer: number | null = null
@@ -87,6 +89,8 @@ export const useAuthStore = defineStore('auth', () => {
       return
     }
 
+    // Timer-driven refresh failures happen outside an explicit user action, so the store
+    // must clear auth + workspace state itself before forcing a clean login redirect.
     sessionStorage.setItem('vat-auth-notice', SESSION_LIFECYCLE_MESSAGES[error.code])
     clearSession()
     useWorkspaceStore(pinia).reset()
@@ -112,6 +116,8 @@ export const useAuthStore = defineStore('auth', () => {
       return
     }
 
+    // Refresh slightly before expiry so ordinary API calls can keep using a valid access
+    // token instead of all converging on the response-interceptor retry path.
     const dueIn = Math.max(accessTokenExpiresAt.value - Date.now() - SESSION_REFRESH_BUFFER_MS, 0)
 
     refreshTimer = window.setTimeout(() => {
@@ -122,11 +128,14 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   function applySessionPayload(nextSession: StoredSession, nextUser: User) {
+    // @param nextSession Persisted session tokens and expiry metadata.
+    // @param nextUser User snapshot kept in sync with the current session.
     session.value = nextSession
     user.value = nextUser
   }
 
   function setSession(payload: SessionPayload) {
+    // @param payload Login response payload used to initialize local auth state.
     applySessionPayload(
       {
         sessionId: payload.sessionId,
@@ -143,6 +152,7 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   function updateSessionTokens(payload: SessionRefreshPayload) {
+    // @param payload Refresh response containing the next access/refresh token pair.
     if (!session.value || !user.value) {
       throw new ApiError('SESSION_NOT_FOUND', '当前会话不存在。')
     }
@@ -168,12 +178,15 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   function markCurrentSession(payload: CurrentSession) {
+    // @param payload Server-confirmed current session snapshot returned by `/sessions/current`.
     currentSession.value = payload
     sessionCheckStatus.value = 'valid'
     user.value = payload.user
   }
 
   async function ensureSessionAvailable(options: { forceRefresh?: boolean } = {}) {
+    // @param options.forceRefresh When true, refresh even if the current access token is not near expiry.
+    // @returns The active stored session after any required refresh completes.
     if (!session.value?.sessionId || !session.value.refreshToken) {
       throw new ApiError('SESSION_NOT_FOUND', '当前会话不存在。')
     }
@@ -196,6 +209,8 @@ export const useAuthStore = defineStore('auth', () => {
 
       try {
         const payload = await refreshSession(session.value.refreshToken)
+        // A caller may have logged out or switched session while the refresh request was
+        // in flight. In that case, do not overwrite the newer local state with old results.
         if (session.value?.sessionId !== activeSessionId) {
           return session.value
         }
@@ -212,6 +227,7 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   async function validateCurrentSession() {
+    // @returns The server-confirmed current session snapshot for the stored session.
     if (!session.value?.accessToken) {
       throw new ApiError('SESSION_NOT_FOUND', '当前会话不存在。')
     }
@@ -244,10 +260,13 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   async function bootstrapStoredSession() {
+    // @returns Null when no local session exists; otherwise the validated current session snapshot.
     if (!hasSession.value) {
       return null
     }
 
+    // App bootstrap first ensures tokens are still usable, then resolves `/sessions/current`
+    // only when we do not already hold a validated current session snapshot.
     await ensureSessionAvailable()
 
     if (sessionCheckStatus.value === 'valid' && currentSession.value) {
@@ -258,6 +277,7 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   function clearSession() {
+    // Clears in-memory auth state and scheduled refreshes without touching router state.
     clearRefreshTimer()
     refreshPromise = null
     sessionValidationPromise = null

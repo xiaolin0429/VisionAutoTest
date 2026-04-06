@@ -103,6 +103,7 @@ const canRunSuite = computed(() => {
 })
 
 function normalizeSuiteCases(items: SuiteCaseDraft[]) {
+  // @param items Suite-case drafts in arbitrary order before the dialog rewrites them into continuous order numbers.
   suiteCaseDrafts.value = items.map((item, index) => ({
     ...item,
     orderNo: index + 1
@@ -110,6 +111,8 @@ function normalizeSuiteCases(items: SuiteCaseDraft[]) {
 }
 
 function formatRunCreationError(error: unknown) {
+  // @param error Unknown request error returned by the create-run flow.
+  // @returns User-facing error text mapped from known backend execution-readiness codes.
   if (!(error instanceof ApiError)) {
     return error instanceof Error ? error.message : '创建执行批次失败，请稍后重试。'
   }
@@ -129,6 +132,7 @@ function formatRunCreationError(error: unknown) {
 }
 
 async function inspectSuiteReadiness(suite: TestSuite) {
+  // @param suite Currently selected suite whose execution-readiness summary should be loaded.
   readinessLoading.value = true
   readinessSummary.value = null
 
@@ -160,6 +164,7 @@ async function inspectSuiteReadiness(suite: TestSuite) {
 }
 
 async function loadPageData() {
+  // Loads suites, candidate cases, environments, and devices in parallel for the suite management page.
   loading.value = true
 
   try {
@@ -219,6 +224,7 @@ function openEditSuiteDialog() {
 }
 
 async function handleSaveSuite() {
+  // Creates or updates the suite dialog form depending on the active dialog mode.
   if (!suiteForm.name.trim() || (suiteDialogMode.value === 'create' && !suiteForm.code.trim())) {
     ElMessage.warning('请补齐套件编码与名称。')
     return
@@ -284,6 +290,7 @@ function openCaseDialog() {
 }
 
 function addSuiteCase() {
+  // Adds the currently selected case into the suite draft list and normalizes the order numbers.
   if (!selectedCaseToAdd.value) {
     ElMessage.warning('请先选择要加入套件的用例。')
     return
@@ -311,6 +318,8 @@ function removeSuiteCase(index: number) {
 }
 
 function moveSuiteCase(index: number, direction: -1 | 1) {
+  // @param index Current suite-case row index.
+  // @param direction Relative move direction: -1 for up, 1 for down.
   const nextIndex = index + direction
   if (nextIndex < 0 || nextIndex >= suiteCaseDrafts.value.length) {
     return
@@ -323,6 +332,7 @@ function moveSuiteCase(index: number, direction: -1 | 1) {
 }
 
 async function handleSaveSuiteCases() {
+  // Persists the full suite-case ordering as a replace-all payload.
   if (!currentSuite.value) {
     return
   }
@@ -346,6 +356,7 @@ async function handleSaveSuiteCases() {
 }
 
 async function loadSuiteDetail(suiteId: number | null) {
+  // @param suiteId Selected suite id, or null when the detail panel should be cleared.
   if (!suiteId) {
     currentSuite.value = null
     readinessSummary.value = null
@@ -365,6 +376,7 @@ async function loadSuiteDetail(suiteId: number | null) {
 }
 
 async function handleRun() {
+  // Creates a test run from the selected suite/environment/device after readiness passes.
   if (!runForm.testSuiteId || !runForm.environmentProfileId) {
     ElMessage.warning('请先补齐套件与环境信息。')
     return

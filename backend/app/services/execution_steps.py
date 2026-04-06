@@ -28,6 +28,19 @@ class ResolvedExecutionStep:
 def build_execution_steps(
     db: Session, *, workspace_id: int, test_case_id: int
 ) -> list[ResolvedExecutionStep]:
+    """Resolve a test case into the flattened execution step sequence used by the worker.
+
+    Args:
+        db: Active database session.
+        workspace_id: Workspace scope used to validate the case and referenced components.
+        test_case_id: Test case whose steps should be expanded for execution.
+
+    Returns:
+        A flattened step list with contiguous ``step_no`` values.
+
+    Raises:
+        ApiError: If the test case does not exist in the given workspace.
+    """
     test_case = db.get(TestCase, test_case_id)
     if (
         test_case is None
@@ -94,6 +107,14 @@ def build_execution_steps(
 def build_conditional_branch_steps(
     *, case_step: TestCaseStep
 ) -> list[ResolvedExecutionStep]:
+    """Expand a conditional branch step into its parent node plus branch child steps.
+
+    Args:
+        case_step: The persisted ``conditional_branch`` test case step.
+
+    Returns:
+        A list containing the branch parent step followed by all declared child steps.
+    """
     payload = case_step.payload_json or {}
     steps: list[ResolvedExecutionStep] = [
         ResolvedExecutionStep(
@@ -201,6 +222,19 @@ def build_conditional_branch_steps(
 def get_component_in_workspace(
     db: Session, *, workspace_id: int, component_id: int | None
 ) -> Component:
+    """Load a component while enforcing workspace ownership and soft-delete rules.
+
+    Args:
+        db: Active database session.
+        workspace_id: Workspace that the calling test case belongs to.
+        component_id: Referenced component id from a ``component_call`` step.
+
+    Returns:
+        The resolved component entity.
+
+    Raises:
+        ApiError: If the component is missing or not accessible in the workspace.
+    """
     if component_id is None:
         raise ApiError(
             code="COMPONENT_NOT_FOUND", message="Component not found.", status_code=404

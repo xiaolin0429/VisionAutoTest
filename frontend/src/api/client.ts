@@ -27,12 +27,18 @@ const http = axios.create({
 export { ApiError }
 
 export function clearPersistedAuthState() {
+  // Clears all persisted client-side auth/workspace state.
+  // This is used when session lifecycle recovery is no longer possible in place.
   localStorage.removeItem(AUTH_SESSION_STORAGE_KEY)
   localStorage.removeItem(AUTH_USER_STORAGE_KEY)
   localStorage.removeItem(WORKSPACE_STORAGE_KEY)
 }
 
 function shouldSkipAutoRefresh(requestUrl: string) {
+  // @param requestUrl Request URL used to identify lifecycle endpoints.
+  // @returns True when the global 401 refresh flow must not retry this request.
+  // Session creation/inspection/refresh endpoints are the lifecycle source of truth.
+  // Retrying them through the global 401 refresh flow would recurse into the same boundary.
   return (
     requestUrl.endsWith('/sessions') ||
     requestUrl.endsWith('/sessions/current') ||
@@ -41,6 +47,7 @@ function shouldSkipAutoRefresh(requestUrl: string) {
 }
 
 function redirectToLoginWithNotice(message?: string) {
+  // @param message Optional notice shown after redirect when the session has expired or been revoked.
   const redirectTarget = `${window.location.pathname}${window.location.search}${window.location.hash}`
   redirectToLoginPage({
     redirectPath: redirectTarget,
@@ -56,6 +63,8 @@ http.interceptors.request.use((config) => {
     : localStorage.getItem(WORKSPACE_STORAGE_KEY)
   const headers = AxiosHeaders.from(config.headers)
 
+  // Authorization and workspace scope are injected centrally so feature modules stay
+  // resource-oriented instead of re-implementing cross-cutting request context.
   if (authStore.session?.accessToken) {
     headers.set(
       'Authorization',
@@ -85,6 +94,8 @@ http.interceptors.response.use(
       !requestConfig._vatRetried &&
       !shouldSkipAutoRefresh(requestUrl)
 
+    // A protected request gets exactly one silent refresh + replay attempt.
+    // The retried flag prevents loops when the new token is also rejected.
     if (shouldAttemptRefresh) {
       try {
         await authStore.ensureSessionAvailable({ forceRefresh: true })
@@ -110,6 +121,8 @@ http.interceptors.response.use(
             normalizedRefreshError.code
           )
         ) {
+          // Lifecycle failures mean the client can no longer recover in place.
+          // Clear both auth and workspace context before sending the user back to login.
           resetClientSessionState()
           clearPersistedAuthState()
           redirectToLoginWithNotice(resolveSessionLifecycleMessage(normalizedRefreshError))
@@ -124,11 +137,14 @@ http.interceptors.response.use(
 )
 
 export async function requestData<T>(config: AxiosRequestConfig): Promise<T> {
+  // @param config Axios request config for an API endpoint that returns the standard data envelope.
+  // @returns The unwrapped `data` payload so callers stay focused on domain models.
   const response = await http.request<ApiEnvelope<T>>(config)
   return response.data.data
 }
 
 export async function requestVoid(config: AxiosRequestConfig): Promise<void> {
+  // @param config Axios request config for endpoints whose success does not expose a typed payload.
   await http.request({
     ...config,
     responseType: 'text'
@@ -136,6 +152,8 @@ export async function requestVoid(config: AxiosRequestConfig): Promise<void> {
 }
 
 export async function requestBlob(config: AxiosRequestConfig): Promise<Blob> {
+  // @param config Axios request config for binary/media endpoints.
+  // @returns The raw blob body returned by the server.
   const response = await http.request<Blob>({
     ...config,
     responseType: 'blob'
@@ -146,6 +164,8 @@ export async function requestBlob(config: AxiosRequestConfig): Promise<Blob> {
 export async function requestPage<T>(
   config: AxiosRequestConfig
 ): Promise<PaginatedEnvelope<T>> {
+  // @param config Axios request config for list endpoints using the shared paginated envelope.
+  // @returns The full paginated response so callers can access items and pagination metadata.
   const response = await http.request<PaginatedEnvelope<T>>(config)
   return response.data
 }

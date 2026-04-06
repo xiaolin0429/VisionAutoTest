@@ -24,6 +24,20 @@ def list_test_cases(
     status: str | None,
     keyword: str | None,
 ):
+    """List test cases in one workspace with optional keyword/status filters.
+
+    Args:
+        db: Active database session.
+        user: User requesting test-case access.
+        workspace_id: Workspace that owns the test cases.
+        page: 1-based page number.
+        page_size: Maximum items returned for the page.
+        status: Optional test-case status filter.
+        keyword: Optional keyword matched against case code/name.
+
+    Returns:
+        A tuple of ``(items, total)`` for paginated test-case listing.
+    """
     require_workspace_access(db, user, workspace_id)
     stmt = select(TestCase).where(
         TestCase.workspace_id == workspace_id, TestCase.is_deleted.is_(False)
@@ -51,6 +65,24 @@ def create_test_case(
     priority: str,
     description: str | None,
 ) -> TestCase:
+    """Create a test case inside one workspace.
+
+    Args:
+        db: Active database session.
+        user: User creating the test case.
+        workspace_id: Workspace that will own the test case.
+        case_code: Unique case code inside the workspace.
+        case_name: Human-readable case name.
+        status: Initial case status.
+        priority: Initial case priority.
+        description: Optional case description.
+
+    Returns:
+        The newly created test case entity.
+
+    Raises:
+        ApiError: If the case code already exists.
+    """
     require_workspace_access(db, user, workspace_id)
     existing = db.scalar(
         select(TestCase).where(
@@ -100,6 +132,20 @@ def update_test_case(
     priority: str | None,
     description: str | None,
 ) -> TestCase:
+    """Update editable fields on an existing test case.
+
+    Args:
+        db: Active database session.
+        user: User requesting the update.
+        test_case: Test case being modified.
+        case_name: Optional replacement case name.
+        status: Optional replacement status.
+        priority: Optional replacement priority.
+        description: Optional replacement description.
+
+    Returns:
+        The refreshed test case entity.
+    """
     require_workspace_access(db, user, test_case.workspace_id)
     if case_name is not None:
         test_case.case_name = case_name
@@ -127,6 +173,16 @@ def list_test_case_steps(
 
 
 def clone_test_case(db: Session, *, user: User, test_case: TestCase) -> TestCase:
+    """Clone a test case and copy all persisted steps into the new draft copy.
+
+    Args:
+        db: Active database session.
+        user: User performing the clone.
+        test_case: Source test case being copied.
+
+    Returns:
+        The newly created draft test case copy.
+    """
     require_workspace_access(db, user, test_case.workspace_id)
     timestamp_suffix = utc_now().strftime("%Y%m%d%H%M%S")
     new_code = f"{test_case.case_code}_copy_{timestamp_suffix}"

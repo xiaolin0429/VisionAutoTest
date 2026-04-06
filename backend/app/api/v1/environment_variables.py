@@ -23,6 +23,14 @@ def list_environment_variables(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
+    """List variables under one environment profile.
+
+    Args:
+        environment_profile_id: Parent environment-profile id.
+        request: FastAPI request used for response wrapping.
+        db: Active database session.
+        current_user: Authenticated user.
+    """
     profile = workspace_service.get_environment_profile(db, environment_profile_id)
     items = workspace_service.list_environment_variables(
         db, user=current_user, profile=profile
@@ -41,6 +49,15 @@ def create_environment_variable(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
+    """Create an environment variable under one profile.
+
+    Args:
+        environment_profile_id: Parent environment-profile id.
+        payload: Environment-variable create payload.
+        request: FastAPI request used for response wrapping.
+        db: Active database session.
+        current_user: Authenticated user.
+    """
     profile = workspace_service.get_environment_profile(db, environment_profile_id)
     variable = workspace_service.create_environment_variable(
         db,
@@ -68,6 +85,15 @@ def patch_environment_variable(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
+    """Update an environment variable.
+
+    Args:
+        environment_variable_id: Target environment-variable id.
+        payload: Environment-variable update payload.
+        request: FastAPI request used for response wrapping.
+        db: Active database session.
+        current_user: Authenticated user.
+    """
     variable = workspace_service.get_environment_variable(db, environment_variable_id)
     updated = workspace_service.update_environment_variable(
         db,
@@ -91,6 +117,13 @@ def delete_environment_variable(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
+    """Delete an environment variable.
+
+    Args:
+        environment_variable_id: Target environment-variable id.
+        db: Active database session.
+        current_user: Authenticated user.
+    """
     variable = workspace_service.get_environment_variable(db, environment_variable_id)
     workspace_service.delete_environment_variable(
         db, user=current_user, variable=variable

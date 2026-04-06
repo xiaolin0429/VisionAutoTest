@@ -27,6 +27,16 @@ def list_environment_profiles(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
+    """List environment profiles in the current workspace.
+
+    Args:
+        request: FastAPI request used for paginated response wrapping.
+        page: Requested page number.
+        page_size: Requested page size.
+        workspace_id: Workspace id resolved from ``X-Workspace-Id``.
+        db: Active database session.
+        current_user: Authenticated user.
+    """
     page, page_size = page_bounds(page, page_size)
     workspace_id = require_workspace_id(workspace_id)
     items, total = workspace_service.list_environment_profiles(
@@ -53,6 +63,15 @@ def create_environment_profile(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
+    """Create an environment profile in the current workspace.
+
+    Args:
+        payload: Environment-profile create payload.
+        request: FastAPI request used for response wrapping.
+        workspace_id: Workspace id resolved from ``X-Workspace-Id``.
+        db: Active database session.
+        current_user: Authenticated user.
+    """
     workspace_id = require_workspace_id(workspace_id)
     profile = workspace_service.create_environment_profile(
         db,
@@ -88,6 +107,15 @@ def patch_environment_profile(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
+    """Update an environment profile.
+
+    Args:
+        environment_profile_id: Target environment-profile id.
+        payload: Environment-profile update payload.
+        request: FastAPI request used for response wrapping.
+        db: Active database session.
+        current_user: Authenticated user.
+    """
     profile = workspace_service.get_environment_profile(db, environment_profile_id)
     updated = workspace_service.update_environment_profile(
         db,
@@ -107,6 +135,13 @@ def delete_environment_profile(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
+    """Soft-delete an environment profile.
+
+    Args:
+        environment_profile_id: Target environment-profile id.
+        db: Active database session.
+        current_user: Authenticated user.
+    """
     profile = workspace_service.get_environment_profile(db, environment_profile_id)
     workspace_service.delete_environment_profile(db, user=current_user, profile=profile)
     return no_content_response()

@@ -63,6 +63,7 @@ const emit = defineEmits<{
 }>()
 
 function formatComponentLabel(component: Component) {
+  // @param component Component shown in the component-call selector.
   if (props.formatComponentOptionLabelFn) {
     return props.formatComponentOptionLabelFn(component)
   }
@@ -70,10 +71,12 @@ function formatComponentLabel(component: Component) {
 }
 
 function handleClose() {
+  // Closes the dialog through the controlled `visible` prop channel.
   emit('update:visible', false)
 }
 
 function showLocatorFields(step: StepDraft) {
+  // @param step Current step draft whose type and scroll target determine whether locator configuration is meaningful.
   if (!supportsOcrLocator(step.type)) {
     return false
   }
@@ -82,6 +85,7 @@ function showLocatorFields(step: StepDraft) {
 }
 
 function branchChildTypeOptions() {
+  // @returns The restricted step types supported inside conditional-branch child steps.
   return [
     { label: STEP_TYPE_LABELS.wait, value: 'wait' },
     { label: STEP_TYPE_LABELS.click, value: 'click' },
@@ -95,6 +99,8 @@ function branchChildTypeOptions() {
 }
 
 function updateBranchChildType(step: StepDraft, nextType: string | number | boolean) {
+  // @param step Branch child draft being updated.
+  // @param nextType Raw select value forwarded to the shared step-type normalization flow.
   emit('update-step-type', step, nextType)
 }
 </script>

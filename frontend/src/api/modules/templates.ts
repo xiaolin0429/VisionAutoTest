@@ -27,6 +27,7 @@ export interface ListTemplatesParams {
 }
 
 function mapMaskRegion(item: MaskRegionReadDTO): MaskRegion {
+  // @param item Backend mask-region DTO.
   return {
     id: item.id,
     name: item.region_name,
@@ -43,6 +44,7 @@ function mapMaskRegions(items: MaskRegionReadDTO[]) {
 }
 
 function mapBaselineRevision(item: BaselineRevisionReadDTO): BaselineRevision {
+  // @param item Backend baseline-revision DTO.
   return {
     id: item.id,
     templateId: item.template_id,
@@ -82,6 +84,8 @@ function mapTemplateOcrBlock(
   resultId: number | null,
   item: TemplateOCRResultReadDTO['blocks'][number]
 ): TemplateOcrBlock {
+  // @param resultId OCR result id used to create stable block ids for frontend selection state.
+  // @param item Backend OCR block DTO.
   return {
     id: `${resultId ?? 'pending'}-${item.order_no}`,
     text: item.text,
@@ -108,6 +112,7 @@ function mapTemplateOcrBlock(
 }
 
 function mapTemplateOcrResult(item: TemplateOCRResultReadDTO): TemplateOcrResult {
+  // @param item Backend template OCR result DTO.
   return {
     id: item.id,
     templateId: item.template_id,
@@ -129,6 +134,8 @@ function mapTemplatePreviewState(
   item: TemplatePreviewReadDTO,
   message = '预览生成成功。'
 ): TemplatePreviewState {
+  // @param item Backend processed-preview DTO.
+  // @param message UI message attached to the mapped preview state.
   return {
     status: 'ready',
     baselineRevisionId: item.baseline_revision_id,
@@ -148,6 +155,8 @@ function resolveBaselineVersion(
   currentBaselineRevisionId: number | null,
   revisions: BaselineRevisionReadDTO[]
 ) {
+  // @param currentBaselineRevisionId Current baseline revision id stored on the template summary.
+  // @param revisions Full revision list used to turn the id into a human-readable version label.
   if (!currentBaselineRevisionId) {
     return '未设置'
   }
@@ -161,6 +170,7 @@ function resolveBaselineVersion(
 }
 
 function mapTemplateSummary(item: TemplateReadDTO): Template {
+  // @param item Backend template summary DTO.
   return {
     id: item.id,
     code: item.template_code,
@@ -182,6 +192,7 @@ function mapTemplateSummary(item: TemplateReadDTO): Template {
 }
 
 export async function listTemplates(params: ListTemplatesParams = {}): Promise<Template[]> {
+  // @param params Optional keyword/status/type filters for the template list page.
   const keyword = params.keyword?.trim()
   const response = await requestPage<TemplateReadDTO>({
     method: 'get',
@@ -199,6 +210,7 @@ export async function listTemplates(params: ListTemplatesParams = {}): Promise<T
 }
 
 export async function createTemplate(payload: TemplateCreatePayload): Promise<Template> {
+  // @param payload Frontend create payload for template creation.
   const response = await requestData<TemplateReadDTO>({
     method: 'post',
     url: '/templates',
@@ -220,6 +232,8 @@ export async function updateTemplate(
   templateId: number,
   payload: TemplateUpdatePayload
 ): Promise<Template> {
+  // @param templateId Template id being updated.
+  // @param payload Frontend update payload for the template summary fields.
   const response = await requestData<TemplateReadDTO>({
     method: 'patch',
     url: `/templates/${templateId}`,
@@ -236,6 +250,7 @@ export async function updateTemplate(
 }
 
 export async function listBaselineRevisions(templateId: number): Promise<BaselineRevision[]> {
+  // @param templateId Template id whose baseline revision list should be loaded.
   const response = await requestData<BaselineRevisionReadDTO[]>({
     method: 'get',
     url: `/templates/${templateId}/baseline-revisions`
@@ -248,6 +263,8 @@ export async function createBaselineRevision(
   templateId: number,
   payload: BaselineRevisionCreatePayload
 ): Promise<BaselineRevision> {
+  // @param templateId Parent template id.
+  // @param payload Frontend baseline-revision create payload.
   const response = await requestData<BaselineRevisionReadDTO>({
     method: 'post',
     url: `/templates/${templateId}/baseline-revisions`,
@@ -263,6 +280,7 @@ export async function createBaselineRevision(
 }
 
 export async function getTemplateDetail(templateId: number): Promise<Template> {
+  // @param templateId Template id whose summary, baseline list, and mask regions should be aggregated.
   const [template, baselineRevisions, maskRegions] = await Promise.all([
     requestData<TemplateReadDTO>({
       method: 'get',
@@ -294,6 +312,8 @@ export async function createMaskRegion(
   templateId: number,
   payload: TemplateMaskCreatePayload
 ): Promise<MaskRegion> {
+  // @param templateId Parent template id.
+  // @param payload Frontend mask-region create payload.
   const response = await requestData<MaskRegionReadDTO>({
     method: 'post',
     url: `/templates/${templateId}/mask-regions`,
@@ -315,6 +335,9 @@ export async function updateMaskRegion(
   maskRegionId: number,
   payload: TemplateMaskUpdatePayload
 ): Promise<MaskRegion> {
+  // @param _templateId Unused compatibility parameter kept to match caller context.
+  // @param maskRegionId Target mask-region id.
+  // @param payload Frontend mask-region update payload.
   const response = await requestData<MaskRegionReadDTO>({
     method: 'patch',
     url: `/mask-regions/${maskRegionId}`,
@@ -332,6 +355,8 @@ export async function updateMaskRegion(
 }
 
 export async function deleteMaskRegion(_templateId: number, maskRegionId: number): Promise<void> {
+  // @param _templateId Unused compatibility parameter kept to match caller context.
+  // @param maskRegionId Target mask-region id to delete.
   await requestVoid({
     method: 'delete',
     url: `/mask-regions/${maskRegionId}`
@@ -342,6 +367,8 @@ export async function requestTemplateOcrAnalysis(
   templateId: number,
   baselineRevisionId: number
 ): Promise<TemplateOcrResult> {
+  // @param templateId Parent template id.
+  // @param baselineRevisionId Baseline revision whose OCR analysis should be triggered.
   const response = await requestData<TemplateOCRResultReadDTO>({
     method: 'post',
     url: `/templates/${templateId}/baseline-revisions/${baselineRevisionId}/ocr-results`
@@ -354,6 +381,8 @@ export async function listTemplateOcrResults(
   templateId: number,
   baselineRevisionId: number
 ): Promise<TemplateOcrResult> {
+  // @param templateId Parent template id.
+  // @param baselineRevisionId Baseline revision whose latest OCR result should be loaded.
   const response = await requestData<TemplateOCRResultReadDTO>({
     method: 'get',
     url: `/templates/${templateId}/baseline-revisions/${baselineRevisionId}/ocr-results`
@@ -367,6 +396,9 @@ export async function getTemplateProcessedPreview(
   baselineRevisionId: number,
   maskRegions?: TemplateMaskCreatePayload[]
 ): Promise<TemplatePreviewState> {
+  // @param templateId Parent template id.
+  // @param baselineRevisionId Baseline revision whose preview should be generated.
+  // @param maskRegions Optional draft mask list used to preview unsaved edits.
   const response = await requestData<TemplatePreviewReadDTO>({
     method: 'post',
     url: `/templates/${templateId}/baseline-revisions/${baselineRevisionId}/preview-images`,

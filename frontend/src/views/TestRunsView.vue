@@ -59,6 +59,7 @@ const triggerForm = reactive<{
 })
 
 async function openTriggerDialog() {
+  // Opens the trigger dialog and hydrates active suite/environment/device options for run creation.
   triggerForm.testSuiteId = null
   triggerForm.environmentProfileId = null
   triggerForm.deviceProfileId = null
@@ -76,6 +77,7 @@ async function openTriggerDialog() {
 }
 
 async function handleTriggerRun() {
+  // Submits the trigger form as a new test-run request and refreshes the run list on success.
   if (!triggerForm.testSuiteId) {
     ElMessage.warning('请选择测试套件')
     return
@@ -104,6 +106,8 @@ async function handleTriggerRun() {
 
 // ── Runs list ─────────────────────────────────────────────────────────────────
 function formatDuration(startedAt: string | null, finishedAt: string | null): string {
+  // @param startedAt Run start timestamp, or null before execution begins.
+  // @param finishedAt Run finish timestamp, or null while the run is still active.
   if (!startedAt) return '--'
   if (!finishedAt) return '进行中'
   const ms = new Date(finishedAt).getTime() - new Date(startedAt).getTime()
@@ -116,6 +120,7 @@ function formatDuration(startedAt: string | null, finishedAt: string | null): st
 }
 
 function formatPassRate(run: TestRun): string {
+  // @param run Test-run list item containing aggregate case counters.
   if (run.totalCaseCount === 0) return '--'
   return `${Math.round((run.passedCaseCount / run.totalCaseCount) * 100)}%`
 }
@@ -164,6 +169,7 @@ const metrics = computed(() => {
 })
 
 function clearPollTimer() {
+  // Stops the runs-list polling loop, if currently scheduled.
   if (pollTimer === null) {
     return
   }
@@ -173,6 +179,7 @@ function clearPollTimer() {
 }
 
 function scheduleTestRunsRefresh() {
+  // Schedules the next silent list refresh while at least one run remains active.
   clearPollTimer()
   pollTimer = window.setTimeout(() => {
     void loadTestRuns({ silent: true })
@@ -180,6 +187,7 @@ function scheduleTestRunsRefresh() {
 }
 
 async function loadTestRuns(options: { silent?: boolean } = {}) {
+  // @param options.silent When true, refresh the list without showing the page-level loading state.
   if (!options.silent || testRuns.value.length === 0) {
     loading.value = true
   }
@@ -211,10 +219,12 @@ onBeforeUnmount(() => {
 })
 
 function openRunDetail(testRunId: number) {
+  // @param testRunId Run id whose detail page should be opened.
   void router.push(`/runs/${testRunId}`)
 }
 
 async function openRunRepair(testRunId: number) {
+  // @param testRunId Run id used to resolve the most relevant repair target from run detail.
   repairingRunId.value = testRunId
   try {
     const detail = await getRunDetail(testRunId)
@@ -235,6 +245,7 @@ async function openRunRepair(testRunId: number) {
 }
 
 async function handleCancelRun(testRunId: number) {
+  // @param testRunId Active run id to transition into cancelling state.
   try {
     await ElMessageBox.confirm(
       '取消后正在执行的用例将中止，已完成的用例结果将保留。',
@@ -259,6 +270,7 @@ async function handleCancelRun(testRunId: number) {
 }
 
 async function handleRerunFailed(testRunId: number) {
+  // @param testRunId Source run whose failed/errored cases should be rerun.
   rerunFailedRunId.value = testRunId
   try {
     const newRun = await rerunFailedCases(testRunId)

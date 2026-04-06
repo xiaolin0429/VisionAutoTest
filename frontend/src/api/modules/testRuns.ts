@@ -20,10 +20,12 @@ import type {
 } from '@/types/models'
 
 function createLookupMap<T extends { id: number }>(items: T[]) {
+  // @param items DTO/model list to index by id for later denormalization.
   return new Map(items.map((item) => [item.id, item]))
 }
 
 async function loadReferenceMaps() {
+  // Loads suite/environment/device/case lookup tables used to enrich raw test-run DTOs.
   const [suites, environments, devices, cases] = await Promise.all([
     requestPage<TestSuiteReadDTO>({
       method: 'get',
@@ -59,6 +61,8 @@ function mapRun(
   item: TestRunReadDTO,
   reference: Awaited<ReturnType<typeof loadReferenceMaps>>
 ): TestRun {
+  // @param item Raw test-run DTO returned by the backend.
+  // @param reference Lookup maps used to resolve suite/environment/device display names.
   const suite = reference.suiteMap.get(item.test_suite_id)
   const environment = reference.environmentMap.get(item.environment_profile_id)
   const device = item.device_profile_id
@@ -87,6 +91,7 @@ function mapRun(
 }
 
 function mapStepResult(item: StepResultReadDTO) {
+  // @param item Backend step-result DTO enriched with repair metadata.
   const branchPrefix =
     item.parent_step_no !== null
       ? `分支 ${item.branch_name ?? item.branch_key ?? '未命名'} · `
@@ -126,6 +131,8 @@ function mapStepResult(item: StepResultReadDTO) {
 }
 
 function calcDurationSeconds(startedAt: string | null, finishedAt: string | null) {
+  // @param startedAt Run start timestamp, if execution has started.
+  // @param finishedAt Run finish timestamp, if execution has completed.
   if (!startedAt || !finishedAt) {
     return 0
   }
@@ -135,6 +142,7 @@ function calcDurationSeconds(startedAt: string | null, finishedAt: string | null
 }
 
 export async function listTestRuns(options?: { status?: string }): Promise<TestRun[]> {
+  // @param options.status Optional run-status filter for the list page.
   const params: Record<string, string | number> = { page: 1, page_size: 100 }
   if (options?.status) {
     params.status = options.status
@@ -157,6 +165,7 @@ export async function createTestRun(payload: {
   environmentProfileId: number
   deviceProfileId: number | null
 }): Promise<TestRun> {
+  // @param payload Manual trigger payload from suite/runs pages.
   const reference = await loadReferenceMaps()
   const response = await requestData<TestRunReadDTO>({
     method: 'post',
@@ -176,6 +185,7 @@ export async function createTestRun(payload: {
 }
 
 export async function rerunFailedCases(originalRunId: number): Promise<TestRun> {
+  // @param originalRunId Source run id whose failed/errored cases should be rerun.
   const reference = await loadReferenceMaps()
   const response = await requestData<TestRunReadDTO>({
     method: 'post',
@@ -189,6 +199,7 @@ export async function rerunFailedCases(originalRunId: number): Promise<TestRun> 
 }
 
 export async function cancelTestRun(testRunId: number): Promise<void> {
+  // @param testRunId Active run id to transition into cancelling state.
   await requestData<TestRunReadDTO>({
     method: 'patch',
     url: `/test-runs/${testRunId}`,
@@ -197,6 +208,7 @@ export async function cancelTestRun(testRunId: number): Promise<void> {
 }
 
 export async function getRunDetail(testRunId: number): Promise<RunDetail> {
+  // @param testRunId Run id whose detail, case runs, and step results should be aggregated for the detail page.
   const [testRun, caseRuns, reference] = await Promise.all([
     requestData<TestRunReadDTO>({
       method: 'get',
@@ -266,6 +278,7 @@ export async function getRunDetail(testRunId: number): Promise<RunDetail> {
 }
 
 function mapReportSummary(item: ReportSummaryDTO): ReportSummary {
+  // @param item Backend report summary DTO embedded inside report responses.
   return {
     status: item.status,
     counts: {
@@ -300,6 +313,7 @@ function mapReportSummary(item: ReportSummaryDTO): ReportSummary {
 }
 
 function mapRunReport(item: RunReportReadDTO): RunReport {
+  // @param item Backend run-report DTO.
   return {
     id: item.id,
     testRunId: item.test_run_id,
@@ -311,6 +325,7 @@ function mapRunReport(item: RunReportReadDTO): RunReport {
 }
 
 function mapReportArtifact(item: ReportArtifactReadDTO): ReportArtifact {
+  // @param item Backend report-artifact DTO.
   return {
     id: item.id,
     reportId: item.report_id,
@@ -324,6 +339,7 @@ function mapReportArtifact(item: ReportArtifactReadDTO): ReportArtifact {
 }
 
 export async function getTestRunReport(testRunId: number): Promise<RunReport | null> {
+  // @param testRunId Run id whose report should be loaded; returns null before report generation completes.
   try {
     const response = await requestData<RunReportReadDTO>({
       method: 'get',
@@ -341,6 +357,7 @@ export async function getTestRunReport(testRunId: number): Promise<RunReport | n
 }
 
 export async function listReportArtifacts(reportId: number): Promise<ReportArtifact[]> {
+  // @param reportId Report id whose artifact list should be loaded.
   const response = await requestData<ReportArtifactReadDTO[]>({
     method: 'get',
     url: `/reports/${reportId}/artifacts`

@@ -123,10 +123,13 @@ const currentCaseReadinessIssues = computed(() => {
 })
 
 function resolveStepRowClassName(scope: { row: { stepNo: number } }) {
+  // @param scope Table row scope used to highlight a routed step in the step list.
   return scope.row.stepNo === highlightedStepNo.value ? 'vat-step-highlight' : ''
 }
 
 function getStepTemplateOptions(step: StepDraft): StepTemplateOption[] {
+  // @param step Current step draft whose type and locator mode determine eligible template options.
+  // @returns Template options constrained by assertion strategy or visual locator requirements.
   const usesVisualLocator =
     (step.type === 'click' || step.type === 'input' || step.type === 'scroll' || step.type === 'long_press') &&
     step.locator === 'visual'
@@ -158,6 +161,7 @@ function getStepTemplateOptions(step: StepDraft): StepTemplateOption[] {
 }
 
 function formatTemplateOptionLabel(template: Template) {
+  // @param template Template shown in a step editor select option.
   const baselineLabel =
     template.currentBaselineRevisionId !== null ? `当前基准 ${template.baselineVersion}` : '无当前基准'
   return `${template.name} (#${template.id}) · ${template.status} · ${baselineLabel}`
@@ -168,6 +172,8 @@ function formatComponentOptionLabel(component: Component) {
 }
 
 function getStepTemplateHint(step: StepDraft) {
+  // @param step Current step draft whose selected template may be invalid or execution-risky.
+  // @returns Human-readable warning text shown under the template selector.
   const usesVisualLocator =
     (step.type === 'click' || step.type === 'input' || step.type === 'scroll' || step.type === 'long_press') &&
     step.locator === 'visual'
@@ -208,6 +214,7 @@ function getStepTemplateHint(step: StepDraft) {
 }
 
 async function loadCaseList() {
+  // Loads the case list plus readiness issues, then reconciles current selection with route/query state.
   const options: { keyword?: string; status?: string } = {}
   if (searchKeyword.value.trim()) {
     options.keyword = searchKeyword.value.trim()
@@ -240,6 +247,7 @@ async function loadCaseList() {
 }
 
 async function loadCaseDetail(testCaseId: number | null) {
+  // @param testCaseId Selected test-case id, or null when no case should be shown in the detail panel.
   if (!testCaseId) {
     currentCase.value = null
     highlightedStepNo.value = null
@@ -294,6 +302,7 @@ function openEditCaseDialog() {
 }
 
 async function handleSaveCase() {
+  // Creates or updates the current case dialog form depending on the active dialog mode.
   if (!caseForm.name.trim() || (caseDialogMode.value === 'create' && !caseForm.code.trim())) {
     ElMessage.warning('请补齐用例编码与名称。')
     return
@@ -331,6 +340,7 @@ async function handleSaveCase() {
 }
 
 async function publishCurrentCase() {
+  // Publishes the currently selected case so it can be referenced by suites and execution flows.
   if (!currentCase.value) {
     ElMessage.warning('请先选择一个用例。')
     return
@@ -343,6 +353,7 @@ async function publishCurrentCase() {
 }
 
 async function handleCloneCase() {
+  // Clones the selected case, then switches the page selection to the newly created copy.
   if (!currentCase.value) {
     ElMessage.warning('请先选择一个用例。')
     return

@@ -55,6 +55,11 @@ class CapturedArtifactRecord:
 
 
 def process_test_run(test_run_id: int) -> None:
+    """Execute one queued test run and persist case, step, report, and artifact state.
+
+    Args:
+        test_run_id: Id of the queued test run claimed by the dispatcher.
+    """
     with SessionLocal() as db:
         test_run = db.get(TestRun, test_run_id)
         if test_run is None:
@@ -321,6 +326,15 @@ def process_test_run(test_run_id: int) -> None:
 
 
 def _claim_test_run(db, test_run_id: int) -> TestRun | None:
+    """Atomically transition a queued test run into running state.
+
+    Args:
+        db: Active database session.
+        test_run_id: Run id the worker wants to claim.
+
+    Returns:
+        The claimed ``TestRun`` when the status update succeeds, otherwise ``None``.
+    """
     started_at = utc_now()
     claimed = db.execute(
         update(TestRun)
@@ -337,6 +351,13 @@ def _claim_test_run(db, test_run_id: int) -> TestRun | None:
 def _persist_report_artifacts(
     db, test_run_id: int, captured_artifacts: list[CapturedArtifactRecord]
 ) -> None:
+    """Attach newly captured artifacts to the persisted run report.
+
+    Args:
+        db: Active database session.
+        test_run_id: Run whose report should receive the captured artifacts.
+        captured_artifacts: In-memory artifact records collected during execution.
+    """
     if not captured_artifacts:
         return
     report = get_report_by_test_run(db, test_run_id)
@@ -377,6 +398,16 @@ def _persist_report_artifacts(
 def _build_template_contexts(
     db, *, workspace_id: int, steps
 ) -> dict[int, TemplateAssertionContext]:
+    """Collect template assertion context required by visual steps in a case.
+
+    Args:
+        db: Active database session.
+        workspace_id: Workspace scope used to ignore templates outside the current run context.
+        steps: Resolved execution steps whose payloads may reference template assets.
+
+    Returns:
+        Template assertion context keyed by template id for visual assertions and branch checks.
+    """
     template_ids: set[int] = set()
     for step in steps:
         if step.template_id is not None and step.step_type in {

@@ -90,6 +90,20 @@ def list_components(
     keyword: str | None = None,
     status: str | None = None,
 ):
+    """Compatibility facade for component listing.
+
+    Args:
+        db: Active database session.
+        user: User requesting component access.
+        workspace_id: Workspace that owns the components.
+        page: 1-based page number.
+        page_size: Maximum items returned for the page.
+        keyword: Optional keyword matched against component code/name.
+        status: Optional component status filter.
+
+    Returns:
+        The tuple returned by ``component_service.list_components``.
+    """
     return list_components_service(
         db,
         user=user,
@@ -154,6 +168,17 @@ def list_component_steps(
 def replace_component_steps(
     db: Session, *, user: User, component: Component, steps: list[dict]
 ) -> list[ComponentStep]:
+    """Replace the full ordered step list of a component.
+
+    Args:
+        db: Active database session.
+        user: User modifying the component.
+        component: Component whose steps should be fully replaced.
+        steps: Ordered step payload list from the API layer.
+
+    Returns:
+        The persisted ordered component-step list after replacement.
+    """
     require_workspace_access(db, user, component.workspace_id)
     validate_ordered_sequence(
         [item["step_no"] for item in steps],
@@ -262,6 +287,17 @@ def list_test_case_steps(
 def replace_test_case_steps(
     db: Session, *, user: User, test_case: TestCase, steps: list[dict]
 ) -> list[TestCaseStep]:
+    """Replace the full ordered step list of a test case.
+
+    Args:
+        db: Active database session.
+        user: User modifying the test case.
+        test_case: Test case whose steps should be fully replaced.
+        steps: Ordered step payload list from the API layer.
+
+    Returns:
+        The persisted ordered test-case step list after replacement.
+    """
     require_workspace_access(db, user, test_case.workspace_id)
     validate_ordered_sequence(
         [item["step_no"] for item in steps],
@@ -360,6 +396,17 @@ def list_suite_cases(
 def replace_suite_cases(
     db: Session, *, user: User, suite: TestSuite, items: list[dict]
 ) -> list[SuiteCase]:
+    """Compatibility facade for replacing suite-case membership.
+
+    Args:
+        db: Active database session.
+        user: User modifying the suite.
+        suite: Suite whose case ordering should be replaced.
+        items: Ordered suite-case payload list from the API layer.
+
+    Returns:
+        The list returned by ``suite_service.replace_suite_cases``.
+    """
     return replace_suite_cases_service(db, user=user, suite=suite, items=items)
 
 
@@ -370,6 +417,14 @@ def _assert_template(db: Session, workspace_id: int, template_id: int) -> None:
 def _validate_step_payload(
     db: Session, *, workspace_id: int, item: dict, allow_component_call: bool
 ) -> None:
+    """Delegate step payload validation to the specialized validator layer.
+
+    Args:
+        db: Active database session.
+        workspace_id: Workspace scope for template/component validation.
+        item: Raw step payload being validated.
+        allow_component_call: Whether component-call is permitted in the current resource type.
+    """
     validate_step_payload(
         db,
         workspace_id=workspace_id,

@@ -54,6 +54,20 @@ def list_media_objects(
     usage: str | None,
     status: str | None,
 ):
+    """List media objects inside one workspace with optional usage/status filters.
+
+    Args:
+        db: Active database session.
+        user: User requesting access to workspace media.
+        workspace_id: Workspace that owns the media objects.
+        page: 1-based page number.
+        page_size: Maximum items returned for the page.
+        usage: Optional media usage filter such as template or artifact.
+        status: Optional media status filter.
+
+    Returns:
+        A tuple of ``(items, total)`` for paginated media listing.
+    """
     require_workspace_access(db, user, workspace_id)
     stmt = select(MediaObject).where(MediaObject.workspace_id == workspace_id)
     if usage:
@@ -61,11 +75,36 @@ def list_media_objects(
     if status:
         stmt = stmt.where(MediaObject.status == status)
     total = count_total(db, stmt)
-    items = db.scalars(stmt.order_by(MediaObject.id.desc()).offset((page - 1) * page_size).limit(page_size)).all()
+    items = db.scalars(
+        stmt.order_by(MediaObject.id.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+    ).all()
     return items, total
 
 
-def create_media_object(db: Session, *, user: User, workspace_id: int, file: UploadFile, usage: str, remark: str | None) -> MediaObject:
+def create_media_object(
+    db: Session,
+    *,
+    user: User,
+    workspace_id: int,
+    file: UploadFile,
+    usage: str,
+    remark: str | None,
+) -> MediaObject:
+    """Create a media object from an uploaded file.
+
+    Args:
+        db: Active database session.
+        user: User uploading the file.
+        workspace_id: Workspace that will own the media object.
+        file: Uploaded file wrapper from the API layer.
+        usage: Business usage tag written to the media record.
+        remark: Optional operator-facing remark.
+
+    Returns:
+        The persisted media object, reusing an existing deduplicated record when possible.
+    """
     file_bytes = file.file.read()
     return create_media_object_from_bytes(
         db,
@@ -90,6 +129,21 @@ def create_media_object_from_bytes(
     usage: str,
     remark: str | None,
 ) -> MediaObject:
+    """Create or reuse a media object from raw bytes.
+
+    Args:
+        db: Active database session.
+        user: Optional user performing the write; ``None`` is used for system-created artifacts.
+        workspace_id: Workspace that will own the media object.
+        file_bytes: Raw file content.
+        file_name: Original or generated file name.
+        mime_type: Stored MIME type.
+        usage: Business usage tag written to the media record.
+        remark: Optional operator-facing remark.
+
+    Returns:
+        The existing deduplicated media object or the newly persisted one.
+    """
     actor = user or SYSTEM_USER
     if user is not None:
         require_workspace_access(db, user, workspace_id)
@@ -134,11 +188,22 @@ def create_media_object_from_bytes(
 def get_media_object(db: Session, media_object_id: int) -> MediaObject:
     media = db.get(MediaObject, media_object_id)
     if media is None:
-        raise ApiError(code="MEDIA_OBJECT_NOT_FOUND", message="Media object not found.", status_code=404)
+        raise ApiError(
+            code="MEDIA_OBJECT_NOT_FOUND",
+            message="Media object not found.",
+            status_code=404,
+        )
     return media
 
 
-def update_media_object(db: Session, *, user: User, media: MediaObject, status: str | None, remark: str | None) -> MediaObject:
+def update_media_object(
+    db: Session,
+    *,
+    user: User,
+    media: MediaObject,
+    status: str | None,
+    remark: str | None,
+) -> MediaObject:
     require_workspace_access(db, user, media.workspace_id)
     if status is not None and status == "deleted":
         references = media_references(db, media)
@@ -159,41 +224,88 @@ def update_media_object(db: Session, *, user: User, media: MediaObject, status: 
 
 
 def media_references(db: Session, media: MediaObject) -> list[dict]:
+    """Collect business references that still point at a media object.
+
+    Args:
+        db: Active database session.
+        media: Media object being checked for delete safety.
+
+    Returns:
+        A list of reference summaries grouped by resource type.
+    """
     references: list[dict] = []
-    baseline_count = db.scalar(
-        select(func.count()).select_from(BaselineRevision).where(BaselineRevision.media_object_id == media.id)
-    ) or 0
-    if baseline_count:
-        references.append({"resource": "baseline-revisions", "count": int(baseline_count)})
-    step_result_count = db.scalar(
-        select(func.count()).select_from(StepResult).where(
-            (StepResult.expected_media_object_id == media.id)
-            | (StepResult.actual_media_object_id == media.id)
-            | (StepResult.diff_media_object_id == media.id)
+    baseline_count = (
+        db.scalar(
+            select(func.count())
+            .select_from(BaselineRevision)
+            .where(BaselineRevision.media_object_id == media.id)
         )
-    ) or 0
+        or 0
+    )
+    if baseline_count:
+        references.append(
+            {"resource": "baseline-revisions", "count": int(baseline_count)}
+        )
+    step_result_count = (
+        db.scalar(
+            select(func.count())
+            .select_from(StepResult)
+            .where(
+                (StepResult.expected_media_object_id == media.id)
+                | (StepResult.actual_media_object_id == media.id)
+                | (StepResult.diff_media_object_id == media.id)
+            )
+        )
+        or 0
+    )
     if step_result_count:
         references.append({"resource": "step-results", "count": int(step_result_count)})
-    artifact_count = db.scalar(
-        select(func.count()).select_from(ReportArtifact).where(ReportArtifact.media_object_id == media.id)
-    ) or 0
+    artifact_count = (
+        db.scalar(
+            select(func.count())
+            .select_from(ReportArtifact)
+            .where(ReportArtifact.media_object_id == media.id)
+        )
+        or 0
+    )
     if artifact_count:
-        references.append({"resource": "report-artifacts", "count": int(artifact_count)})
+        references.append(
+            {"resource": "report-artifacts", "count": int(artifact_count)}
+        )
     return references
 
 
-def list_templates(db: Session, *, user: User, workspace_id: int, page: int, page_size: int, template_type: str | None, status: str | None, keyword: str | None):
+def list_templates(
+    db: Session,
+    *,
+    user: User,
+    workspace_id: int,
+    page: int,
+    page_size: int,
+    template_type: str | None,
+    status: str | None,
+    keyword: str | None,
+):
     require_workspace_access(db, user, workspace_id)
-    stmt = select(Template).where(Template.workspace_id == workspace_id, Template.is_deleted.is_(False))
+    stmt = select(Template).where(
+        Template.workspace_id == workspace_id, Template.is_deleted.is_(False)
+    )
     if template_type:
         stmt = stmt.where(Template.template_type == template_type)
     if status:
         stmt = stmt.where(Template.status == status)
     if keyword:
         like_value = f"%{keyword}%"
-        stmt = stmt.where((Template.template_code.ilike(like_value)) | (Template.template_name.ilike(like_value)))
+        stmt = stmt.where(
+            (Template.template_code.ilike(like_value))
+            | (Template.template_name.ilike(like_value))
+        )
     total = count_total(db, stmt)
-    items = db.scalars(stmt.order_by(Template.id.desc()).offset((page - 1) * page_size).limit(page_size)).all()
+    items = db.scalars(
+        stmt.order_by(Template.id.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+    ).all()
     return items, total
 
 
@@ -210,6 +322,26 @@ def create_template(
     status: str,
     original_media_object_id: int,
 ) -> Template:
+    """Create a template and seed its first baseline revision from the uploaded original media.
+
+    Args:
+        db: Active database session.
+        user: User creating the template.
+        workspace_id: Workspace that will own the template.
+        template_code: Unique template code inside the workspace.
+        template_name: Human-readable template name.
+        template_type: Template category such as web or mobile screen.
+        match_strategy: Visual strategy used by the template.
+        threshold_value: Matching threshold persisted on the template.
+        status: Initial template status.
+        original_media_object_id: Media object used to create the first baseline.
+
+    Returns:
+        The newly created template with ``current_baseline_revision_id`` initialized.
+
+    Raises:
+        ApiError: If the template code already exists or the media object is outside the workspace.
+    """
     require_workspace_access(db, user, workspace_id)
     _validate_template_contract(match_strategy=match_strategy, status=status)
     existing = db.scalar(
@@ -220,10 +352,18 @@ def create_template(
         )
     )
     if existing is not None:
-        raise ApiError(code="TEMPLATE_CODE_EXISTS", message="Template code already exists.", status_code=409)
+        raise ApiError(
+            code="TEMPLATE_CODE_EXISTS",
+            message="Template code already exists.",
+            status_code=409,
+        )
     media = get_media_object(db, original_media_object_id)
     if media.workspace_id != workspace_id:
-        raise ApiError(code="MEDIA_OBJECT_NOT_FOUND", message="Media object not found in workspace.", status_code=404)
+        raise ApiError(
+            code="MEDIA_OBJECT_NOT_FOUND",
+            message="Media object not found in workspace.",
+            status_code=404,
+        )
     template = Template(
         workspace_id=workspace_id,
         template_code=template_code,
@@ -256,11 +396,15 @@ def create_template(
 def get_template(db: Session, template_id: int) -> Template:
     template = db.get(Template, template_id)
     if template is None or template.is_deleted:
-        raise ApiError(code="TEMPLATE_NOT_FOUND", message="Template not found.", status_code=404)
+        raise ApiError(
+            code="TEMPLATE_NOT_FOUND", message="Template not found.", status_code=404
+        )
     return template
 
 
-def update_template(db: Session, *, user: User, template: Template, payload: dict) -> Template:
+def update_template(
+    db: Session, *, user: User, template: Template, payload: dict
+) -> Template:
     require_workspace_access(db, user, template.workspace_id)
     next_match_strategy = payload.get("match_strategy", template.match_strategy)
     next_status = payload.get("status", template.status)
@@ -277,7 +421,9 @@ def update_template(db: Session, *, user: User, template: Template, payload: dic
 def list_baseline_revisions(db: Session, *, user: User, template: Template):
     require_workspace_access(db, user, template.workspace_id)
     return db.scalars(
-        select(BaselineRevision).where(BaselineRevision.template_id == template.id).order_by(BaselineRevision.revision_no.desc())
+        select(BaselineRevision)
+        .where(BaselineRevision.template_id == template.id)
+        .order_by(BaselineRevision.revision_no.desc())
     ).all()
 
 
@@ -294,10 +440,31 @@ def create_baseline_revision(
     remark: str | None,
     is_current: bool,
 ) -> BaselineRevision:
+    """Create one baseline revision under an existing template.
+
+    Args:
+        db: Active database session.
+        user: User creating the baseline revision.
+        template: Parent template that will own the new baseline.
+        media_object_id: Media object used as the baseline image.
+        source_type: Declared source type before normalization/validation.
+        source_report_id: Optional source report id when adopting from execution output.
+        source_case_run_id: Optional source case-run id when adopting from execution output.
+        source_step_result_id: Optional source step-result id when adopting from execution output.
+        remark: Optional operator-facing remark.
+        is_current: Whether the new baseline should become the current revision.
+
+    Returns:
+        The newly created baseline revision.
+    """
     require_workspace_access(db, user, template.workspace_id)
     media = get_media_object(db, media_object_id)
     if media.workspace_id != template.workspace_id:
-        raise ApiError(code="MEDIA_OBJECT_NOT_FOUND", message="Media object not found in workspace.", status_code=404)
+        raise ApiError(
+            code="MEDIA_OBJECT_NOT_FOUND",
+            message="Media object not found in workspace.",
+            status_code=404,
+        )
     normalized_source = _normalize_baseline_source(
         db,
         template=template,
@@ -307,11 +474,21 @@ def create_baseline_revision(
         source_case_run_id=source_case_run_id,
         source_step_result_id=source_step_result_id,
     )
-    max_revision = db.scalar(
-        select(func.max(BaselineRevision.revision_no)).where(BaselineRevision.template_id == template.id)
-    ) or 0
+    max_revision = (
+        db.scalar(
+            select(func.max(BaselineRevision.revision_no)).where(
+                BaselineRevision.template_id == template.id
+            )
+        )
+        or 0
+    )
     if is_current:
-        current_list = db.scalars(select(BaselineRevision).where(BaselineRevision.template_id == template.id, BaselineRevision.is_current.is_(True))).all()
+        current_list = db.scalars(
+            select(BaselineRevision).where(
+                BaselineRevision.template_id == template.id,
+                BaselineRevision.is_current.is_(True),
+            )
+        ).all()
         for current in current_list:
             current.is_current = False
     baseline = BaselineRevision(
@@ -338,7 +515,11 @@ def create_baseline_revision(
 def get_baseline_revision(db: Session, baseline_revision_id: int) -> BaselineRevision:
     baseline = db.get(BaselineRevision, baseline_revision_id)
     if baseline is None:
-        raise ApiError(code="BASELINE_REVISION_NOT_FOUND", message="Baseline revision not found.", status_code=404)
+        raise ApiError(
+            code="BASELINE_REVISION_NOT_FOUND",
+            message="Baseline revision not found.",
+            status_code=404,
+        )
     return baseline
 
 
@@ -415,7 +596,9 @@ def analyze_template_ocr(
             code="TEMPLATE_OCR_ANALYSIS_FAILED",
             message="Template OCR analysis failed.",
             status_code=500,
-            details=[{"field": "baseline_revision_id", "reason": _format_runtime_error(exc)}],
+            details=[
+                {"field": "baseline_revision_id", "reason": _format_runtime_error(exc)}
+            ],
         ) from exc
 
     return _upsert_template_ocr_result(
@@ -472,7 +655,9 @@ def create_template_preview_images(
             code="TEMPLATE_PREVIEW_GENERATION_FAILED",
             message="Template preview generation failed.",
             status_code=500,
-            details=[{"field": "baseline_revision_id", "reason": _format_runtime_error(exc)}],
+            details=[
+                {"field": "baseline_revision_id", "reason": _format_runtime_error(exc)}
+            ],
         ) from exc
 
     overlay_media = create_media_object_from_bytes(
@@ -512,15 +697,32 @@ def create_template_preview_images(
 def list_mask_regions(db: Session, *, user: User, template: Template):
     require_workspace_access(db, user, template.workspace_id)
     return db.scalars(
-        select(TemplateMaskRegion).where(TemplateMaskRegion.template_id == template.id).order_by(TemplateMaskRegion.sort_order.asc())
+        select(TemplateMaskRegion)
+        .where(TemplateMaskRegion.template_id == template.id)
+        .order_by(TemplateMaskRegion.sort_order.asc())
     ).all()
 
 
-def _validate_ratios(x_ratio: float, y_ratio: float, width_ratio: float, height_ratio: float) -> None:
-    if not (0 <= x_ratio < 1 and 0 <= y_ratio < 1 and 0 < width_ratio <= 1 and 0 < height_ratio <= 1):
-        raise ApiError(code="MASK_REGION_OUT_OF_RANGE", message="Mask region ratios are out of range.", status_code=422)
+def _validate_ratios(
+    x_ratio: float, y_ratio: float, width_ratio: float, height_ratio: float
+) -> None:
+    if not (
+        0 <= x_ratio < 1
+        and 0 <= y_ratio < 1
+        and 0 < width_ratio <= 1
+        and 0 < height_ratio <= 1
+    ):
+        raise ApiError(
+            code="MASK_REGION_OUT_OF_RANGE",
+            message="Mask region ratios are out of range.",
+            status_code=422,
+        )
     if x_ratio + width_ratio > 1 or y_ratio + height_ratio > 1:
-        raise ApiError(code="MASK_REGION_OUT_OF_RANGE", message="Mask region exceeds template bounds.", status_code=422)
+        raise ApiError(
+            code="MASK_REGION_OUT_OF_RANGE",
+            message="Mask region exceeds template bounds.",
+            status_code=422,
+        )
 
 
 def create_mask_region(
@@ -555,11 +757,17 @@ def create_mask_region(
 def get_mask_region(db: Session, mask_region_id: int) -> TemplateMaskRegion:
     region = db.get(TemplateMaskRegion, mask_region_id)
     if region is None:
-        raise ApiError(code="MASK_REGION_NOT_FOUND", message="Mask region not found.", status_code=404)
+        raise ApiError(
+            code="MASK_REGION_NOT_FOUND",
+            message="Mask region not found.",
+            status_code=404,
+        )
     return region
 
 
-def update_mask_region(db: Session, *, user: User, region: TemplateMaskRegion, payload: dict) -> TemplateMaskRegion:
+def update_mask_region(
+    db: Session, *, user: User, region: TemplateMaskRegion, payload: dict
+) -> TemplateMaskRegion:
     template = get_template(db, region.template_id)
     require_workspace_access(db, user, template.workspace_id)
     data = {
@@ -570,7 +778,9 @@ def update_mask_region(db: Session, *, user: User, region: TemplateMaskRegion, p
         "height_ratio": payload.get("height_ratio", float(region.height_ratio)),
         "sort_order": payload.get("sort_order", region.sort_order),
     }
-    _validate_ratios(data["x_ratio"], data["y_ratio"], data["width_ratio"], data["height_ratio"])
+    _validate_ratios(
+        data["x_ratio"], data["y_ratio"], data["width_ratio"], data["height_ratio"]
+    )
     region.region_name = data["region_name"]
     region.x_ratio = data["x_ratio"]
     region.y_ratio = data["y_ratio"]
@@ -616,10 +826,18 @@ def _resolve_template_baseline_context(
 ) -> tuple[BaselineRevision, MediaObject, Path]:
     baseline = get_baseline_revision(db, baseline_revision_id)
     if baseline.template_id != template.id:
-        raise ApiError(code="BASELINE_REVISION_NOT_FOUND", message="Baseline revision not found.", status_code=404)
+        raise ApiError(
+            code="BASELINE_REVISION_NOT_FOUND",
+            message="Baseline revision not found.",
+            status_code=404,
+        )
     media = get_media_object(db, baseline.media_object_id)
     if media.workspace_id != template.workspace_id:
-        raise ApiError(code="MEDIA_OBJECT_NOT_FOUND", message="Media object not found in workspace.", status_code=404)
+        raise ApiError(
+            code="MEDIA_OBJECT_NOT_FOUND",
+            message="Media object not found in workspace.",
+            status_code=404,
+        )
     return baseline, media, storage_backend.resolve_path(media.object_key)
 
 
@@ -750,9 +968,17 @@ def _normalize_baseline_source(
     source_step_result_id: int | None,
 ) -> dict[str, int | str | None]:
     if source_type not in SUPPORTED_BASELINE_SOURCE_TYPES:
-        raise ApiError(code="BASELINE_SOURCE_TYPE_INVALID", message="Baseline revision source type is invalid.", status_code=422)
+        raise ApiError(
+            code="BASELINE_SOURCE_TYPE_INVALID",
+            message="Baseline revision source type is invalid.",
+            status_code=422,
+        )
     if source_type != "adopted_from_failure":
-        if source_report_id is not None or source_case_run_id is not None or source_step_result_id is not None:
+        if (
+            source_report_id is not None
+            or source_case_run_id is not None
+            or source_step_result_id is not None
+        ):
             raise ApiError(
                 code="BASELINE_ADOPTION_INVALID",
                 message="Failure evidence source fields are only allowed for adopted_from_failure baselines.",
@@ -817,7 +1043,9 @@ def _normalize_baseline_source(
             message="Failure evidence does not belong to the template baseline chain.",
             status_code=422,
         )
-    report = db.scalar(select(RunReport).where(RunReport.test_run_id == case_run.test_run_id))
+    report = db.scalar(
+        select(RunReport).where(RunReport.test_run_id == case_run.test_run_id)
+    )
     if report is None:
         raise ApiError(
             code="BASELINE_ADOPTION_MISMATCH",

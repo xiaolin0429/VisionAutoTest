@@ -19,6 +19,14 @@ def get_workspace_execution_readiness(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
+    """Inspect execution readiness for one workspace.
+
+    Args:
+        workspace_id: Target workspace id.
+        request: FastAPI request used for response wrapping.
+        db: Active database session.
+        current_user: Authenticated user.
+    """
     readiness = execution_service.get_workspace_execution_readiness(
         db,
         user=current_user,

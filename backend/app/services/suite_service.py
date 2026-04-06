@@ -18,6 +18,18 @@ from app.services.test_case_service import get_test_case
 def list_test_suites(
     db: Session, *, user: User, workspace_id: int, page: int, page_size: int
 ):
+    """List test suites inside one workspace.
+
+    Args:
+        db: Active database session.
+        user: User requesting suite access.
+        workspace_id: Workspace that owns the suites.
+        page: 1-based page number.
+        page_size: Maximum items returned for the page.
+
+    Returns:
+        A tuple of ``(items, total)`` for paginated suite listing.
+    """
     require_workspace_access(db, user, workspace_id)
     stmt = select(TestSuite).where(
         TestSuite.workspace_id == workspace_id, TestSuite.is_deleted.is_(False)
@@ -41,6 +53,23 @@ def create_test_suite(
     status: str,
     description: str | None,
 ) -> TestSuite:
+    """Create a test suite inside one workspace.
+
+    Args:
+        db: Active database session.
+        user: User creating the suite.
+        workspace_id: Workspace that will own the suite.
+        suite_code: Unique suite code inside the workspace.
+        suite_name: Human-readable suite name.
+        status: Initial suite status.
+        description: Optional suite description.
+
+    Returns:
+        The newly created suite entity.
+
+    Raises:
+        ApiError: If the suite code already exists.
+    """
     require_workspace_access(db, user, workspace_id)
     existing = db.scalar(
         select(TestSuite).where(
@@ -90,6 +119,19 @@ def update_test_suite(
     status: str | None,
     description: str | None,
 ) -> TestSuite:
+    """Update editable fields on an existing suite.
+
+    Args:
+        db: Active database session.
+        user: User requesting the update.
+        suite: Suite being modified.
+        suite_name: Optional replacement suite name.
+        status: Optional replacement status.
+        description: Optional replacement description.
+
+    Returns:
+        The refreshed suite entity.
+    """
     require_workspace_access(db, user, suite.workspace_id)
     if suite_name is not None:
         suite.suite_name = suite_name
@@ -117,6 +159,20 @@ def list_suite_cases(
 def replace_suite_cases(
     db: Session, *, user: User, suite: TestSuite, items: list[dict]
 ) -> list[SuiteCase]:
+    """Replace the full ordered case list for a suite.
+
+    Args:
+        db: Active database session.
+        user: User modifying the suite contents.
+        suite: Suite whose case membership should be replaced.
+        items: Ordered suite-case payload containing ``test_case_id`` and ``sort_order``.
+
+    Returns:
+        The persisted ordered suite-case list after replacement.
+
+    Raises:
+        ApiError: If order is invalid or a referenced test case is outside the workspace.
+    """
     require_workspace_access(db, user, suite.workspace_id)
     validate_ordered_sequence(
         [item["sort_order"] for item in items],
