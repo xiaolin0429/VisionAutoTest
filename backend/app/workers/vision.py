@@ -139,14 +139,16 @@ class DefaultVisionAssertionAdapter:
         baseline_bytes = context.baseline_file_path.read_bytes()
         baseline_image = self._decode_image(cv2, baseline_bytes)
         actual_image = self._decode_image(cv2, actual_png_bytes)
-        expected_image, actual_image = self._normalize_sizes(
+        normalized_expected, normalized_actual = self._normalize_sizes(
             cv2, baseline_image, actual_image
         )
-        expected_image = self._apply_masks(expected_image, context.mask_regions)
-        actual_image = self._apply_masks(actual_image, context.mask_regions)
+        masked_expected = self._apply_masks(
+            normalized_expected, context.mask_regions
+        )
+        masked_actual = self._apply_masks(normalized_actual, context.mask_regions)
 
-        expected_gray = cv2.cvtColor(expected_image, cv2.COLOR_BGR2GRAY)
-        actual_gray = cv2.cvtColor(actual_image, cv2.COLOR_BGR2GRAY)
+        expected_gray = cv2.cvtColor(masked_expected, cv2.COLOR_BGR2GRAY)
+        actual_gray = cv2.cvtColor(masked_actual, cv2.COLOR_BGR2GRAY)
         score = float(
             cv2.matchTemplate(actual_gray, expected_gray, cv2.TM_CCOEFF_NORMED).max()
         )
@@ -156,10 +158,13 @@ class DefaultVisionAssertionAdapter:
             if threshold_override is not None
             else context.threshold_value
         )
+        actual_display_image = self._render_glass_mask_regions(
+            cv2, normalized_actual, context.mask_regions
+        )
         actual_artifact = VisionArtifact(
             file_name=actual_file_name,
             content_type="image/png",
-            content_bytes=self._encode_png(cv2, actual_image),
+            content_bytes=self._encode_png(cv2, actual_display_image),
             artifact_type="actual_screenshot",
         )
         if score >= threshold:
@@ -173,7 +178,13 @@ class DefaultVisionAssertionAdapter:
         diff_artifact = VisionArtifact(
             file_name=actual_file_name.replace(".png", "-diff.png"),
             content_type="image/png",
-            content_bytes=self._build_diff_png(cv2, expected_image, actual_image),
+            content_bytes=self._build_diff_png(
+                cv2,
+                masked_expected,
+                masked_actual,
+                base_image=normalized_actual,
+                mask_regions=context.mask_regions,
+            ),
             artifact_type="diff_screenshot",
         )
         return VisionAssertionOutcome(
@@ -431,74 +442,27 @@ class DefaultVisionAssertionAdapter:
         masked_image = image.copy()
         height, width = masked_image.shape[:2]
         for region in mask_regions:
-            left = int(width * region.x_ratio)
-            top = int(height * region.y_ratio)
-            right = min(
-                width, max(left + 1, int(width * (region.x_ratio + region.width_ratio)))
-            )
-            bottom = min(
-                height,
-                max(top + 1, int(height * (region.y_ratio + region.height_ratio))),
-            )
+            bounds = self._build_region_bounds(width, height, region)
+            if bounds is None:
+                continue
+            left, top, right, bottom = bounds
             masked_image[top:bottom, left:right] = 0
         return masked_image
 
     def _build_processed_preview_image(
         self, cv2, image, mask_regions: list[MaskRegionRatio]
     ):
-        processed_image = image.copy()
-        height, width = processed_image.shape[:2]
-        for region in mask_regions:
-            left = int(width * region.x_ratio)
-            top = int(height * region.y_ratio)
-            right = min(
-                width, max(left + 1, int(width * (region.x_ratio + region.width_ratio)))
-            )
-            bottom = min(
-                height,
-                max(top + 1, int(height * (region.y_ratio + region.height_ratio))),
-            )
-            region_image = processed_image[top:bottom, left:right]
-            if region_image.size == 0:
-                continue
-            processed_image[top:bottom, left:right] = self._pixelate_region(
-                cv2, region_image
-            )
-        return processed_image
-
-    def _pixelate_region(self, cv2, region_image):
-        region_height, region_width = region_image.shape[:2]
-        if region_height <= 2 or region_width <= 2:
-            return region_image
-
-        block_size = max(8, min(region_width, region_height) // 10)
-        sample_width = max(1, region_width // block_size)
-        sample_height = max(1, region_height // block_size)
-        reduced = cv2.resize(
-            region_image,
-            (sample_width, sample_height),
-            interpolation=cv2.INTER_LINEAR,
-        )
-        return cv2.resize(
-            reduced,
-            (region_width, region_height),
-            interpolation=cv2.INTER_NEAREST,
-        )
+        return self._render_glass_mask_regions(cv2, image, mask_regions)
 
     def _build_overlay_image(self, cv2, image, mask_regions: list[MaskRegionRatio]):
         overlay = image.copy()
         layer = image.copy()
         height, width = image.shape[:2]
         for region in mask_regions:
-            left = int(width * region.x_ratio)
-            top = int(height * region.y_ratio)
-            right = min(
-                width, max(left + 1, int(width * (region.x_ratio + region.width_ratio)))
-            )
-            bottom = min(
-                height,
-                max(top + 1, int(height * (region.y_ratio + region.height_ratio))),
-            )
+            bounds = self._build_region_bounds(width, height, region)
+            if bounds is None:
+                continue
+            left, top, right, bottom = bounds
             cv2.rectangle(
                 layer, (left, top), (right - 1, bottom - 1), (0, 165, 255), thickness=-1
             )
@@ -507,6 +471,71 @@ class DefaultVisionAssertionAdapter:
             )
         overlay = cv2.addWeighted(layer, 0.22, overlay, 0.78, 0)
         return overlay
+
+    def _build_region_bounds(
+        self, image_width: int, image_height: int, region: MaskRegionRatio
+    ) -> tuple[int, int, int, int] | None:
+        left = int(image_width * region.x_ratio)
+        top = int(image_height * region.y_ratio)
+        right = min(
+            image_width,
+            max(left + 1, int(image_width * (region.x_ratio + region.width_ratio))),
+        )
+        bottom = min(
+            image_height,
+            max(top + 1, int(image_height * (region.y_ratio + region.height_ratio))),
+        )
+        left = max(0, min(left, image_width))
+        top = max(0, min(top, image_height))
+        if right <= left or bottom <= top:
+            return None
+        return left, top, right, bottom
+
+    def _render_glass_mask_regions(
+        self,
+        cv2,
+        image,
+        mask_regions: list[MaskRegionRatio],
+        *,
+        fill_color: tuple[int, int, int] = (255, 245, 215),
+        border_color: tuple[int, int, int] = (255, 190, 80),
+        fill_alpha: float = 0.32,
+        blur_kernel: int = 17,
+        border_thickness: int = 2,
+    ):
+        display_image = image.copy()
+        height, width = display_image.shape[:2]
+        for region in mask_regions:
+            bounds = self._build_region_bounds(width, height, region)
+            if bounds is None:
+                continue
+            left, top, right, bottom = bounds
+            region_image = display_image[top:bottom, left:right]
+            if region_image.size == 0:
+                continue
+
+            glass_region = region_image.copy()
+            region_height, region_width = glass_region.shape[:2]
+            kernel = min(blur_kernel, region_width, region_height)
+            if kernel >= 3:
+                if kernel % 2 == 0:
+                    kernel -= 1
+                glass_region = cv2.GaussianBlur(glass_region, (kernel, kernel), 0)
+
+            tint = glass_region.copy()
+            tint[:, :] = fill_color
+            glass_region = cv2.addWeighted(
+                tint, fill_alpha, glass_region, 1 - fill_alpha, 0
+            )
+            display_image[top:bottom, left:right] = glass_region
+            cv2.rectangle(
+                display_image,
+                (left, top),
+                (right - 1, bottom - 1),
+                border_color,
+                thickness=max(1, border_thickness),
+            )
+        return display_image
 
     def _normalize_point(self, point, image_width: int, image_height: int) -> dict:
         raw_x = float(point[0]) if len(point) > 0 else 0.0
@@ -551,10 +580,22 @@ class DefaultVisionAssertionAdapter:
         t = re.sub(r"\s+", " ", t).strip()
         return t if case_sensitive else t.lower()
 
-    def _build_diff_png(self, cv2, expected_image, actual_image) -> bytes:
+    def _build_diff_png(
+        self,
+        cv2,
+        expected_image,
+        actual_image,
+        *,
+        base_image=None,
+        mask_regions: list[MaskRegionRatio] | None = None,
+    ) -> bytes:
         diff = cv2.absdiff(expected_image, actual_image)
         gray = cv2.cvtColor(diff, cv2.COLOR_BGR2GRAY)
         _, thresholded = cv2.threshold(gray, 25, 255, cv2.THRESH_BINARY)
-        highlighted = actual_image.copy()
+        highlighted = actual_image.copy() if base_image is None else base_image.copy()
         highlighted[thresholded > 0] = (0, 0, 255)
+        if mask_regions:
+            highlighted = self._render_glass_mask_regions(
+                cv2, highlighted, mask_regions
+            )
         return self._encode_png(cv2, highlighted)
