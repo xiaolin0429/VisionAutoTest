@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        margin: 0;
+        width: 100%;
+        min-height: 100%;
+        color: #172033;
+        background: #f4f7fb;
+        font-family: Arial, sans-serif;
+      }
+
+      section {
+        position: relative;
+        height: 100vh;
+        padding: 80px 100px;
+        border-bottom: 2px solid #a7b4c6;
+      }
+
+      h1 {
+        margin: 0;
+        font-size: 34px;
+      }
+
+      p {
+        margin-top: 50px;
+        font-size: 24px;
+      }
+
+      button {
+        margin-top: 70px;
+        min-width: 260px;
+        height: 58px;
+        color: #ffffff;
+        background: #175cd3;
+        border: 2px solid #0f4db5;
+        border-radius: 10px;
+        font: 700 22px Arial, sans-serif;
+      }
+
+      #performance-target {
+        position: absolute;
+        left: 100px;
+        top: 620px;
+        font: 700 28px Arial, sans-serif;
+      }
+    </style>
+  </head>
+  <body>
+    <section>
+      <h1>Performance page first viewport</h1>
+      <p>Warm Paddle OCR page scan benchmark</p>
+      <button type="button">First viewport action</button>
+    </section>
+    <section>
+      <h1>Performance page second viewport</h1>
+      <p>Deterministic content for overlap scanning</p>
+      <button type="button">Second viewport action</button>
+    </section>
+    <section>
+      <h1>Performance page third viewport</h1>
+      <p id="performance-target">Third viewport acceptance target</p>
+      <button type="button">Third viewport action</button>
+    </section>
+  </body>
+</html>

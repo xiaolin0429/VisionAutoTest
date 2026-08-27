@@ -1,0 +1,878 @@
+{
+  "schema_version": 1,
+  "result_kind": "real_paddleocr",
+  "generated_at_utc": "2026-08-15T18:49:22.308962+00:00",
+  "command": [
+    "python",
+    "scripts/run_ocr_benchmark.py",
+    "--performance-iterations",
+    "20",
+    "--output",
+    "tests/benchmarks/results/task10-reference.json"
+  ],
+  "corpus": {
+    "id": "visionautotest-ocr-task10",
+    "version": "1.0.0",
+    "random_seed": 20260816,
+    "manifest_sha256": "b48215b998d5fd25c417479d1f07120579999c83cdf489aba814a1fd0a7e13b7",
+    "renderer": {
+      "name": "Google Chrome",
+      "version": "151.0.7922.138",
+      "executable_name": "Google Chrome",
+      "screenshot_scale": "device",
+      "locale": "en-US",
+      "timezone": "UTC"
+    }
+  },
+  "runtime": {
+    "preprocessing_profile": "balanced",
+    "max_preprocess_variants": 5,
+    "minimum_confidence": 0.4,
+    "warmup": {
+      "en": null,
+      "japan": null,
+      "korean": null,
+      "zh_en": null
+    }
+  },
+  "environment": {
+    "hardware_profile": {
+      "os_family": "Darwin",
+      "architecture": "arm64",
+      "processor_family": "Apple Silicon",
+      "memory_class": "up_to_64_gib"
+    },
+    "python": "3.11.15",
+    "packages": {
+      "paddlepaddle": "3.3.1",
+      "paddleocr": "2.10.0",
+      "opencv-python-headless": "4.14.0.94",
+      "numpy": "2.4.6",
+      "playwright": "1.62.0"
+    },
+    "chrome": "151.0.7922.138",
+    "git_commit": "45ead2ac8069f45ef7f58aa5dce23df62389e690",
+    "models": [
+      {
+        "path": "en/det/inference.pdiparams",
+        "bytes": 2377917,
+        "sha256": "83676ec730627ab4502f401410a4b6a3ce1c0bb98fa249b71db055b6bddae051"
+      },
+      {
+        "path": "en/det/inference.pdiparams.info",
+        "bytes": 26392,
+        "sha256": "2fe414d9eadf914bf44e3f9ba212988a6f26f364e4f87c6d0af57438ffffc0c4"
+      },
+      {
+        "path": "en/det/inference.pdmodel",
+        "bytes": 1590133,
+        "sha256": "c4bfb1b05d9d1d5a760801eaf6d20180ef7e47bcc675fb17d1f3a89da5fef427"
+      },
+      {
+        "path": "en/rec/inference.pdiparams",
+        "bytes": 7607269,
+        "sha256": "75f64a1ffb70c56b7a25655963ca16f5bf3286202e3f52ac972bee05cdee2f56"
+      },
+      {
+        "path": "en/rec/inference.pdiparams.info",
+        "bytes": 102540,
+        "sha256": "710d9f3d7c503067ae708f4bc3adc6973c0d6391adb7a1470c36eb70da6b5b83"
+      },
+      {
+        "path": "en/rec/inference.pdmodel",
+        "bytes": 2517366,
+        "sha256": "85b952f05f709af259cfe4254012aa7208bef0998f71f57a15495446f25ccd43"
+      },
+      {
+        "path": "japan/det/inference.pdiparams",
+        "bytes": 2377917,
+        "sha256": "a6119e639cade15873ac32eb4bee121b63c811c4d007d9f618baf680aef8b857"
+      },
+      {
+        "path": "japan/det/inference.pdiparams.info",
+        "bytes": 26392,
+        "sha256": "2fe414d9eadf914bf44e3f9ba212988a6f26f364e4f87c6d0af57438ffffc0c4"
+      },
+      {
+        "path": "japan/det/inference.pdmodel",
+        "bytes": 1441206,
+        "sha256": "c49f664c75549678deedcaff8d11f8f2b9f1303ef6c72deccdb98a5ea2104381"
+      },
+      {
+        "path": "japan/rec/inference.pdiparams",
+        "bytes": 9690407,
+        "sha256": "e6e9b7395bb8476e85a15776aa09445c483778c06a512921cbc9ba81c6a2719a"
+      },
+      {
+        "path": "japan/rec/inference.pdiparams.info",
+        "bytes": 102540,
+        "sha256": "710d9f3d7c503067ae708f4bc3adc6973c0d6391adb7a1470c36eb70da6b5b83"
+      },
+      {
+        "path": "japan/rec/inference.pdmodel",
+        "bytes": 169634,
+        "sha256": "d3339a79fa88863f639a00cd57e973cc278fa46c3eb369b88cb24bb06c96b89d"
+      },
+      {
+        "path": "korean/det/inference.pdiparams",
+        "bytes": 2377917,
+        "sha256": "a6119e639cade15873ac32eb4bee121b63c811c4d007d9f618baf680aef8b857"
+      },
+      {
+        "path": "korean/det/inference.pdiparams.info",
+        "bytes": 26392,
+        "sha256": "2fe414d9eadf914bf44e3f9ba212988a6f26f364e4f87c6d0af57438ffffc0c4"
+      },
+      {
+        "path": "korean/det/inference.pdmodel",
+        "bytes": 1441206,
+        "sha256": "c49f664c75549678deedcaff8d11f8f2b9f1303ef6c72deccdb98a5ea2104381"
+      },
+      {
+        "path": "korean/rec/inference.pdiparams",
+        "bytes": 23920621,
+        "sha256": "ea4f4762582336e9b85653b016c5b1091223c947fafd282161fa3145ecb72d1d"
+      },
+      {
+        "path": "korean/rec/inference.pdiparams.info",
+        "bytes": 95688,
+        "sha256": "533380ead7fe161fc32ac0bdc966e65c18c0d9d1a16088736c4aa3c628701374"
+      },
+      {
+        "path": "korean/rec/inference.pdmodel",
+        "bytes": 353760,
+        "sha256": "992eed58af98ed6125065027e52fbc69b570e6c2e74610ec240e8a2436151ada"
+      },
+      {
+        "path": "zh_en/det/inference.pdiparams",
+        "bytes": 4692937,
+        "sha256": "49ee815e30cff43cb1057d33bf0d94193e4d4f1ae28451cad15b40be830df915"
+      },
+      {
+        "path": "zh_en/det/inference.pdiparams.info",
+        "bytes": 23580,
+        "sha256": "4e0f29e5fa476126f9efe0dc69f7ca7be960705ad549385d30c9604193463e69"
+      },
+      {
+        "path": "zh_en/det/inference.pdmodel",
+        "bytes": 166367,
+        "sha256": "2ad68ed2768fe6c41166a5bc64680cc9f445390acb6528da449a4db2f7b90e14"
+      },
+      {
+        "path": "zh_en/rec/inference.pdiparams",
+        "bytes": 10766823,
+        "sha256": "a6dbfa63e7ee161688523c954e9e293f77dc24044db81e836ff9c7f103fd191a"
+      },
+      {
+        "path": "zh_en/rec/inference.pdiparams.info",
+        "bytes": 30643,
+        "sha256": "0706cc669bdce382f582c139906076b170b112c51bf32573fe43438025777f12"
+      },
+      {
+        "path": "zh_en/rec/inference.pdmodel",
+        "bytes": 169485,
+        "sha256": "bf78f3898a004615e69c676259d8171bd7ae99000653b41fd72aaa36ae8bd304"
+      }
+    ]
+  },
+  "accuracy": {
+    "detection": {
+      "true_positive": 34,
+      "false_positive": 0,
+      "false_negative": 0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0
+    },
+    "recognition": {
+      "edit_distance": 2,
+      "character_count": 400,
+      "cer": 0.005
+    },
+    "targeting": {
+      "disturbed_successes": 28,
+      "disturbed_attempts": 28,
+      "disturbed_success_rate": 1.0,
+      "unique_successes": 58,
+      "unique_attempts": 58,
+      "unique_success_rate": 1.0,
+      "wrong_operations": 0,
+      "wrong_operation_rate": 0.0
+    },
+    "ambiguity": {
+      "rejections": 2,
+      "attempts": 2,
+      "rejection_rate": 1.0
+    },
+    "fixtures": [
+      {
+        "fixture_id": "clear_zh_en-1280x720-dpr1",
+        "language_profile": "zh_en",
+        "quality": "clear",
+        "analysis_elapsed_ms": 667.441,
+        "predicted_block_count": 8,
+        "detection": {
+          "true_positive": 8,
+          "false_positive": 0,
+          "false_negative": 0,
+          "f1": 1.0
+        },
+        "recognition": {
+          "edit_distance": 2,
+          "character_count": 58,
+          "cer": 0.034483
+        },
+        "targeting": {
+          "successes": 8,
+          "attempts": 8,
+          "success_rate": 1.0,
+          "wrong_operations": 0,
+          "wrong_operation_rate": 0.0,
+          "failures": []
+        },
+        "ambiguity": {
+          "rejections": 0,
+          "attempts": 0,
+          "rejection_rate": 0.0,
+          "failures": []
+        }
+      },
+      {
+        "fixture_id": "clear_zh_en-1280x720-dpr2",
+        "language_profile": "zh_en",
+        "quality": "clear",
+        "analysis_elapsed_ms": 721.626,
+        "predicted_block_count": 8,
+        "detection": {
+          "true_positive": 8,
+          "false_positive": 0,
+          "false_negative": 0,
+          "f1": 1.0
+        },
+        "recognition": {
+          "edit_distance": 0,
+          "character_count": 58,
+          "cer": 0.0
+        },
+        "targeting": {
+          "successes": 8,
+          "attempts": 8,
+          "success_rate": 1.0,
+          "wrong_operations": 0,
+          "wrong_operation_rate": 0.0,
+          "failures": []
+        },
+        "ambiguity": {
+          "rejections": 0,
+          "attempts": 0,
+          "rejection_rate": 0.0,
+          "failures": []
+        }
+      },
+      {
+        "fixture_id": "clear_en_dark-1920x1080-dpr1",
+        "language_profile": "en",
+        "quality": "clear",
+        "analysis_elapsed_ms": 901.787,
+        "predicted_block_count": 9,
+        "detection": {
+          "true_positive": 9,
+          "false_positive": 0,
+          "false_negative": 0,
+          "f1": 1.0
+        },
+        "recognition": {
+          "edit_distance": 0,
+          "character_count": 142,
+          "cer": 0.0
+        },
+        "targeting": {
+          "successes": 7,
+          "attempts": 7,
+          "success_rate": 1.0,
+          "wrong_operations": 0,
+          "wrong_operation_rate": 0.0,
+          "failures": []
+        },
+        "ambiguity": {
+          "rejections": 1,
+          "attempts": 1,
+          "rejection_rate": 1.0,
+          "failures": []
+        }
+      },
+      {
+        "fixture_id": "clear_en_dark-1920x1080-dpr2",
+        "language_profile": "en",
+        "quality": "clear",
+        "analysis_elapsed_ms": 1551.597,
+        "predicted_block_count": 9,
+        "detection": {
+          "true_positive": 9,
+          "false_positive": 0,
+          "false_negative": 0,
+          "f1": 1.0
+        },
+        "recognition": {
+          "edit_distance": 0,
+          "character_count": 142,
+          "cer": 0.0
+        },
+        "targeting": {
+          "successes": 7,
+          "attempts": 7,
+          "success_rate": 1.0,
+          "wrong_operations": 0,
+          "wrong_operation_rate": 0.0,
+          "failures": []
+        },
+        "ambiguity": {
+          "rejections": 1,
+          "attempts": 1,
+          "rejection_rate": 1.0,
+          "failures": []
+        }
+      },
+      {
+        "fixture_id": "disturbed_japanese-1440x900-dpr1",
+        "language_profile": "japan",
+        "quality": "disturbed",
+        "analysis_elapsed_ms": 539.79,
+        "predicted_block_count": 7,
+        "detection": {
+          "true_positive": 0,
+          "false_positive": 0,
+          "false_negative": 0,
+          "f1": 1.0
+        },
+        "recognition": {
+          "edit_distance": 0,
+          "character_count": 0,
+          "cer": 0.0
+        },
+        "targeting": {
+          "successes": 7,
+          "attempts": 7,
+          "success_rate": 1.0,
+          "wrong_operations": 0,
+          "wrong_operation_rate": 0.0,
+          "failures": []
+        },
+        "ambiguity": {
+          "rejections": 0,
+          "attempts": 0,
+          "rejection_rate": 0.0,
+          "failures": []
+        }
+      },
+      {
+        "fixture_id": "disturbed_japanese-1440x900-dpr2",
+        "language_profile": "japan",
+        "quality": "disturbed",
+        "analysis_elapsed_ms": 738.973,
+        "predicted_block_count": 7,
+        "detection": {
+          "true_positive": 0,
+          "false_positive": 0,
+          "false_negative": 0,
+          "f1": 1.0
+        },
+        "recognition": {
+          "edit_distance": 0,
+          "character_count": 0,
+          "cer": 0.0
+        },
+        "targeting": {
+          "successes": 7,
+          "attempts": 7,
+          "success_rate": 1.0,
+          "wrong_operations": 0,
+          "wrong_operation_rate": 0.0,
+          "failures": []
+        },
+        "ambiguity": {
+          "rejections": 0,
+          "attempts": 0,
+          "rejection_rate": 0.0,
+          "failures": []
+        }
+      },
+      {
+        "fixture_id": "disturbed_korean_mobile-390x844-dpr1",
+        "language_profile": "korean",
+        "quality": "disturbed",
+        "analysis_elapsed_ms": 1681.895,
+        "predicted_block_count": 12,
+        "detection": {
+          "true_positive": 0,
+          "false_positive": 0,
+          "false_negative": 0,
+          "f1": 1.0
+        },
+        "recognition": {
+          "edit_distance": 0,
+          "character_count": 0,
+          "cer": 0.0
+        },
+        "targeting": {
+          "successes": 7,
+          "attempts": 7,
+          "success_rate": 1.0,
+          "wrong_operations": 0,
+          "wrong_operation_rate": 0.0,
+          "failures": []
+        },
+        "ambiguity": {
+          "rejections": 0,
+          "attempts": 0,
+          "rejection_rate": 0.0,
+          "failures": []
+        }
+      },
+      {
+        "fixture_id": "disturbed_korean_mobile-390x844-dpr2",
+        "language_profile": "korean",
+        "quality": "disturbed",
+        "analysis_elapsed_ms": 1910.88,
+        "predicted_block_count": 13,
+        "detection": {
+          "true_positive": 0,
+          "false_positive": 0,
+          "false_negative": 0,
+          "f1": 1.0
+        },
+        "recognition": {
+          "edit_distance": 0,
+          "character_count": 0,
+          "cer": 0.0
+        },
+        "targeting": {
+          "successes": 7,
+          "attempts": 7,
+          "success_rate": 1.0,
+          "wrong_operations": 0,
+          "wrong_operation_rate": 0.0,
+          "failures": []
+        },
+        "ambiguity": {
+          "rejections": 0,
+          "attempts": 0,
+          "rejection_rate": 0.0,
+          "failures": []
+        }
+      }
+    ]
+  },
+  "performance": {
+    "chrome_version": "151.0.7922.138",
+    "iterations": 20,
+    "viewport_1920x1080": {
+      "sample_count": 20,
+      "minimum_ms": 912.991,
+      "median_ms": 923.323,
+      "p95_ms": 941.646,
+      "maximum_ms": 942.903,
+      "samples_ms": [
+        942.903,
+        924.897,
+        912.991,
+        933.328,
+        915.759,
+        925.485,
+        928.695,
+        919.109,
+        923.025,
+        921.929,
+        917.977,
+        923.323,
+        924.032,
+        922.523,
+        927.488,
+        919.595,
+        941.646,
+        928.617,
+        918.821,
+        926.217
+      ]
+    },
+    "three_viewport_page": {
+      "sample_count": 20,
+      "minimum_ms": 1969.786,
+      "median_ms": 1989.305,
+      "p95_ms": 2008.594,
+      "maximum_ms": 2010.918,
+      "samples_ms": [
+        1988.234,
+        1981.435,
+        1969.786,
+        1992.614,
+        2010.918,
+        1998.287,
+        1980.136,
+        1982.366,
+        1986.171,
+        1998.01,
+        1985.564,
+        1981.342,
+        2000.705,
+        1997.014,
+        1993.4,
+        1989.305,
+        1985.836,
+        2007.998,
+        2008.594,
+        1999.723
+      ]
+    }
+  },
+  "web_e2e": {
+    "case_count": 4,
+    "step_attempts": 28,
+    "step_successes": 28,
+    "step_success_rate": 1.0,
+    "unique_interaction_attempts": 20,
+    "unique_interaction_successes": 20,
+    "unique_interaction_success_rate": 1.0,
+    "wrong_operations": 0,
+    "wrong_operation_rate": 0.0,
+    "cases": [
+      {
+        "case_id": "desktop-dpr1",
+        "viewport_css": [
+          900,
+          900
+        ],
+        "device_scale_factor": 1,
+        "step_attempts": 7,
+        "step_successes": 7,
+        "action_attempts": 5,
+        "action_successes": 5,
+        "wrong_operations": 0,
+        "steps": [
+          {
+            "step_type": "click",
+            "status": "passed",
+            "verification_passed": true,
+            "passed": true,
+            "elapsed_ms": 1709.66,
+            "error": null
+          },
+          {
+            "step_type": "input",
+            "status": "passed",
+            "verification_passed": true,
+            "passed": true,
+            "elapsed_ms": 2362.755,
+            "error": null
+          },
+          {
+            "step_type": "select_option",
+            "status": "passed",
+            "verification_passed": true,
+            "passed": true,
+            "elapsed_ms": 3801.631,
+            "error": null
+          },
+          {
+            "step_type": "long_press",
+            "status": "passed",
+            "verification_passed": true,
+            "passed": true,
+            "elapsed_ms": 1052.868,
+            "error": null
+          },
+          {
+            "step_type": "scroll",
+            "status": "passed",
+            "verification_passed": true,
+            "passed": true,
+            "elapsed_ms": 1669.887,
+            "error": null
+          },
+          {
+            "step_type": "conditional_branch",
+            "status": "passed",
+            "verification_passed": true,
+            "passed": true,
+            "elapsed_ms": 717.445,
+            "error": "命中分支：OCR Ready"
+          },
+          {
+            "step_type": "ocr_assert",
+            "status": "passed",
+            "verification_passed": true,
+            "passed": true,
+            "elapsed_ms": 26.176,
+            "error": null
+          }
+        ]
+      },
+      {
+        "case_id": "desktop-dpr2",
+        "viewport_css": [
+          900,
+          900
+        ],
+        "device_scale_factor": 2,
+        "step_attempts": 7,
+        "step_successes": 7,
+        "action_attempts": 5,
+        "action_successes": 5,
+        "wrong_operations": 0,
+        "steps": [
+          {
+            "step_type": "click",
+            "status": "passed",
+            "verification_passed": true,
+            "passed": true,
+            "elapsed_ms": 1613.927,
+            "error": null
+          },
+          {
+            "step_type": "input",
+            "status": "passed",
+            "verification_passed": true,
+            "passed": true,
+            "elapsed_ms": 2337.428,
+            "error": null
+          },
+          {
+            "step_type": "select_option",
+            "status": "passed",
+            "verification_passed": true,
+            "passed": true,
+            "elapsed_ms": 3778.852,
+            "error": null
+          },
+          {
+            "step_type": "long_press",
+            "status": "passed",
+            "verification_passed": true,
+            "passed": true,
+            "elapsed_ms": 1046.832,
+            "error": null
+          },
+          {
+            "step_type": "scroll",
+            "status": "passed",
+            "verification_passed": true,
+            "passed": true,
+            "elapsed_ms": 1660.448,
+            "error": null
+          },
+          {
+            "step_type": "conditional_branch",
+            "status": "passed",
+            "verification_passed": true,
+            "passed": true,
+            "elapsed_ms": 716.853,
+            "error": "命中分支：OCR Ready"
+          },
+          {
+            "step_type": "ocr_assert",
+            "status": "passed",
+            "verification_passed": true,
+            "passed": true,
+            "elapsed_ms": 20.501,
+            "error": null
+          }
+        ]
+      },
+      {
+        "case_id": "mobile-dpr1",
+        "viewport_css": [
+          390,
+          844
+        ],
+        "device_scale_factor": 1,
+        "step_attempts": 7,
+        "step_successes": 7,
+        "action_attempts": 5,
+        "action_successes": 5,
+        "wrong_operations": 0,
+        "steps": [
+          {
+            "step_type": "click",
+            "status": "passed",
+            "verification_passed": true,
+            "passed": true,
+            "elapsed_ms": 1303.457,
+            "error": null
+          },
+          {
+            "step_type": "input",
+            "status": "passed",
+            "verification_passed": true,
+            "passed": true,
+            "elapsed_ms": 1981.403,
+            "error": null
+          },
+          {
+            "step_type": "select_option",
+            "status": "passed",
+            "verification_passed": true,
+            "passed": true,
+            "elapsed_ms": 3262.772,
+            "error": null
+          },
+          {
+            "step_type": "long_press",
+            "status": "passed",
+            "verification_passed": true,
+            "passed": true,
+            "elapsed_ms": 905.187,
+            "error": null
+          },
+          {
+            "step_type": "scroll",
+            "status": "passed",
+            "verification_passed": true,
+            "passed": true,
+            "elapsed_ms": 1377.584,
+            "error": null
+          },
+          {
+            "step_type": "conditional_branch",
+            "status": "passed",
+            "verification_passed": true,
+            "passed": true,
+            "elapsed_ms": 565.141,
+            "error": "命中分支：OCR Ready"
+          },
+          {
+            "step_type": "ocr_assert",
+            "status": "passed",
+            "verification_passed": true,
+            "passed": true,
+            "elapsed_ms": 21.409,
+            "error": null
+          }
+        ]
+      },
+      {
+        "case_id": "mobile-dpr2",
+        "viewport_css": [
+          390,
+          844
+        ],
+        "device_scale_factor": 2,
+        "step_attempts": 7,
+        "step_successes": 7,
+        "action_attempts": 5,
+        "action_successes": 5,
+        "wrong_operations": 0,
+        "steps": [
+          {
+            "step_type": "click",
+            "status": "passed",
+            "verification_passed": true,
+            "passed": true,
+            "elapsed_ms": 1297.929,
+            "error": null
+          },
+          {
+            "step_type": "input",
+            "status": "passed",
+            "verification_passed": true,
+            "passed": true,
+            "elapsed_ms": 1979.535,
+            "error": null
+          },
+          {
+            "step_type": "select_option",
+            "status": "passed",
+            "verification_passed": true,
+            "passed": true,
+            "elapsed_ms": 3266.02,
+            "error": null
+          },
+          {
+            "step_type": "long_press",
+            "status": "passed",
+            "verification_passed": true,
+            "passed": true,
+            "elapsed_ms": 911.934,
+            "error": null
+          },
+          {
+            "step_type": "scroll",
+            "status": "passed",
+            "verification_passed": true,
+            "passed": true,
+            "elapsed_ms": 1368.069,
+            "error": null
+          },
+          {
+            "step_type": "conditional_branch",
+            "status": "passed",
+            "verification_passed": true,
+            "passed": true,
+            "elapsed_ms": 579.169,
+            "error": "命中分支：OCR Ready"
+          },
+          {
+            "step_type": "ocr_assert",
+            "status": "passed",
+            "verification_passed": true,
+            "passed": true,
+            "elapsed_ms": 15.754,
+            "error": null
+          }
+        ]
+      }
+    ]
+  },
+  "thresholds": {
+    "passed": true,
+    "checks": {
+      "clear_detection_f1": {
+        "actual": 1.0,
+        "operator": ">=",
+        "threshold": 0.95,
+        "passed": true
+      },
+      "clear_zh_en_cer": {
+        "actual": 0.005,
+        "operator": "<=",
+        "threshold": 0.05,
+        "passed": true
+      },
+      "disturbed_target_success_rate": {
+        "actual": 1.0,
+        "operator": ">=",
+        "threshold": 0.9,
+        "passed": true
+      },
+      "wrong_operation_rate": {
+        "actual": 0.0,
+        "operator": "<",
+        "threshold": 0.005,
+        "passed": true
+      },
+      "unique_interaction_success_rate": {
+        "actual": 1.0,
+        "operator": ">=",
+        "threshold": 0.95,
+        "passed": true
+      },
+      "ambiguity_rejection_rate": {
+        "actual": 1.0,
+        "operator": ">=",
+        "threshold": 1.0,
+        "passed": true
+      },
+      "viewport_p95_ms": {
+        "actual": 941.646,
+        "operator": "<=",
+        "threshold": 2000.0,
+        "passed": true
+      },
+      "three_viewport_page_p95_ms": {
+        "actual": 2008.594,
+        "operator": "<=",
+        "threshold": 6000.0,
+        "passed": true
+      }
+    }
+  }
+}

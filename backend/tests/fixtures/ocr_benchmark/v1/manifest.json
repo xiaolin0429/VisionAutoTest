@@ -1,0 +1,2697 @@
+{
+  "schema_version": 1,
+  "corpus_id": "visionautotest-ocr-task10",
+  "corpus_version": "1.0.0",
+  "random_seed": 20260816,
+  "source": {
+    "file": "corpus.html",
+    "sha256": "727e844e8bc1e6308495bfe890e269041919be9a9a3d2dc79d3ea3b108ec22e6"
+  },
+  "renderer": {
+    "name": "Google Chrome",
+    "version": "151.0.7922.138",
+    "executable_name": "Google Chrome",
+    "screenshot_scale": "device",
+    "locale": "en-US",
+    "timezone": "UTC"
+  },
+  "thresholds": {
+    "clear_detection_f1_min": 0.95,
+    "clear_zh_en_cer_max": 0.05,
+    "disturbed_target_success_min": 0.9,
+    "unique_interaction_success_min": 0.95,
+    "wrong_operation_rate_max_exclusive": 0.005,
+    "ambiguity_rejection_rate_min": 1.0,
+    "viewport_p95_ms_max": 2000.0,
+    "three_viewport_page_p95_ms_max": 6000.0
+  },
+  "coverage": {
+    "viewports_css": [
+      [
+        390,
+        844
+      ],
+      [
+        1280,
+        720
+      ],
+      [
+        1440,
+        900
+      ],
+      [
+        1920,
+        1080
+      ]
+    ],
+    "device_scale_factors": [
+      1,
+      2
+    ],
+    "language_profiles": [
+      "en",
+      "japan",
+      "korean",
+      "zh_en"
+    ],
+    "languages": [
+      "en",
+      "ja",
+      "ko",
+      "zh",
+      "zh_en"
+    ],
+    "roles": [
+      "button",
+      "label_input",
+      "menu",
+      "placeholder",
+      "text"
+    ],
+    "fonts": [
+      "Apple SD Gothic Neo",
+      "Arial",
+      "Courier New",
+      "Georgia",
+      "Hiragino Kaku Gothic ProN",
+      "Hiragino Mincho ProN",
+      "PingFang SC",
+      "Times New Roman",
+      "Trebuchet MS",
+      "Yu Gothic",
+      "Yu Mincho"
+    ],
+    "font_sizes_px": [
+      16,
+      17,
+      18,
+      20,
+      22,
+      24,
+      26,
+      28,
+      30,
+      32,
+      34
+    ],
+    "effects": [
+      "blur_0.45px",
+      "dark_theme",
+      "light_theme",
+      "low_contrast",
+      "partial_occlusion",
+      "texture",
+      "tilt_minus_10deg",
+      "tilt_plus_10deg"
+    ],
+    "annotation_count": 62,
+    "unique_target_count": 58,
+    "ambiguous_group_count": 1
+  },
+  "fixtures": [
+    {
+      "id": "clear_zh_en-1280x720-dpr1",
+      "scene": "clear_zh_en",
+      "file": "clear_zh_en_1280x720_dpr1.png",
+      "viewport_css": [
+        1280,
+        720
+      ],
+      "device_scale_factor": 1,
+      "screenshot_px": [
+        1280,
+        720
+      ],
+      "language_profile": "zh_en",
+      "quality": "clear",
+      "effects": [
+        "light_theme"
+      ],
+      "fonts": [
+        "Arial",
+        "PingFang SC",
+        "Trebuchet MS",
+        "Georgia",
+        "Courier New",
+        "Times New Roman"
+      ],
+      "font_sizes_px": [
+        18,
+        20,
+        22,
+        26,
+        34
+      ],
+      "sha256": "f5e10128f9b940996c35e4cc70cf0d045ba2dadd74ed5226f879f3e01a0df4bd",
+      "annotations": [
+        {
+          "id": "zh-en-title",
+          "text": "Vision OCR Console",
+          "language": "en",
+          "role": "text",
+          "quality": "clear",
+          "include_detection": true,
+          "include_cer": true,
+          "target": "unique",
+          "match_mode": "exact",
+          "ambiguity_group": null,
+          "action_point": "text_center",
+          "text_rect_css": {
+            "x": 151,
+            "y": 84,
+            "width": 329.984,
+            "height": 40.797
+          },
+          "text_rect_px": {
+            "x": 151.0,
+            "y": 84.0,
+            "width": 329.984,
+            "height": 40.797
+          },
+          "action_rect_css": {
+            "x": 151,
+            "y": 84,
+            "width": 329.984,
+            "height": 40.797
+          },
+          "action_rect_px": {
+            "x": 151.0,
+            "y": 84.0,
+            "width": 329.984,
+            "height": 40.797
+          }
+        },
+        {
+          "id": "zh-success",
+          "text": "提交成功",
+          "language": "zh",
+          "role": "text",
+          "quality": "clear",
+          "include_detection": true,
+          "include_cer": true,
+          "target": "unique",
+          "match_mode": "exact",
+          "ambiguity_group": null,
+          "action_point": "text_center",
+          "text_rect_css": {
+            "x": 151,
+            "y": 152.797,
+            "width": 104,
+            "height": 31.188
+          },
+          "text_rect_px": {
+            "x": 151.0,
+            "y": 152.797,
+            "width": 104.0,
+            "height": 31.188
+          },
+          "action_rect_css": {
+            "x": 151,
+            "y": 152.797,
+            "width": 104,
+            "height": 31.188
+          },
+          "action_rect_px": {
+            "x": 151.0,
+            "y": 152.797,
+            "width": 104.0,
+            "height": 31.188
+          }
+        },
+        {
+          "id": "zh-en-mixed",
+          "text": "Account 状态 Ready",
+          "language": "zh_en",
+          "role": "text",
+          "quality": "clear",
+          "include_detection": true,
+          "include_cer": true,
+          "target": "unique",
+          "match_mode": "fuzzy",
+          "ambiguity_group": null,
+          "action_point": "text_center",
+          "text_rect_css": {
+            "x": 151,
+            "y": 207.984,
+            "width": 195.172,
+            "height": 26.391
+          },
+          "text_rect_px": {
+            "x": 151.0,
+            "y": 207.984,
+            "width": 195.172,
+            "height": 26.391
+          },
+          "action_rect_css": {
+            "x": 151,
+            "y": 207.984,
+            "width": 195.172,
+            "height": 26.391
+          },
+          "action_rect_px": {
+            "x": 151.0,
+            "y": 207.984,
+            "width": 195.172,
+            "height": 26.391
+          }
+        },
+        {
+          "id": "zh-run",
+          "text": "运行测试",
+          "language": "zh",
+          "role": "button",
+          "quality": "clear",
+          "include_detection": true,
+          "include_cer": true,
+          "target": "unique",
+          "match_mode": "exact",
+          "ambiguity_group": null,
+          "action_point": "text_center",
+          "text_rect_css": {
+            "x": 181,
+            "y": 278.172,
+            "width": 88,
+            "height": 26.391
+          },
+          "text_rect_px": {
+            "x": 181.0,
+            "y": 278.172,
+            "width": 88.0,
+            "height": 26.391
+          },
+          "action_rect_css": {
+            "x": 151,
+            "y": 265.375,
+            "width": 148,
+            "height": 52
+          },
+          "action_rect_px": {
+            "x": 151.0,
+            "y": 265.375,
+            "width": 148.0,
+            "height": 52.0
+          }
+        },
+        {
+          "id": "zh-placeholder",
+          "text": "输入账号",
+          "language": "zh",
+          "role": "placeholder",
+          "quality": "clear",
+          "include_detection": true,
+          "include_cer": true,
+          "target": "unique",
+          "match_mode": "exact",
+          "ambiguity_group": null,
+          "action_point": "text_center",
+          "text_rect_css": {
+            "x": 343,
+            "y": 279.375,
+            "width": 80,
+            "height": 24
+          },
+          "text_rect_px": {
+            "x": 343.0,
+            "y": 279.375,
+            "width": 80.0,
+            "height": 24.0
+          },
+          "action_rect_css": {
+            "x": 343,
+            "y": 279.375,
+            "width": 80,
+            "height": 24
+          },
+          "action_rect_px": {
+            "x": 343.0,
+            "y": 279.375,
+            "width": 80.0,
+            "height": 24.0
+          }
+        },
+        {
+          "id": "zh-label",
+          "text": "账号标签",
+          "language": "zh",
+          "role": "label_input",
+          "quality": "clear",
+          "include_detection": true,
+          "include_cer": true,
+          "target": "unique",
+          "match_mode": "exact",
+          "ambiguity_group": null,
+          "action_point": "associated_control",
+          "text_rect_css": {
+            "x": 151,
+            "y": 363.375,
+            "width": 160,
+            "height": 24
+          },
+          "text_rect_px": {
+            "x": 151.0,
+            "y": 363.375,
+            "width": 160.0,
+            "height": 24.0
+          },
+          "action_rect_css": {
+            "x": 335,
+            "y": 348.375,
+            "width": 330,
+            "height": 54
+          },
+          "action_rect_px": {
+            "x": 335.0,
+            "y": 348.375,
+            "width": 330.0,
+            "height": 54.0
+          }
+        },
+        {
+          "id": "zh-menu-settings",
+          "text": "系统设置",
+          "language": "zh",
+          "role": "menu",
+          "quality": "clear",
+          "include_detection": true,
+          "include_cer": true,
+          "target": "unique",
+          "match_mode": "exact",
+          "ambiguity_group": null,
+          "action_point": "text_center",
+          "text_rect_css": {
+            "x": 969,
+            "y": 542.813,
+            "width": 72,
+            "height": 21.594
+          },
+          "text_rect_px": {
+            "x": 969.0,
+            "y": 542.813,
+            "width": 72.0,
+            "height": 21.594
+          },
+          "action_rect_css": {
+            "x": 969,
+            "y": 542.813,
+            "width": 72,
+            "height": 21.594
+          },
+          "action_rect_px": {
+            "x": 969.0,
+            "y": 542.813,
+            "width": 72.0,
+            "height": 21.594
+          }
+        },
+        {
+          "id": "zh-menu-report",
+          "text": "查看报告",
+          "language": "zh",
+          "role": "menu",
+          "quality": "clear",
+          "include_detection": true,
+          "include_cer": true,
+          "target": "unique",
+          "match_mode": "exact",
+          "ambiguity_group": null,
+          "action_point": "text_center",
+          "text_rect_css": {
+            "x": 969,
+            "y": 604.406,
+            "width": 72,
+            "height": 21.594
+          },
+          "text_rect_px": {
+            "x": 969.0,
+            "y": 604.406,
+            "width": 72.0,
+            "height": 21.594
+          },
+          "action_rect_css": {
+            "x": 969,
+            "y": 604.406,
+            "width": 72,
+            "height": 21.594
+          },
+          "action_rect_px": {
+            "x": 969.0,
+            "y": 604.406,
+            "width": 72.0,
+            "height": 21.594
+          }
+        }
+      ]
+    },
+    {
+      "id": "clear_zh_en-1280x720-dpr2",
+      "scene": "clear_zh_en",
+      "file": "clear_zh_en_1280x720_dpr2.png",
+      "viewport_css": [
+        1280,
+        720
+      ],
+      "device_scale_factor": 2,
+      "screenshot_px": [
+        2560,
+        1440
+      ],
+      "language_profile": "zh_en",
+      "quality": "clear",
+      "effects": [
+        "light_theme"
+      ],
+      "fonts": [
+        "Arial",
+        "PingFang SC",
+        "Trebuchet MS",
+        "Georgia",
+        "Courier New",
+        "Times New Roman"
+      ],
+      "font_sizes_px": [
+        18,
+        20,
+        22,
+        26,
+        34
+      ],
+      "sha256": "ee4121e61a5b4654147106efa8d578570994a32c4781b1f072461c7cb982a4e2",
+      "annotations": [
+        {
+          "id": "zh-en-title",
+          "text": "Vision OCR Console",
+          "language": "en",
+          "role": "text",
+          "quality": "clear",
+          "include_detection": true,
+          "include_cer": true,
+          "target": "unique",
+          "match_mode": "exact",
+          "ambiguity_group": null,
+          "action_point": "text_center",
+          "text_rect_css": {
+            "x": 151,
+            "y": 84,
+            "width": 329.984,
+            "height": 40.797
+          },
+          "text_rect_px": {
+            "x": 302.0,
+            "y": 168.0,
+            "width": 659.968,
+            "height": 81.594
+          },
+          "action_rect_css": {
+            "x": 151,
+            "y": 84,
+            "width": 329.984,
+            "height": 40.797
+          },
+          "action_rect_px": {
+            "x": 302.0,
+            "y": 168.0,
+            "width": 659.968,
+            "height": 81.594
+          }
+        },
+        {
+          "id": "zh-success",
+          "text": "提交成功",
+          "language": "zh",
+          "role": "text",
+          "quality": "clear",
+          "include_detection": true,
+          "include_cer": true,
+          "target": "unique",
+          "match_mode": "exact",
+          "ambiguity_group": null,
+          "action_point": "text_center",
+          "text_rect_css": {
+            "x": 151,
+            "y": 152.797,
+            "width": 104,
+            "height": 31.188
+          },
+          "text_rect_px": {
+            "x": 302.0,
+            "y": 305.594,
+            "width": 208.0,
+            "height": 62.376
+          },
+          "action_rect_css": {
+            "x": 151,
+            "y": 152.797,
+            "width": 104,
+            "height": 31.188
+          },
+          "action_rect_px": {
+            "x": 302.0,
+            "y": 305.594,
+            "width": 208.0,
+            "height": 62.376
+          }
+        },
+        {
+          "id": "zh-en-mixed",
+          "text": "Account 状态 Ready",
+          "language": "zh_en",
+          "role": "text",
+          "quality": "clear",
+          "include_detection": true,
+          "include_cer": true,
+          "target": "unique",
+          "match_mode": "fuzzy",
+          "ambiguity_group": null,
+          "action_point": "text_center",
+          "text_rect_css": {
+            "x": 151,
+            "y": 207.984,
+            "width": 195.172,
+            "height": 26.391
+          },
+          "text_rect_px": {
+            "x": 302.0,
+            "y": 415.968,
+            "width": 390.344,
+            "height": 52.782
+          },
+          "action_rect_css": {
+            "x": 151,
+            "y": 207.984,
+            "width": 195.172,
+            "height": 26.391
+          },
+          "action_rect_px": {
+            "x": 302.0,
+            "y": 415.968,
+            "width": 390.344,
+            "height": 52.782
+          }
+        },
+        {
+          "id": "zh-run",
+          "text": "运行测试",
+          "language": "zh",
+          "role": "button",
+          "quality": "clear",
+          "include_detection": true,
+          "include_cer": true,
+          "target": "unique",
+          "match_mode": "exact",
+          "ambiguity_group": null,
+          "action_point": "text_center",
+          "text_rect_css": {
+            "x": 181,
+            "y": 278.172,
+            "width": 88,
+            "height": 26.391
+          },
+          "text_rect_px": {
+            "x": 362.0,
+            "y": 556.344,
+            "width": 176.0,
+            "height": 52.782
+          },
+          "action_rect_css": {
+            "x": 151,
+            "y": 265.375,
+            "width": 148,
+            "height": 52
+          },
+          "action_rect_px": {
+            "x": 302.0,
+            "y": 530.75,
+            "width": 296.0,
+            "height": 104.0
+          }
+        },
+        {
+          "id": "zh-placeholder",
+          "text": "输入账号",
+          "language": "zh",
+          "role": "placeholder",
+          "quality": "clear",
+          "include_detection": true,
+          "include_cer": true,
+          "target": "unique",
+          "match_mode": "exact",
+          "ambiguity_group": null,
+          "action_point": "text_center",
+          "text_rect_css": {
+            "x": 343,
+            "y": 279.375,
+            "width": 80,
+            "height": 24
+          },
+          "text_rect_px": {
+            "x": 686.0,
+            "y": 558.75,
+            "width": 160.0,
+            "height": 48.0
+          },
+          "action_rect_css": {
+            "x": 343,
+            "y": 279.375,
+            "width": 80,
+            "height": 24
+          },
+          "action_rect_px": {
+            "x": 686.0,
+            "y": 558.75,
+            "width": 160.0,
+            "height": 48.0
+          }
+        },
+        {
+          "id": "zh-label",
+          "text": "账号标签",
+          "language": "zh",
+          "role": "label_input",
+          "quality": "clear",
+          "include_detection": true,
+          "include_cer": true,
+          "target": "unique",
+          "match_mode": "exact",
+          "ambiguity_group": null,
+          "action_point": "associated_control",
+          "text_rect_css": {
+            "x": 151,
+            "y": 363.375,
+            "width": 160,
+            "height": 24
+          },
+          "text_rect_px": {
+            "x": 302.0,
+            "y": 726.75,
+            "width": 320.0,
+            "height": 48.0
+          },
+          "action_rect_css": {
+            "x": 335,
+            "y": 348.375,
+            "width": 330,
+            "height": 54
+          },
+          "action_rect_px": {
+            "x": 670.0,
+            "y": 696.75,
+            "width": 660.0,
+            "height": 108.0
+          }
+        },
+        {
+          "id": "zh-menu-settings",
+          "text": "系统设置",
+          "language": "zh",
+          "role": "menu",
+          "quality": "clear",
+          "include_detection": true,
+          "include_cer": true,
+          "target": "unique",
+          "match_mode": "exact",
+          "ambiguity_group": null,
+          "action_point": "text_center",
+          "text_rect_css": {
+            "x": 969,
+            "y": 542.813,
+            "width": 72,
+            "height": 21.594
+          },
+          "text_rect_px": {
+            "x": 1938.0,
+            "y": 1085.626,
+            "width": 144.0,
+            "height": 43.188
+          },
+          "action_rect_css": {
+            "x": 969,
+            "y": 542.813,
+            "width": 72,
+            "height": 21.594
+          },
+          "action_rect_px": {
+            "x": 1938.0,
+            "y": 1085.626,
+            "width": 144.0,
+            "height": 43.188
+          }
+        },
+        {
+          "id": "zh-menu-report",
+          "text": "查看报告",
+          "language": "zh",
+          "role": "menu",
+          "quality": "clear",
+          "include_detection": true,
+          "include_cer": true,
+          "target": "unique",
+          "match_mode": "exact",
+          "ambiguity_group": null,
+          "action_point": "text_center",
+          "text_rect_css": {
+            "x": 969,
+            "y": 604.406,
+            "width": 72,
+            "height": 21.594
+          },
+          "text_rect_px": {
+            "x": 1938.0,
+            "y": 1208.812,
+            "width": 144.0,
+            "height": 43.188
+          },
+          "action_rect_css": {
+            "x": 969,
+            "y": 604.406,
+            "width": 72,
+            "height": 21.594
+          },
+          "action_rect_px": {
+            "x": 1938.0,
+            "y": 1208.812,
+            "width": 144.0,
+            "height": 43.188
+          }
+        }
+      ]
+    },
+    {
+      "id": "clear_en_dark-1920x1080-dpr1",
+      "scene": "clear_en_dark",
+      "file": "clear_en_dark_1920x1080_dpr1.png",
+      "viewport_css": [
+        1920,
+        1080
+      ],
+      "device_scale_factor": 1,
+      "screenshot_px": [
+        1920,
+        1080
+      ],
+      "language_profile": "en",
+      "quality": "clear",
+      "effects": [
+        "dark_theme"
+      ],
+      "fonts": [
+        "Arial",
+        "Trebuchet MS",
+        "Times New Roman",
+        "Courier New",
+        "Georgia"
+      ],
+      "font_sizes_px": [
+        16,
+        20,
+        22,
+        28,
+        32
+      ],
+      "sha256": "40268da6ef80a46da9c34847a8efb1fd8250e0926847d18dd696fb3ca9bd1075",
+      "annotations": [
+        {
+          "id": "en-title",
+          "text": "Automation Control Center",
+          "language": "en",
+          "role": "text",
+          "quality": "clear",
+          "include_detection": true,
+          "include_cer": true,
+          "target": "unique",
+          "match_mode": "exact",
+          "ambiguity_group": null,
+          "action_point": "text_center",
+          "text_rect_css": {
+            "x": 176,
+            "y": 104,
+            "width": 405.125,
+            "height": 38.391
+          },
+          "text_rect_px": {
+            "x": 176.0,
+            "y": 104.0,
+            "width": 405.125,
+            "height": 38.391
+          },
+          "action_rect_css": {
+            "x": 176,
+            "y": 104,
+            "width": 405.125,
+            "height": 38.391
+          },
+          "action_rect_px": {
+            "x": 176.0,
+            "y": 104.0,
+            "width": 405.125,
+            "height": 38.391
+          }
+        },
+        {
+          "id": "en-arial-small",
+          "text": "Account status ready",
+          "language": "en",
+          "role": "text",
+          "quality": "clear",
+          "include_detection": true,
+          "include_cer": true,
+          "target": "unique",
+          "match_mode": "exact",
+          "ambiguity_group": null,
+          "action_point": "text_center",
+          "text_rect_css": {
+            "x": 199,
+            "y": 210.391,
+            "width": 149.422,
+            "height": 19.188
+          },
+          "text_rect_px": {
+            "x": 199.0,
+            "y": 210.391,
+            "width": 149.422,
+            "height": 19.188
+          },
+          "action_rect_css": {
+            "x": 199,
+            "y": 210.391,
+            "width": 149.422,
+            "height": 19.188
+          },
+          "action_rect_px": {
+            "x": 199.0,
+            "y": 210.391,
+            "width": 149.422,
+            "height": 19.188
+          }
+        },
+        {
+          "id": "en-times-medium",
+          "text": "Visual report available",
+          "language": "en",
+          "role": "text",
+          "quality": "clear",
+          "include_detection": true,
+          "include_cer": true,
+          "target": "unique",
+          "match_mode": "exact",
+          "ambiguity_group": null,
+          "action_point": "text_center",
+          "text_rect_css": {
+            "x": 1018,
+            "y": 210.391,
+            "width": 199.047,
+            "height": 26.391
+          },
+          "text_rect_px": {
+            "x": 1018.0,
+            "y": 210.391,
+            "width": 199.047,
+            "height": 26.391
+          },
+          "action_rect_css": {
+            "x": 1018,
+            "y": 210.391,
+            "width": 199.047,
+            "height": 26.391
+          },
+          "action_rect_px": {
+            "x": 1018.0,
+            "y": 210.391,
+            "width": 199.047,
+            "height": 26.391
+          }
+        },
+        {
+          "id": "en-courier-large",
+          "text": "Request VAT-2048",
+          "language": "en",
+          "role": "text",
+          "quality": "clear",
+          "include_detection": true,
+          "include_cer": true,
+          "target": "unique",
+          "match_mode": "exact",
+          "ambiguity_group": null,
+          "action_point": "text_center",
+          "text_rect_css": {
+            "x": 199,
+            "y": 312.781,
+            "width": 268.844,
+            "height": 33.594
+          },
+          "text_rect_px": {
+            "x": 199.0,
+            "y": 312.781,
+            "width": 268.844,
+            "height": 33.594
+          },
+          "action_rect_css": {
+            "x": 199,
+            "y": 312.781,
+            "width": 268.844,
+            "height": 33.594
+          },
+          "action_rect_px": {
+            "x": 199.0,
+            "y": 312.781,
+            "width": 268.844,
+            "height": 33.594
+          }
+        },
+        {
+          "id": "en-georgia-medium",
+          "text": "Confirm operation",
+          "language": "en",
+          "role": "text",
+          "quality": "clear",
+          "include_detection": true,
+          "include_cer": true,
+          "target": "unique",
+          "match_mode": "exact",
+          "ambiguity_group": null,
+          "action_point": "text_center",
+          "text_rect_css": {
+            "x": 1018,
+            "y": 312.781,
+            "width": 180.344,
+            "height": 26.391
+          },
+          "text_rect_px": {
+            "x": 1018.0,
+            "y": 312.781,
+            "width": 180.344,
+            "height": 26.391
+          },
+          "action_rect_css": {
+            "x": 1018,
+            "y": 312.781,
+            "width": 180.344,
+            "height": 26.391
+          },
+          "action_rect_px": {
+            "x": 1018.0,
+            "y": 312.781,
+            "width": 180.344,
+            "height": 26.391
+          }
+        },
+        {
+          "id": "en-submit",
+          "text": "Submit Report",
+          "language": "en",
+          "role": "button",
+          "quality": "clear",
+          "include_detection": true,
+          "include_cer": true,
+          "target": "unique",
+          "match_mode": "exact",
+          "ambiguity_group": null,
+          "action_point": "text_center",
+          "text_rect_css": {
+            "x": 206,
+            "y": 414.375,
+            "width": 137.781,
+            "height": 24
+          },
+          "text_rect_px": {
+            "x": 206.0,
+            "y": 414.375,
+            "width": 137.781,
+            "height": 24.0
+          },
+          "action_rect_css": {
+            "x": 176,
+            "y": 400.375,
+            "width": 197.781,
+            "height": 52
+          },
+          "action_rect_px": {
+            "x": 176.0,
+            "y": 400.375,
+            "width": 197.781,
+            "height": 52.0
+          }
+        },
+        {
+          "id": "en-placeholder",
+          "text": "Search records",
+          "language": "en",
+          "role": "placeholder",
+          "quality": "clear",
+          "include_detection": true,
+          "include_cer": true,
+          "target": "unique",
+          "match_mode": "exact",
+          "ambiguity_group": null,
+          "action_point": "text_center",
+          "text_rect_css": {
+            "x": 417.781,
+            "y": 414.375,
+            "width": 131.992,
+            "height": 24
+          },
+          "text_rect_px": {
+            "x": 417.781,
+            "y": 414.375,
+            "width": 131.992,
+            "height": 24.0
+          },
+          "action_rect_css": {
+            "x": 417.781,
+            "y": 414.375,
+            "width": 131.992,
+            "height": 24
+          },
+          "action_rect_px": {
+            "x": 417.781,
+            "y": 414.375,
+            "width": 131.992,
+            "height": 24.0
+          }
+        },
+        {
+          "id": "en-archive-a",
+          "text": "Archive",
+          "language": "en",
+          "role": "button",
+          "quality": "clear",
+          "include_detection": true,
+          "include_cer": true,
+          "target": "ambiguous",
+          "match_mode": "exact",
+          "ambiguity_group": "archive",
+          "action_point": "text_center",
+          "text_rect_css": {
+            "x": 206,
+            "y": 515.375,
+            "width": 73.375,
+            "height": 24
+          },
+          "text_rect_px": {
+            "x": 206.0,
+            "y": 515.375,
+            "width": 73.375,
+            "height": 24.0
+          },
+          "action_rect_css": {
+            "x": 176,
+            "y": 501.375,
+            "width": 133.375,
+            "height": 52
+          },
+          "action_rect_px": {
+            "x": 176.0,
+            "y": 501.375,
+            "width": 133.375,
+            "height": 52.0
+          }
+        },
+        {
+          "id": "en-archive-b",
+          "text": "Archive",
+          "language": "en",
+          "role": "button",
+          "quality": "clear",
+          "include_detection": true,
+          "include_cer": true,
+          "target": "ambiguous",
+          "match_mode": "exact",
+          "ambiguity_group": "archive",
+          "action_point": "text_center",
+          "text_rect_css": {
+            "x": 373.375,
+            "y": 515.375,
+            "width": 73.375,
+            "height": 24
+          },
+          "text_rect_px": {
+            "x": 373.375,
+            "y": 515.375,
+            "width": 73.375,
+            "height": 24.0
+          },
+          "action_rect_css": {
+            "x": 343.375,
+            "y": 501.375,
+            "width": 133.375,
+            "height": 52
+          },
+          "action_rect_px": {
+            "x": 343.375,
+            "y": 501.375,
+            "width": 133.375,
+            "height": 52.0
+          }
+        }
+      ]
+    },
+    {
+      "id": "clear_en_dark-1920x1080-dpr2",
+      "scene": "clear_en_dark",
+      "file": "clear_en_dark_1920x1080_dpr2.png",
+      "viewport_css": [
+        1920,
+        1080
+      ],
+      "device_scale_factor": 2,
+      "screenshot_px": [
+        3840,
+        2160
+      ],
+      "language_profile": "en",
+      "quality": "clear",
+      "effects": [
+        "dark_theme"
+      ],
+      "fonts": [
+        "Arial",
+        "Trebuchet MS",
+        "Times New Roman",
+        "Courier New",
+        "Georgia"
+      ],
+      "font_sizes_px": [
+        16,
+        20,
+        22,
+        28,
+        32
+      ],
+      "sha256": "4253f9ccc3221ae4cf584c57392a32756cb838a862150776efb4a9546d2e1e6f",
+      "annotations": [
+        {
+          "id": "en-title",
+          "text": "Automation Control Center",
+          "language": "en",
+          "role": "text",
+          "quality": "clear",
+          "include_detection": true,
+          "include_cer": true,
+          "target": "unique",
+          "match_mode": "exact",
+          "ambiguity_group": null,
+          "action_point": "text_center",
+          "text_rect_css": {
+            "x": 176,
+            "y": 104,
+            "width": 405.125,
+            "height": 38.391
+          },
+          "text_rect_px": {
+            "x": 352.0,
+            "y": 208.0,
+            "width": 810.25,
+            "height": 76.782
+          },
+          "action_rect_css": {
+            "x": 176,
+            "y": 104,
+            "width": 405.125,
+            "height": 38.391
+          },
+          "action_rect_px": {
+            "x": 352.0,
+            "y": 208.0,
+            "width": 810.25,
+            "height": 76.782
+          }
+        },
+        {
+          "id": "en-arial-small",
+          "text": "Account status ready",
+          "language": "en",
+          "role": "text",
+          "quality": "clear",
+          "include_detection": true,
+          "include_cer": true,
+          "target": "unique",
+          "match_mode": "exact",
+          "ambiguity_group": null,
+          "action_point": "text_center",
+          "text_rect_css": {
+            "x": 199,
+            "y": 210.391,
+            "width": 149.422,
+            "height": 19.188
+          },
+          "text_rect_px": {
+            "x": 398.0,
+            "y": 420.782,
+            "width": 298.844,
+            "height": 38.376
+          },
+          "action_rect_css": {
+            "x": 199,
+            "y": 210.391,
+            "width": 149.422,
+            "height": 19.188
+          },
+          "action_rect_px": {
+            "x": 398.0,
+            "y": 420.782,
+            "width": 298.844,
+            "height": 38.376
+          }
+        },
+        {
+          "id": "en-times-medium",
+          "text": "Visual report available",
+          "language": "en",
+          "role": "text",
+          "quality": "clear",
+          "include_detection": true,
+          "include_cer": true,
+          "target": "unique",
+          "match_mode": "exact",
+          "ambiguity_group": null,
+          "action_point": "text_center",
+          "text_rect_css": {
+            "x": 1018,
+            "y": 210.391,
+            "width": 199.047,
+            "height": 26.391
+          },
+          "text_rect_px": {
+            "x": 2036.0,
+            "y": 420.782,
+            "width": 398.094,
+            "height": 52.782
+          },
+          "action_rect_css": {
+            "x": 1018,
+            "y": 210.391,
+            "width": 199.047,
+            "height": 26.391
+          },
+          "action_rect_px": {
+            "x": 2036.0,
+            "y": 420.782,
+            "width": 398.094,
+            "height": 52.782
+          }
+        },
+        {
+          "id": "en-courier-large",
+          "text": "Request VAT-2048",
+          "language": "en",
+          "role": "text",
+          "quality": "clear",
+          "include_detection": true,
+          "include_cer": true,
+          "target": "unique",
+          "match_mode": "exact",
+          "ambiguity_group": null,
+          "action_point": "text_center",
+          "text_rect_css": {
+            "x": 199,
+            "y": 312.781,
+            "width": 268.844,
+            "height": 33.594
+          },
+          "text_rect_px": {
+            "x": 398.0,
+            "y": 625.562,
+            "width": 537.688,
+            "height": 67.188
+          },
+          "action_rect_css": {
+            "x": 199,
+            "y": 312.781,
+            "width": 268.844,
+            "height": 33.594
+          },
+          "action_rect_px": {
+            "x": 398.0,
+            "y": 625.562,
+            "width": 537.688,
+            "height": 67.188
+          }
+        },
+        {
+          "id": "en-georgia-medium",
+          "text": "Confirm operation",
+          "language": "en",
+          "role": "text",
+          "quality": "clear",
+          "include_detection": true,
+          "include_cer": true,
+          "target": "unique",
+          "match_mode": "exact",
+          "ambiguity_group": null,
+          "action_point": "text_center",
+          "text_rect_css": {
+            "x": 1018,
+            "y": 312.781,
+            "width": 180.344,
+            "height": 26.391
+          },
+          "text_rect_px": {
+            "x": 2036.0,
+            "y": 625.562,
+            "width": 360.688,
+            "height": 52.782
+          },
+          "action_rect_css": {
+            "x": 1018,
+            "y": 312.781,
+            "width": 180.344,
+            "height": 26.391
+          },
+          "action_rect_px": {
+            "x": 2036.0,
+            "y": 625.562,
+            "width": 360.688,
+            "height": 52.782
+          }
+        },
+        {
+          "id": "en-submit",
+          "text": "Submit Report",
+          "language": "en",
+          "role": "button",
+          "quality": "clear",
+          "include_detection": true,
+          "include_cer": true,
+          "target": "unique",
+          "match_mode": "exact",
+          "ambiguity_group": null,
+          "action_point": "text_center",
+          "text_rect_css": {
+            "x": 206,
+            "y": 414.375,
+            "width": 137.781,
+            "height": 24
+          },
+          "text_rect_px": {
+            "x": 412.0,
+            "y": 828.75,
+            "width": 275.562,
+            "height": 48.0
+          },
+          "action_rect_css": {
+            "x": 176,
+            "y": 400.375,
+            "width": 197.781,
+            "height": 52
+          },
+          "action_rect_px": {
+            "x": 352.0,
+            "y": 800.75,
+            "width": 395.562,
+            "height": 104.0
+          }
+        },
+        {
+          "id": "en-placeholder",
+          "text": "Search records",
+          "language": "en",
+          "role": "placeholder",
+          "quality": "clear",
+          "include_detection": true,
+          "include_cer": true,
+          "target": "unique",
+          "match_mode": "exact",
+          "ambiguity_group": null,
+          "action_point": "text_center",
+          "text_rect_css": {
+            "x": 417.781,
+            "y": 414.375,
+            "width": 131.992,
+            "height": 24
+          },
+          "text_rect_px": {
+            "x": 835.562,
+            "y": 828.75,
+            "width": 263.984,
+            "height": 48.0
+          },
+          "action_rect_css": {
+            "x": 417.781,
+            "y": 414.375,
+            "width": 131.992,
+            "height": 24
+          },
+          "action_rect_px": {
+            "x": 835.562,
+            "y": 828.75,
+            "width": 263.984,
+            "height": 48.0
+          }
+        },
+        {
+          "id": "en-archive-a",
+          "text": "Archive",
+          "language": "en",
+          "role": "button",
+          "quality": "clear",
+          "include_detection": true,
+          "include_cer": true,
+          "target": "ambiguous",
+          "match_mode": "exact",
+          "ambiguity_group": "archive",
+          "action_point": "text_center",
+          "text_rect_css": {
+            "x": 206,
+            "y": 515.375,
+            "width": 73.375,
+            "height": 24
+          },
+          "text_rect_px": {
+            "x": 412.0,
+            "y": 1030.75,
+            "width": 146.75,
+            "height": 48.0
+          },
+          "action_rect_css": {
+            "x": 176,
+            "y": 501.375,
+            "width": 133.375,
+            "height": 52
+          },
+          "action_rect_px": {
+            "x": 352.0,
+            "y": 1002.75,
+            "width": 266.75,
+            "height": 104.0
+          }
+        },
+        {
+          "id": "en-archive-b",
+          "text": "Archive",
+          "language": "en",
+          "role": "button",
+          "quality": "clear",
+          "include_detection": true,
+          "include_cer": true,
+          "target": "ambiguous",
+          "match_mode": "exact",
+          "ambiguity_group": "archive",
+          "action_point": "text_center",
+          "text_rect_css": {
+            "x": 373.375,
+            "y": 515.375,
+            "width": 73.375,
+            "height": 24
+          },
+          "text_rect_px": {
+            "x": 746.75,
+            "y": 1030.75,
+            "width": 146.75,
+            "height": 48.0
+          },
+          "action_rect_css": {
+            "x": 343.375,
+            "y": 501.375,
+            "width": 133.375,
+            "height": 52
+          },
+          "action_rect_px": {
+            "x": 686.75,
+            "y": 1002.75,
+            "width": 266.75,
+            "height": 104.0
+          }
+        }
+      ]
+    },
+    {
+      "id": "disturbed_japanese-1440x900-dpr1",
+      "scene": "disturbed_japanese",
+      "file": "disturbed_japanese_1440x900_dpr1.png",
+      "viewport_css": [
+        1440,
+        900
+      ],
+      "device_scale_factor": 1,
+      "screenshot_px": [
+        1440,
+        900
+      ],
+      "language_profile": "japan",
+      "quality": "disturbed",
+      "effects": [
+        "texture",
+        "low_contrast",
+        "blur_0.45px",
+        "tilt_plus_10deg",
+        "tilt_minus_10deg"
+      ],
+      "fonts": [
+        "Hiragino Kaku Gothic ProN",
+        "Yu Gothic",
+        "Yu Mincho",
+        "Hiragino Mincho ProN"
+      ],
+      "font_sizes_px": [
+        20,
+        22,
+        24,
+        30
+      ],
+      "sha256": "076233f5034d3ba91f6c599012a0cf92379ae6650f40a287122c114d6c2855ad",
+      "annotations": [
+        {
+          "id": "ja-title",
+          "text": "日本語メニュー",
+          "language": "ja",
+          "role": "text",
+          "quality": "disturbed",
+          "include_detection": true,
+          "include_cer": false,
+          "target": "unique",
+          "match_mode": "fuzzy",
+          "ambiguity_group": null,
+          "action_point": "text_center",
+          "text_rect_css": {
+            "x": 136,
+            "y": 104,
+            "width": 207.906,
+            "height": 36
+          },
+          "text_rect_px": {
+            "x": 136.0,
+            "y": 104.0,
+            "width": 207.906,
+            "height": 36.0
+          },
+          "action_rect_css": {
+            "x": 136,
+            "y": 104,
+            "width": 207.906,
+            "height": 36
+          },
+          "action_rect_px": {
+            "x": 136.0,
+            "y": 104.0,
+            "width": 207.906,
+            "height": 36.0
+          }
+        },
+        {
+          "id": "ja-positive-tilt",
+          "text": "注文を確認",
+          "language": "ja",
+          "role": "text",
+          "quality": "disturbed",
+          "include_detection": true,
+          "include_cer": false,
+          "target": "unique",
+          "match_mode": "fuzzy",
+          "ambiguity_group": null,
+          "action_point": "text_center",
+          "text_rect_css": {
+            "x": 133.5,
+            "y": 220.219,
+            "width": 123.177,
+            "height": 49.197
+          },
+          "text_rect_px": {
+            "x": 133.5,
+            "y": 220.219,
+            "width": 123.177,
+            "height": 49.197
+          },
+          "action_rect_css": {
+            "x": 133.5,
+            "y": 220.219,
+            "width": 123.177,
+            "height": 49.197
+          },
+          "action_rect_px": {
+            "x": 133.5,
+            "y": 220.219,
+            "width": 123.177,
+            "height": 49.197
+          }
+        },
+        {
+          "id": "ja-negative-tilt",
+          "text": "結果を表示",
+          "language": "ja",
+          "role": "text",
+          "quality": "disturbed",
+          "include_detection": true,
+          "include_cer": false,
+          "target": "unique",
+          "match_mode": "fuzzy",
+          "ambiguity_group": null,
+          "action_point": "text_center",
+          "text_rect_css": {
+            "x": 503.709,
+            "y": 320.099,
+            "width": 112.912,
+            "height": 45.091
+          },
+          "text_rect_px": {
+            "x": 503.709,
+            "y": 320.099,
+            "width": 112.912,
+            "height": 45.091
+          },
+          "action_rect_css": {
+            "x": 503.709,
+            "y": 320.099,
+            "width": 112.912,
+            "height": 45.091
+          },
+          "action_rect_px": {
+            "x": 503.709,
+            "y": 320.099,
+            "width": 112.912,
+            "height": 45.091
+          }
+        },
+        {
+          "id": "ja-blurred",
+          "text": "検索を開始",
+          "language": "ja",
+          "role": "text",
+          "quality": "disturbed",
+          "include_detection": true,
+          "include_cer": false,
+          "target": "unique",
+          "match_mode": "fuzzy",
+          "ambiguity_group": null,
+          "action_point": "text_center",
+          "text_rect_css": {
+            "x": 136,
+            "y": 446,
+            "width": 100,
+            "height": 24
+          },
+          "text_rect_px": {
+            "x": 136.0,
+            "y": 446.0,
+            "width": 100.0,
+            "height": 24.0
+          },
+          "action_rect_css": {
+            "x": 136,
+            "y": 446,
+            "width": 100,
+            "height": 24
+          },
+          "action_rect_px": {
+            "x": 136.0,
+            "y": 446.0,
+            "width": 100.0,
+            "height": 24.0
+          }
+        },
+        {
+          "id": "ja-action",
+          "text": "次へ進む",
+          "language": "ja",
+          "role": "button",
+          "quality": "disturbed",
+          "include_detection": true,
+          "include_cer": false,
+          "target": "unique",
+          "match_mode": "fuzzy",
+          "ambiguity_group": null,
+          "action_point": "text_center",
+          "text_rect_css": {
+            "x": 906,
+            "y": 554.797,
+            "width": 88,
+            "height": 26.391
+          },
+          "text_rect_px": {
+            "x": 906.0,
+            "y": 554.797,
+            "width": 88.0,
+            "height": 26.391
+          },
+          "action_rect_css": {
+            "x": 876,
+            "y": 542,
+            "width": 148,
+            "height": 52
+          },
+          "action_rect_px": {
+            "x": 876.0,
+            "y": 542.0,
+            "width": 148.0,
+            "height": 52.0
+          }
+        },
+        {
+          "id": "ja-menu-profile",
+          "text": "プロフィール",
+          "language": "ja",
+          "role": "menu",
+          "quality": "disturbed",
+          "include_detection": true,
+          "include_cer": false,
+          "target": "unique",
+          "match_mode": "fuzzy",
+          "ambiguity_group": null,
+          "action_point": "text_center",
+          "text_rect_css": {
+            "x": 1089,
+            "y": 154,
+            "width": 120,
+            "height": 24
+          },
+          "text_rect_px": {
+            "x": 1089.0,
+            "y": 154.0,
+            "width": 120.0,
+            "height": 24.0
+          },
+          "action_rect_css": {
+            "x": 1089,
+            "y": 154,
+            "width": 120,
+            "height": 24
+          },
+          "action_rect_px": {
+            "x": 1089.0,
+            "y": 154.0,
+            "width": 120.0,
+            "height": 24.0
+          }
+        },
+        {
+          "id": "ja-menu-settings",
+          "text": "設定を開く",
+          "language": "ja",
+          "role": "menu",
+          "quality": "disturbed",
+          "include_detection": true,
+          "include_cer": false,
+          "target": "unique",
+          "match_mode": "fuzzy",
+          "ambiguity_group": null,
+          "action_point": "text_center",
+          "text_rect_css": {
+            "x": 1089,
+            "y": 218,
+            "width": 100,
+            "height": 24
+          },
+          "text_rect_px": {
+            "x": 1089.0,
+            "y": 218.0,
+            "width": 100.0,
+            "height": 24.0
+          },
+          "action_rect_css": {
+            "x": 1089,
+            "y": 218,
+            "width": 100,
+            "height": 24
+          },
+          "action_rect_px": {
+            "x": 1089.0,
+            "y": 218.0,
+            "width": 100.0,
+            "height": 24.0
+          }
+        }
+      ]
+    },
+    {
+      "id": "disturbed_japanese-1440x900-dpr2",
+      "scene": "disturbed_japanese",
+      "file": "disturbed_japanese_1440x900_dpr2.png",
+      "viewport_css": [
+        1440,
+        900
+      ],
+      "device_scale_factor": 2,
+      "screenshot_px": [
+        2880,
+        1800
+      ],
+      "language_profile": "japan",
+      "quality": "disturbed",
+      "effects": [
+        "texture",
+        "low_contrast",
+        "blur_0.45px",
+        "tilt_plus_10deg",
+        "tilt_minus_10deg"
+      ],
+      "fonts": [
+        "Hiragino Kaku Gothic ProN",
+        "Yu Gothic",
+        "Yu Mincho",
+        "Hiragino Mincho ProN"
+      ],
+      "font_sizes_px": [
+        20,
+        22,
+        24,
+        30
+      ],
+      "sha256": "da9455640240ed178be6a57529b233a6ee2c63507357a9cfcb53cc24ec437d29",
+      "annotations": [
+        {
+          "id": "ja-title",
+          "text": "日本語メニュー",
+          "language": "ja",
+          "role": "text",
+          "quality": "disturbed",
+          "include_detection": true,
+          "include_cer": false,
+          "target": "unique",
+          "match_mode": "fuzzy",
+          "ambiguity_group": null,
+          "action_point": "text_center",
+          "text_rect_css": {
+            "x": 136,
+            "y": 104,
+            "width": 207.906,
+            "height": 36
+          },
+          "text_rect_px": {
+            "x": 272.0,
+            "y": 208.0,
+            "width": 415.812,
+            "height": 72.0
+          },
+          "action_rect_css": {
+            "x": 136,
+            "y": 104,
+            "width": 207.906,
+            "height": 36
+          },
+          "action_rect_px": {
+            "x": 272.0,
+            "y": 208.0,
+            "width": 415.812,
+            "height": 72.0
+          }
+        },
+        {
+          "id": "ja-positive-tilt",
+          "text": "注文を確認",
+          "language": "ja",
+          "role": "text",
+          "quality": "disturbed",
+          "include_detection": true,
+          "include_cer": false,
+          "target": "unique",
+          "match_mode": "fuzzy",
+          "ambiguity_group": null,
+          "action_point": "text_center",
+          "text_rect_css": {
+            "x": 133.5,
+            "y": 220.219,
+            "width": 123.177,
+            "height": 49.197
+          },
+          "text_rect_px": {
+            "x": 267.0,
+            "y": 440.438,
+            "width": 246.354,
+            "height": 98.394
+          },
+          "action_rect_css": {
+            "x": 133.5,
+            "y": 220.219,
+            "width": 123.177,
+            "height": 49.197
+          },
+          "action_rect_px": {
+            "x": 267.0,
+            "y": 440.438,
+            "width": 246.354,
+            "height": 98.394
+          }
+        },
+        {
+          "id": "ja-negative-tilt",
+          "text": "結果を表示",
+          "language": "ja",
+          "role": "text",
+          "quality": "disturbed",
+          "include_detection": true,
+          "include_cer": false,
+          "target": "unique",
+          "match_mode": "fuzzy",
+          "ambiguity_group": null,
+          "action_point": "text_center",
+          "text_rect_css": {
+            "x": 503.709,
+            "y": 320.099,
+            "width": 112.912,
+            "height": 45.091
+          },
+          "text_rect_px": {
+            "x": 1007.418,
+            "y": 640.198,
+            "width": 225.824,
+            "height": 90.182
+          },
+          "action_rect_css": {
+            "x": 503.709,
+            "y": 320.099,
+            "width": 112.912,
+            "height": 45.091
+          },
+          "action_rect_px": {
+            "x": 1007.418,
+            "y": 640.198,
+            "width": 225.824,
+            "height": 90.182
+          }
+        },
+        {
+          "id": "ja-blurred",
+          "text": "検索を開始",
+          "language": "ja",
+          "role": "text",
+          "quality": "disturbed",
+          "include_detection": true,
+          "include_cer": false,
+          "target": "unique",
+          "match_mode": "fuzzy",
+          "ambiguity_group": null,
+          "action_point": "text_center",
+          "text_rect_css": {
+            "x": 136,
+            "y": 446,
+            "width": 100,
+            "height": 24
+          },
+          "text_rect_px": {
+            "x": 272.0,
+            "y": 892.0,
+            "width": 200.0,
+            "height": 48.0
+          },
+          "action_rect_css": {
+            "x": 136,
+            "y": 446,
+            "width": 100,
+            "height": 24
+          },
+          "action_rect_px": {
+            "x": 272.0,
+            "y": 892.0,
+            "width": 200.0,
+            "height": 48.0
+          }
+        },
+        {
+          "id": "ja-action",
+          "text": "次へ進む",
+          "language": "ja",
+          "role": "button",
+          "quality": "disturbed",
+          "include_detection": true,
+          "include_cer": false,
+          "target": "unique",
+          "match_mode": "fuzzy",
+          "ambiguity_group": null,
+          "action_point": "text_center",
+          "text_rect_css": {
+            "x": 906,
+            "y": 554.797,
+            "width": 88,
+            "height": 26.391
+          },
+          "text_rect_px": {
+            "x": 1812.0,
+            "y": 1109.594,
+            "width": 176.0,
+            "height": 52.782
+          },
+          "action_rect_css": {
+            "x": 876,
+            "y": 542,
+            "width": 148,
+            "height": 52
+          },
+          "action_rect_px": {
+            "x": 1752.0,
+            "y": 1084.0,
+            "width": 296.0,
+            "height": 104.0
+          }
+        },
+        {
+          "id": "ja-menu-profile",
+          "text": "プロフィール",
+          "language": "ja",
+          "role": "menu",
+          "quality": "disturbed",
+          "include_detection": true,
+          "include_cer": false,
+          "target": "unique",
+          "match_mode": "fuzzy",
+          "ambiguity_group": null,
+          "action_point": "text_center",
+          "text_rect_css": {
+            "x": 1089,
+            "y": 154,
+            "width": 120,
+            "height": 24
+          },
+          "text_rect_px": {
+            "x": 2178.0,
+            "y": 308.0,
+            "width": 240.0,
+            "height": 48.0
+          },
+          "action_rect_css": {
+            "x": 1089,
+            "y": 154,
+            "width": 120,
+            "height": 24
+          },
+          "action_rect_px": {
+            "x": 2178.0,
+            "y": 308.0,
+            "width": 240.0,
+            "height": 48.0
+          }
+        },
+        {
+          "id": "ja-menu-settings",
+          "text": "設定を開く",
+          "language": "ja",
+          "role": "menu",
+          "quality": "disturbed",
+          "include_detection": true,
+          "include_cer": false,
+          "target": "unique",
+          "match_mode": "fuzzy",
+          "ambiguity_group": null,
+          "action_point": "text_center",
+          "text_rect_css": {
+            "x": 1089,
+            "y": 218,
+            "width": 100,
+            "height": 24
+          },
+          "text_rect_px": {
+            "x": 2178.0,
+            "y": 436.0,
+            "width": 200.0,
+            "height": 48.0
+          },
+          "action_rect_css": {
+            "x": 1089,
+            "y": 218,
+            "width": 100,
+            "height": 24
+          },
+          "action_rect_px": {
+            "x": 2178.0,
+            "y": 436.0,
+            "width": 200.0,
+            "height": 48.0
+          }
+        }
+      ]
+    },
+    {
+      "id": "disturbed_korean_mobile-390x844-dpr1",
+      "scene": "disturbed_korean_mobile",
+      "file": "disturbed_korean_mobile_390x844_dpr1.png",
+      "viewport_css": [
+        390,
+        844
+      ],
+      "device_scale_factor": 1,
+      "screenshot_px": [
+        390,
+        844
+      ],
+      "language_profile": "korean",
+      "quality": "disturbed",
+      "effects": [
+        "dark_theme",
+        "texture",
+        "low_contrast",
+        "partial_occlusion"
+      ],
+      "fonts": [
+        "Apple SD Gothic Neo"
+      ],
+      "font_sizes_px": [
+        17,
+        18,
+        20,
+        26
+      ],
+      "sha256": "8d86638d42f3c412888bec866e9b93e3e672b421bc508bd6c855fc17f8db73c1",
+      "annotations": [
+        {
+          "id": "ko-title",
+          "text": "모바일 자동화",
+          "language": "ko",
+          "role": "text",
+          "quality": "disturbed",
+          "include_detection": true,
+          "include_cer": false,
+          "target": "unique",
+          "match_mode": "fuzzy",
+          "ambiguity_group": null,
+          "action_point": "text_center",
+          "text_rect_css": {
+            "x": 44,
+            "y": 60,
+            "width": 141.781,
+            "height": 31.188
+          },
+          "text_rect_px": {
+            "x": 44.0,
+            "y": 60.0,
+            "width": 141.781,
+            "height": 31.188
+          },
+          "action_rect_css": {
+            "x": 44,
+            "y": 60,
+            "width": 141.781,
+            "height": 31.188
+          },
+          "action_rect_px": {
+            "x": 44.0,
+            "y": 60.0,
+            "width": 141.781,
+            "height": 31.188
+          }
+        },
+        {
+          "id": "ko-label",
+          "text": "사용자 이름",
+          "language": "ko",
+          "role": "label_input",
+          "quality": "disturbed",
+          "include_detection": true,
+          "include_cer": false,
+          "target": "unique",
+          "match_mode": "fuzzy",
+          "ambiguity_group": null,
+          "action_point": "associated_control",
+          "text_rect_css": {
+            "x": 44,
+            "y": 145.188,
+            "width": 82.594,
+            "height": 21.594
+          },
+          "text_rect_px": {
+            "x": 44.0,
+            "y": 145.188,
+            "width": 82.594,
+            "height": 21.594
+          },
+          "action_rect_css": {
+            "x": 44,
+            "y": 180.781,
+            "width": 302,
+            "height": 54
+          },
+          "action_rect_px": {
+            "x": 44.0,
+            "y": 180.781,
+            "width": 302.0,
+            "height": 54.0
+          }
+        },
+        {
+          "id": "ko-placeholder",
+          "text": "계정을 입력",
+          "language": "ko",
+          "role": "placeholder",
+          "quality": "disturbed",
+          "include_detection": true,
+          "include_cer": false,
+          "target": "unique",
+          "match_mode": "fuzzy",
+          "ambiguity_group": null,
+          "action_point": "text_center",
+          "text_rect_css": {
+            "x": 64,
+            "y": 196.981,
+            "width": 82.584,
+            "height": 21.6
+          },
+          "text_rect_px": {
+            "x": 64.0,
+            "y": 196.981,
+            "width": 82.584,
+            "height": 21.6
+          },
+          "action_rect_css": {
+            "x": 64,
+            "y": 196.981,
+            "width": 82.584,
+            "height": 21.6
+          },
+          "action_rect_px": {
+            "x": 64.0,
+            "y": 196.981,
+            "width": 82.584,
+            "height": 21.6
+          }
+        },
+        {
+          "id": "ko-continue",
+          "text": "계속 진행",
+          "language": "ko",
+          "role": "button",
+          "quality": "disturbed",
+          "include_detection": true,
+          "include_cer": false,
+          "target": "unique",
+          "match_mode": "fuzzy",
+          "ambiguity_group": null,
+          "action_point": "text_center",
+          "text_rect_css": {
+            "x": 157.766,
+            "y": 286.781,
+            "width": 74.469,
+            "height": 24
+          },
+          "text_rect_px": {
+            "x": 157.766,
+            "y": 286.781,
+            "width": 74.469,
+            "height": 24.0
+          },
+          "action_rect_css": {
+            "x": 44,
+            "y": 272.781,
+            "width": 302,
+            "height": 52
+          },
+          "action_rect_px": {
+            "x": 44.0,
+            "y": 272.781,
+            "width": 302.0,
+            "height": 52.0
+          }
+        },
+        {
+          "id": "ko-occluded",
+          "text": "부분 가림 텍스트",
+          "language": "ko",
+          "role": "text",
+          "quality": "disturbed",
+          "include_detection": true,
+          "include_cer": false,
+          "target": "unique",
+          "match_mode": "fuzzy",
+          "ambiguity_group": null,
+          "action_point": "text_center",
+          "text_rect_css": {
+            "x": 44,
+            "y": 386.781,
+            "width": 118.469,
+            "height": 21.594
+          },
+          "text_rect_px": {
+            "x": 44.0,
+            "y": 386.781,
+            "width": 118.469,
+            "height": 21.594
+          },
+          "action_rect_css": {
+            "x": 44,
+            "y": 386.781,
+            "width": 118.469,
+            "height": 21.594
+          },
+          "action_rect_px": {
+            "x": 44.0,
+            "y": 386.781,
+            "width": 118.469,
+            "height": 21.594
+          }
+        },
+        {
+          "id": "ko-menu-profile",
+          "text": "프로필 메뉴",
+          "language": "ko",
+          "role": "menu",
+          "quality": "disturbed",
+          "include_detection": true,
+          "include_cer": false,
+          "target": "unique",
+          "match_mode": "fuzzy",
+          "ambiguity_group": null,
+          "action_point": "text_center",
+          "text_rect_css": {
+            "x": 77,
+            "y": 480.375,
+            "width": 78,
+            "height": 20.391
+          },
+          "text_rect_px": {
+            "x": 77.0,
+            "y": 480.375,
+            "width": 78.0,
+            "height": 20.391
+          },
+          "action_rect_css": {
+            "x": 77,
+            "y": 480.375,
+            "width": 78,
+            "height": 20.391
+          },
+          "action_rect_px": {
+            "x": 77.0,
+            "y": 480.375,
+            "width": 78.0,
+            "height": 20.391
+          }
+        },
+        {
+          "id": "ko-menu-report",
+          "text": "보고서 보기",
+          "language": "ko",
+          "role": "menu",
+          "quality": "disturbed",
+          "include_detection": true,
+          "include_cer": false,
+          "target": "unique",
+          "match_mode": "fuzzy",
+          "ambiguity_group": null,
+          "action_point": "text_center",
+          "text_rect_css": {
+            "x": 77,
+            "y": 540.766,
+            "width": 78,
+            "height": 20.391
+          },
+          "text_rect_px": {
+            "x": 77.0,
+            "y": 540.766,
+            "width": 78.0,
+            "height": 20.391
+          },
+          "action_rect_css": {
+            "x": 77,
+            "y": 540.766,
+            "width": 78,
+            "height": 20.391
+          },
+          "action_rect_px": {
+            "x": 77.0,
+            "y": 540.766,
+            "width": 78.0,
+            "height": 20.391
+          }
+        }
+      ]
+    },
+    {
+      "id": "disturbed_korean_mobile-390x844-dpr2",
+      "scene": "disturbed_korean_mobile",
+      "file": "disturbed_korean_mobile_390x844_dpr2.png",
+      "viewport_css": [
+        390,
+        844
+      ],
+      "device_scale_factor": 2,
+      "screenshot_px": [
+        780,
+        1688
+      ],
+      "language_profile": "korean",
+      "quality": "disturbed",
+      "effects": [
+        "dark_theme",
+        "texture",
+        "low_contrast",
+        "partial_occlusion"
+      ],
+      "fonts": [
+        "Apple SD Gothic Neo"
+      ],
+      "font_sizes_px": [
+        17,
+        18,
+        20,
+        26
+      ],
+      "sha256": "6e61107ee99f12c5024ab26ba1dadae497e8808306d8881c22f4c109868fdffc",
+      "annotations": [
+        {
+          "id": "ko-title",
+          "text": "모바일 자동화",
+          "language": "ko",
+          "role": "text",
+          "quality": "disturbed",
+          "include_detection": true,
+          "include_cer": false,
+          "target": "unique",
+          "match_mode": "fuzzy",
+          "ambiguity_group": null,
+          "action_point": "text_center",
+          "text_rect_css": {
+            "x": 44,
+            "y": 60,
+            "width": 141.781,
+            "height": 31.188
+          },
+          "text_rect_px": {
+            "x": 88.0,
+            "y": 120.0,
+            "width": 283.562,
+            "height": 62.376
+          },
+          "action_rect_css": {
+            "x": 44,
+            "y": 60,
+            "width": 141.781,
+            "height": 31.188
+          },
+          "action_rect_px": {
+            "x": 88.0,
+            "y": 120.0,
+            "width": 283.562,
+            "height": 62.376
+          }
+        },
+        {
+          "id": "ko-label",
+          "text": "사용자 이름",
+          "language": "ko",
+          "role": "label_input",
+          "quality": "disturbed",
+          "include_detection": true,
+          "include_cer": false,
+          "target": "unique",
+          "match_mode": "fuzzy",
+          "ambiguity_group": null,
+          "action_point": "associated_control",
+          "text_rect_css": {
+            "x": 44,
+            "y": 145.188,
+            "width": 82.594,
+            "height": 21.594
+          },
+          "text_rect_px": {
+            "x": 88.0,
+            "y": 290.376,
+            "width": 165.188,
+            "height": 43.188
+          },
+          "action_rect_css": {
+            "x": 44,
+            "y": 180.781,
+            "width": 302,
+            "height": 54
+          },
+          "action_rect_px": {
+            "x": 88.0,
+            "y": 361.562,
+            "width": 604.0,
+            "height": 108.0
+          }
+        },
+        {
+          "id": "ko-placeholder",
+          "text": "계정을 입력",
+          "language": "ko",
+          "role": "placeholder",
+          "quality": "disturbed",
+          "include_detection": true,
+          "include_cer": false,
+          "target": "unique",
+          "match_mode": "fuzzy",
+          "ambiguity_group": null,
+          "action_point": "text_center",
+          "text_rect_css": {
+            "x": 64,
+            "y": 196.981,
+            "width": 82.584,
+            "height": 21.6
+          },
+          "text_rect_px": {
+            "x": 128.0,
+            "y": 393.962,
+            "width": 165.168,
+            "height": 43.2
+          },
+          "action_rect_css": {
+            "x": 64,
+            "y": 196.981,
+            "width": 82.584,
+            "height": 21.6
+          },
+          "action_rect_px": {
+            "x": 128.0,
+            "y": 393.962,
+            "width": 165.168,
+            "height": 43.2
+          }
+        },
+        {
+          "id": "ko-continue",
+          "text": "계속 진행",
+          "language": "ko",
+          "role": "button",
+          "quality": "disturbed",
+          "include_detection": true,
+          "include_cer": false,
+          "target": "unique",
+          "match_mode": "fuzzy",
+          "ambiguity_group": null,
+          "action_point": "text_center",
+          "text_rect_css": {
+            "x": 157.766,
+            "y": 286.781,
+            "width": 74.469,
+            "height": 24
+          },
+          "text_rect_px": {
+            "x": 315.532,
+            "y": 573.562,
+            "width": 148.938,
+            "height": 48.0
+          },
+          "action_rect_css": {
+            "x": 44,
+            "y": 272.781,
+            "width": 302,
+            "height": 52
+          },
+          "action_rect_px": {
+            "x": 88.0,
+            "y": 545.562,
+            "width": 604.0,
+            "height": 104.0
+          }
+        },
+        {
+          "id": "ko-occluded",
+          "text": "부분 가림 텍스트",
+          "language": "ko",
+          "role": "text",
+          "quality": "disturbed",
+          "include_detection": true,
+          "include_cer": false,
+          "target": "unique",
+          "match_mode": "fuzzy",
+          "ambiguity_group": null,
+          "action_point": "text_center",
+          "text_rect_css": {
+            "x": 44,
+            "y": 386.781,
+            "width": 118.469,
+            "height": 21.594
+          },
+          "text_rect_px": {
+            "x": 88.0,
+            "y": 773.562,
+            "width": 236.938,
+            "height": 43.188
+          },
+          "action_rect_css": {
+            "x": 44,
+            "y": 386.781,
+            "width": 118.469,
+            "height": 21.594
+          },
+          "action_rect_px": {
+            "x": 88.0,
+            "y": 773.562,
+            "width": 236.938,
+            "height": 43.188
+          }
+        },
+        {
+          "id": "ko-menu-profile",
+          "text": "프로필 메뉴",
+          "language": "ko",
+          "role": "menu",
+          "quality": "disturbed",
+          "include_detection": true,
+          "include_cer": false,
+          "target": "unique",
+          "match_mode": "fuzzy",
+          "ambiguity_group": null,
+          "action_point": "text_center",
+          "text_rect_css": {
+            "x": 77,
+            "y": 480.375,
+            "width": 78,
+            "height": 20.391
+          },
+          "text_rect_px": {
+            "x": 154.0,
+            "y": 960.75,
+            "width": 156.0,
+            "height": 40.782
+          },
+          "action_rect_css": {
+            "x": 77,
+            "y": 480.375,
+            "width": 78,
+            "height": 20.391
+          },
+          "action_rect_px": {
+            "x": 154.0,
+            "y": 960.75,
+            "width": 156.0,
+            "height": 40.782
+          }
+        },
+        {
+          "id": "ko-menu-report",
+          "text": "보고서 보기",
+          "language": "ko",
+          "role": "menu",
+          "quality": "disturbed",
+          "include_detection": true,
+          "include_cer": false,
+          "target": "unique",
+          "match_mode": "fuzzy",
+          "ambiguity_group": null,
+          "action_point": "text_center",
+          "text_rect_css": {
+            "x": 77,
+            "y": 540.766,
+            "width": 78,
+            "height": 20.391
+          },
+          "text_rect_px": {
+            "x": 154.0,
+            "y": 1081.532,
+            "width": 156.0,
+            "height": 40.782
+          },
+          "action_rect_css": {
+            "x": 77,
+            "y": 540.766,
+            "width": 78,
+            "height": 20.391
+          },
+          "action_rect_px": {
+            "x": 154.0,
+            "y": 1081.532,
+            "width": 156.0,
+            "height": 40.782
+          }
+        }
+      ]
+    }
+  ]
+}

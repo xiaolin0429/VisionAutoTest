@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import MetricCard from '@/components/MetricCard.vue'
+import OcrEvidencePanel from '@/components/OcrEvidencePanel.vue'
 import SectionCard from '@/components/SectionCard.vue'
 import StatusTag from '@/components/StatusTag.vue'
 import { getMediaObject, getMediaObjectContent } from '@/api/modules/mediaObjects'
@@ -188,7 +189,7 @@ function getStepMediaEntries(step: StepResult): StepMediaEntry[] {
 
   if (step.actualMediaObjectId !== null) {
     entries.push({
-      label: '实际截图',
+      label: step.resultMetadata.ocr ? 'OCR 标注图' : '实际截图',
       mediaObjectId: step.actualMediaObjectId
     })
   }
@@ -989,6 +990,11 @@ onBeforeUnmount(() => {
                 <p class="mb-0 mt-2 text-xs text-slate-400">
                   类型：{{ step.type }} · 耗时：{{ step.durationMs ?? 0 }} ms
                 </p>
+
+                <OcrEvidencePanel
+                  v-if="step.resultMetadata.ocr"
+                  :metadata="step.resultMetadata.ocr"
+                />
 
                 <div
                   v-if="getStepMediaEntries(step).length > 0"

@@ -348,6 +348,77 @@ export interface TestCaseRunReadDTO {
   created_at: string
 }
 
+export interface OcrRectDTO {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+export interface OcrCandidateSummaryDTO {
+  rank: number
+  matched_text: string
+  role: string
+  confidence: number
+  score: number
+  viewport_css_rect: OcrRectDTO
+  document_css_rect: OcrRectDTO
+}
+
+export interface OcrCacheMetadataDTO {
+  analysis_hits: number
+  analysis_misses: number
+  snapshot_hits: number
+  snapshot_misses: number
+  generation?: number
+  last_invalidation_reason?: string
+}
+
+export interface OcrRevalidationMetadataDTO {
+  required: boolean
+  attempted: boolean
+  passed: boolean | null
+}
+
+export interface OcrDurationMetadataDTO {
+  ocr: number
+  locate: number
+}
+
+export interface OcrResultMetadataDTO {
+  scope?: string
+  language?: string
+  matched_text?: string
+  role?: string
+  confidence?: number
+  score?: number
+  pixel_rect?: OcrRectDTO
+  ratio_rect?: OcrRectDTO
+  viewport_css_rect?: OcrRectDTO
+  document_css_rect?: OcrRectDTO
+  action_point?: { x: number; y: number }
+  action_point_mode?: string
+  candidate_count?: number
+  candidates?: OcrCandidateSummaryDTO[]
+  preprocess_variants?: string[]
+  tiles?: { scanned: number; captured: number }
+  cache?: OcrCacheMetadataDTO
+  revalidation?: OcrRevalidationMetadataDTO
+  duration_ms?: OcrDurationMetadataDTO
+  error_code?: string
+  assertion?: string
+  assertion_status?: string
+  assertion_scope?: string
+  expected_count?: number
+  matched_count?: number
+  legacy_element_scope?: boolean
+}
+
+export interface StepResultMetadataDTO {
+  ocr?: OcrResultMetadataDTO
+  [key: string]: unknown
+}
+
 export interface StepResultReadDTO {
   id: number
   case_run_id: number
@@ -366,6 +437,7 @@ export interface StepResultReadDTO {
   branch_key: string | null
   branch_name: string | null
   branch_step_index: number | null
+  result_metadata_json: StepResultMetadataDTO
   repair_resource_type: 'template' | 'component' | 'test_case' | null
   repair_resource_id: number | null
   repair_route_path: string | null

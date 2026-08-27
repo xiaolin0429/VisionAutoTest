@@ -1,13 +1,22 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Protocol, Sequence
+from typing import Any, Protocol, Sequence
 
 from app.core.config import get_settings
 from app.models import DeviceProfile, utc_now
 from app.workers import browser_branching, browser_locators, browser_payloads
 from app.workers.browser_step_registry import get_step_handler
+from app.workers.ocr_engine import OcrEngineError
+from app.workers.ocr_evidence import (
+    OcrResolutionEvidence,
+    build_ocr_annotation_png,
+)
+from app.workers.ocr_page import OcrPageGeometryError
+from app.workers.ocr_session import OcrAnalyzer, PageOcrSession
+from app.workers.ocr_targeting import OcrTargetingError
+from app.workers.ocr_types import OcrErrorCode
 from app.workers.vision import (
     TemplateAssertionContext,
     VisionArtifact,
@@ -44,6 +53,7 @@ class BrowserStepResult:
     branch_key: str | None = None
     branch_name: str | None = None
     branch_step_index: int | None = None
+    result_metadata_json: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(slots=True)
@@ -60,9 +70,11 @@ class StepExecutionOutcome:
     status: str
     score_value: float | None = None
     error_message: str | None = None
+    failure_reason_code: str | None = None
     expected_media_object_id: int | None = None
     actual_artifact: VisionArtifact | None = None
     diff_artifact: VisionArtifact | None = None
+    result_metadata_json: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(slots=True)
@@ -109,10 +121,17 @@ def build_browser_execution_adapter() -> BrowserExecutionAdapter:
 
 
 class PlaywrightBrowserExecutionAdapter:
-    def __init__(self, *, headless: bool, navigation_timeout_ms: int) -> None:
+    def __init__(
+        self,
+        *,
+        headless: bool,
+        navigation_timeout_ms: int,
+        ocr_analyzer: OcrAnalyzer | None = None,
+    ) -> None:
         self._headless = headless
         self._navigation_timeout_ms = navigation_timeout_ms
         self._vision_adapter = build_vision_assertion_adapter()
+        self._ocr_analyzer = ocr_analyzer or self._vision_adapter
         self._interaction_point_cls = InteractionPoint
 
     def execute_case(
@@ -151,6 +170,7 @@ class PlaywrightBrowserExecutionAdapter:
                 page.goto(
                     base_url, wait_until="load", timeout=self._navigation_timeout_ms
                 )
+                ocr_session = self._build_ocr_session(page)
 
                 # Steps are executed in order, but branch child steps are only materialized
                 # at runtime after the parent conditional evaluates against the current page.
@@ -161,6 +181,7 @@ class PlaywrightBrowserExecutionAdapter:
                             step=step,
                             steps=steps,
                             template_contexts=template_contexts,
+                            ocr_session=ocr_session,
                         ):
                             continue
                     started_at = utc_now()
@@ -171,6 +192,7 @@ class PlaywrightBrowserExecutionAdapter:
                             step=step,
                             case_run_id=case_run_id,
                             template_contexts=template_contexts,
+                            ocr_session=ocr_session,
                         )
                     except UnsupportedStepError as exc:
                         outcome = StepExecutionOutcome(
@@ -178,21 +200,90 @@ class PlaywrightBrowserExecutionAdapter:
                         )
                         failure_reason_code = "STEP_NOT_SUPPORTED"
                         failure_summary = outcome.error_message
+                    except (OcrTargetingError, OcrEngineError) as exc:
+                        sensitive_values = self._sensitive_ocr_values(step)
+                        evidence = self._ocr_error_evidence(
+                            ocr_session,
+                            step=step,
+                        )
+                        outcome = StepExecutionOutcome(
+                            status="error",
+                            error_message=self._format_error(
+                                exc,
+                                sensitive_values=sensitive_values,
+                            ),
+                            actual_artifact=self._build_ocr_error_artifact(
+                                evidence=evidence,
+                                case_run_id=case_run_id,
+                                step=step,
+                                sensitive_values=sensitive_values,
+                            ),
+                            result_metadata_json=self._build_ocr_error_metadata(
+                                exc,
+                                redact_text=self._is_sensitive_ocr_input(step),
+                                evidence=evidence,
+                                sensitive_values=sensitive_values,
+                            ),
+                        )
+                        failure_reason_code = exc.code.value
+                        failure_summary = outcome.error_message
+                    except OcrPageGeometryError as exc:
+                        sensitive_values = self._sensitive_ocr_values(step)
+                        evidence = self._ocr_error_evidence(
+                            ocr_session,
+                            step=step,
+                        )
+                        outcome = StepExecutionOutcome(
+                            status="error",
+                            error_message=self._format_error(
+                                exc,
+                                sensitive_values=sensitive_values,
+                            ),
+                            actual_artifact=self._build_ocr_error_artifact(
+                                evidence=evidence,
+                                case_run_id=case_run_id,
+                                step=step,
+                                sensitive_values=sensitive_values,
+                            ),
+                            result_metadata_json=self._build_ocr_error_metadata(
+                                OcrEngineError(
+                                    OcrErrorCode.OCR_ANALYSIS_FAILED,
+                                    str(exc),
+                                ),
+                                redact_text=self._is_sensitive_ocr_input(step),
+                                evidence=evidence,
+                                sensitive_values=sensitive_values,
+                            ),
+                        )
+                        failure_reason_code = OcrErrorCode.OCR_ANALYSIS_FAILED.value
+                        failure_summary = outcome.error_message
                     except ValueError as exc:
                         outcome = StepExecutionOutcome(
-                            status="error", error_message=self._format_error(exc)
+                            status="error",
+                            error_message=self._format_error(
+                                exc,
+                                sensitive_values=self._sensitive_ocr_values(step),
+                            ),
                         )
                         failure_reason_code = "STEP_CONFIGURATION_INVALID"
                         failure_summary = outcome.error_message
                     except playwright_timeout_error as exc:
                         outcome = StepExecutionOutcome(
-                            status="error", error_message=self._format_error(exc)
+                            status="error",
+                            error_message=self._format_error(
+                                exc,
+                                sensitive_values=self._sensitive_ocr_values(step),
+                            ),
                         )
                         failure_reason_code = "STEP_EXECUTION_TIMEOUT"
                         failure_summary = outcome.error_message
                     except Exception as exc:  # noqa: BLE001
                         outcome = StepExecutionOutcome(
-                            status="error", error_message=self._format_error(exc)
+                            status="error",
+                            error_message=self._format_error(
+                                exc,
+                                sensitive_values=self._sensitive_ocr_values(step),
+                            ),
                         )
                         failure_reason_code = "STEP_EXECUTION_ERROR"
                         failure_summary = outcome.error_message
@@ -215,6 +306,7 @@ class PlaywrightBrowserExecutionAdapter:
                             branch_key=step.branch_key,
                             branch_name=step.branch_name,
                             branch_step_index=step.branch_step_index,
+                            result_metadata_json=outcome.result_metadata_json,
                         )
                     )
                     if outcome.status == "failed":
@@ -229,7 +321,9 @@ class PlaywrightBrowserExecutionAdapter:
                         break
                     if outcome.status == "error":
                         failure_reason_code = (
-                            failure_reason_code or "STEP_EXECUTION_ERROR"
+                            outcome.failure_reason_code
+                            or failure_reason_code
+                            or "STEP_EXECUTION_ERROR"
                         )
                         failure_summary = failure_summary or outcome.error_message
                         break
@@ -323,6 +417,7 @@ class PlaywrightBrowserExecutionAdapter:
         step: BrowserStep,
         case_run_id: int,
         template_contexts: dict[int, TemplateAssertionContext],
+        ocr_session: PageOcrSession | None = None,
     ) -> StepExecutionOutcome:
         """Dispatch a single step to the registered browser step handler.
 
@@ -351,6 +446,7 @@ class PlaywrightBrowserExecutionAdapter:
                 case_run_id=case_run_id,
                 timeout_ms=timeout_ms,
                 template_contexts=template_contexts,
+                ocr_session=ocr_session,
             )
         raise UnsupportedStepError(f"Unsupported step type: {step.step_type}")
 
@@ -361,6 +457,7 @@ class PlaywrightBrowserExecutionAdapter:
         step: BrowserStep,
         steps: Sequence[BrowserStep],
         template_contexts: dict[int, TemplateAssertionContext],
+        ocr_session: PageOcrSession | None = None,
     ) -> bool:
         """Decide whether a branch child step belongs to the selected branch.
 
@@ -379,6 +476,7 @@ class PlaywrightBrowserExecutionAdapter:
             step=step,
             steps=steps,
             template_contexts=template_contexts,
+            ocr_session=ocr_session,
         )
 
     def _select_matching_branch(
@@ -387,12 +485,14 @@ class PlaywrightBrowserExecutionAdapter:
         *,
         payload: dict,
         template_contexts: dict[int, TemplateAssertionContext],
+        ocr_session: PageOcrSession | None = None,
     ) -> dict | None:
         return browser_branching.select_matching_branch(
             self,
             page,
             payload=payload,
             template_contexts=template_contexts,
+            ocr_session=ocr_session,
         )
 
     def _evaluate_branch_condition(
@@ -401,12 +501,14 @@ class PlaywrightBrowserExecutionAdapter:
         *,
         condition: object,
         template_contexts: dict[int, TemplateAssertionContext],
+        ocr_session: PageOcrSession | None = None,
     ) -> bool:
         return browser_branching.evaluate_branch_condition(
             self,
             page,
             condition=condition,
             template_contexts=template_contexts,
+            ocr_session=ocr_session,
         )
 
     def _capture_artifact(self, page, case_run_id: int) -> BrowserArtifact | None:
@@ -417,6 +519,18 @@ class PlaywrightBrowserExecutionAdapter:
             file_name=f"case-run-{case_run_id}.png",
             content_type="image/png",
             content_bytes=screenshot_bytes,
+        )
+
+    def _build_ocr_session(self, page) -> PageOcrSession:
+        settings = get_settings()
+        return PageOcrSession(
+            page=page,
+            analyzer=self._ocr_analyzer,
+            preprocessing_profile=settings.ocr_preprocessing_profile,
+            max_page_tiles=settings.ocr_max_page_tiles,
+            page_tile_overlap_ratio=settings.ocr_page_tile_overlap_ratio,
+            evidence_max_candidates=settings.ocr_evidence_max_candidates,
+            evidence_max_text_length=settings.ocr_evidence_max_text_length,
         )
 
     def _payload_int(self, payload: dict, key: str) -> int:
@@ -452,16 +566,22 @@ class PlaywrightBrowserExecutionAdapter:
         payload: dict,
         *,
         template_contexts: dict[int, TemplateAssertionContext],
+        ocr_session: PageOcrSession | None = None,
     ):
         return browser_locators.resolve_interaction_target(
             self,
             page,
             payload,
             template_contexts=template_contexts,
+            ocr_session=ocr_session,
         )
 
-    def _resolve_ocr_target(self, page, payload: dict):
-        return browser_locators.resolve_ocr_target(self, page, payload)
+    def _resolve_ocr_target(
+        self,
+        ocr_session: PageOcrSession | None,
+        payload: dict,
+    ):
+        return browser_locators.resolve_ocr_target(ocr_session, payload)
 
     def _resolve_visual_target(
         self,
@@ -533,11 +653,102 @@ class PlaywrightBrowserExecutionAdapter:
             return "OCR_ASSERTION_FAILED"
         return "ASSERTION_FAILED"
 
-    def _format_error(self, exc: Exception) -> str:
+    def _is_sensitive_ocr_input(self, step: BrowserStep) -> bool:
+        if step.step_type != "input":
+            return False
+        payload = step.payload_json or {}
+        return any(
+            payload.get(key) is True
+            for key in ("sensitive", "is_sensitive", "input_is_sensitive")
+        )
+
+    def _sensitive_ocr_values(self, step: BrowserStep) -> tuple[str, ...]:
+        if not self._is_sensitive_ocr_input(step):
+            return ()
+        text = (step.payload_json or {}).get("text")
+        return (text,) if isinstance(text, str) and text else ()
+
+    def _ocr_error_evidence(
+        self,
+        ocr_session: PageOcrSession | None,
+        *,
+        step: BrowserStep,
+    ) -> OcrResolutionEvidence | None:
+        if ocr_session is None:
+            return None
+        if step.step_type in {
+            "click",
+            "input",
+            "select_option",
+            "long_press",
+            "scroll",
+        }:
+            action_evidence = getattr(ocr_session, "last_action_evidence", None)
+            if action_evidence is not None:
+                return action_evidence
+        return getattr(ocr_session, "last_evidence", None)
+
+    def _build_ocr_error_artifact(
+        self,
+        *,
+        evidence: OcrResolutionEvidence | None,
+        case_run_id: int,
+        step: BrowserStep,
+        sensitive_values: tuple[str, ...],
+    ) -> VisionArtifact | None:
+        if evidence is None:
+            return None
+        artifact_type = (
+            "ocr_assert" if step.step_type == "ocr_assert" else "ocr_action"
+        )
+        try:
+            content_bytes = build_ocr_annotation_png(
+                evidence,
+                sensitive_values=sensitive_values,
+                redact_text=self._is_sensitive_ocr_input(step),
+            )
+        except Exception:  # noqa: BLE001 - preserve the primary OCR error
+            return None
+        return VisionArtifact(
+            file_name=(
+                f"case-run-{case_run_id}-step-{step.step_no}-{artifact_type}.png"
+            ),
+            content_type="image/png",
+            content_bytes=content_bytes,
+            artifact_type=artifact_type,
+        )
+
+    def _build_ocr_error_metadata(
+        self,
+        exc: OcrTargetingError | OcrEngineError,
+        *,
+        redact_text: bool,
+        evidence: OcrResolutionEvidence | None,
+        sensitive_values: tuple[str, ...],
+    ) -> dict[str, object]:
+        try:
+            return browser_locators.build_ocr_error_metadata(
+                exc,
+                redact_text=redact_text,
+                evidence=evidence,
+                sensitive_values=sensitive_values,
+            )
+        except Exception:  # noqa: BLE001 - preserve the primary OCR error
+            return {"ocr": {"error_code": exc.code.value}}
+
+    def _format_error(
+        self,
+        exc: Exception,
+        *,
+        sensitive_values: tuple[str, ...] = (),
+    ) -> str:
         message = str(exc).strip()
         if not message:
             return type(exc).__name__
-        return f"{type(exc).__name__}: {message.splitlines()[0]}"
+        first_line = message.splitlines()[0]
+        for sensitive_value in sorted(sensitive_values, key=len, reverse=True):
+            first_line = first_line.replace(sensitive_value, "[redacted]")
+        return f"{type(exc).__name__}: {first_line}"
 
 
 def _duration_ms(started_at: datetime, finished_at: datetime) -> int:

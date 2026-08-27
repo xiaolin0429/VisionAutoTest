@@ -138,6 +138,21 @@ const router = createRouter({
         }
       ]
     },
+    ...(import.meta.env.DEV
+      ? [
+          {
+            path: '/__dev/step-canvas',
+            name: 'dev-step-canvas',
+            component: () => import('@/views/dev/StepCanvasPreviewView.vue'),
+            meta: {
+              public: true,
+              requiresWorkspace: false,
+              title: '步骤画布 DEV 预览',
+              description: '使用本地夹具验收真实 StepCanvasEditor。'
+            }
+          }
+        ]
+      : []),
     {
       path: '/:pathMatch(.*)*',
       name: 'not-found',

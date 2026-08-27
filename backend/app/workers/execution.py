@@ -174,6 +174,7 @@ def process_test_run(test_run_id: int) -> None:
                         branch_key=step_result.branch_key,
                         branch_name=step_result.branch_name,
                         branch_step_index=step_result.branch_step_index,
+                        result_metadata_json=step_result.result_metadata_json,
                     )
                     db.add(persisted)
                     db.flush()
@@ -192,9 +193,16 @@ def process_test_run(test_run_id: int) -> None:
                         captured_artifacts.append(
                             CapturedArtifactRecord(
                                 media=actual_media,
-                                artifact_type="step_ocr"
-                                if step_result.step_type == "ocr_assert"
-                                else "step_actual",
+                                artifact_type=(
+                                    step_result.actual_artifact.artifact_type
+                                    if step_result.actual_artifact.artifact_type
+                                    in {"ocr_action", "ocr_assert"}
+                                    else (
+                                        "ocr_assert"
+                                        if step_result.step_type == "ocr_assert"
+                                        else "step_actual"
+                                    )
+                                ),
                                 case_run_id=case_run.id,
                                 step_result_id=persisted.id,
                             )

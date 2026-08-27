@@ -1,0 +1,94 @@
+{
+  "version": 1,
+  "random_seed": 20260816,
+  "fixtures": [
+    {
+      "file": "clear_multilingual_1280x720.png",
+      "size": [
+        1280,
+        720
+      ],
+      "languages": [
+        "zh_en",
+        "en",
+        "japan",
+        "korean"
+      ],
+      "fonts": [
+        "Arial",
+        "Arial Unicode",
+        "Hiragino Sans GB",
+        "Apple SD Gothic Neo"
+      ],
+      "effects": [
+        "clear"
+      ],
+      "sha256": "2f7c9b4f2caf23965eeeeb9959b4c0e2c450735e7261de13bfe9408434bda805"
+    },
+    {
+      "file": "multifont_small_text_1920x1080.png",
+      "size": [
+        1920,
+        1080
+      ],
+      "languages": [
+        "zh_en",
+        "en",
+        "latin"
+      ],
+      "fonts": [
+        "Arial",
+        "Courier New",
+        "Times New Roman",
+        "Arial Bold",
+        "Arial Unicode"
+      ],
+      "effects": [
+        "small_text",
+        "multiple_font_sizes"
+      ],
+      "sha256": "e6fc06f2791356c6694c700ecd9e858d1a37317cd662def57507f145887a2972"
+    },
+    {
+      "file": "noisy_tilted_1440x900.png",
+      "size": [
+        1440,
+        900
+      ],
+      "languages": [
+        "zh_en",
+        "en"
+      ],
+      "fonts": [
+        "Arial Unicode"
+      ],
+      "effects": [
+        "noise",
+        "texture",
+        "low_contrast",
+        "tilt_8deg"
+      ],
+      "sha256": "82777e2cae1a2ef33058bd5a69c1868fe85a51c0b901dce9b0fdb0ce3cdb6775"
+    },
+    {
+      "file": "occluded_mobile_390x844.png",
+      "size": [
+        390,
+        844
+      ],
+      "languages": [
+        "zh_en",
+        "en"
+      ],
+      "fonts": [
+        "Arial",
+        "Arial Unicode"
+      ],
+      "effects": [
+        "dark_theme",
+        "partial_occlusion"
+      ],
+      "sha256": "286ba8431a36c3485be90a07ecd5539b101144b16edd51f0e867d0e8b8078345"
+    }
+  ]
+}

@@ -358,6 +358,7 @@ export type StepType =
   | 'wait'
   | 'click'
   | 'input'
+  | 'select_option'
   | 'template_assert'
   | 'ocr_assert'
   | 'component_call'
@@ -376,11 +377,70 @@ export type ScrollBehaviorMode = 'auto' | 'smooth'
 
 export type LongPressButton = 'left'
 
-export type OcrAssertMatchMode = 'exact' | 'contains'
+export type OcrMatchMode = 'exact' | 'contains' | 'regex' | 'fuzzy'
+
+export type OcrAssertMatchMode = OcrMatchMode
 
 export type LocatorType = 'selector' | 'ocr' | 'visual'
 
-export type OcrLocatorMatchMode = 'exact' | 'contains'
+export type OcrLocatorMatchMode = OcrMatchMode
+
+export type OcrTargetScope = 'viewport' | 'page'
+
+export type OcrAssertionScope = OcrTargetScope | 'element_legacy'
+
+export type OcrAssertionMode = 'present' | 'absent' | 'count' | 'relation'
+
+export type OcrLanguageProfile = 'auto' | 'zh_en' | 'en' | 'latin' | 'japan' | 'korean'
+
+export type OcrElementRole = 'any' | 'text' | 'button' | 'input' | 'menu_item' | 'label'
+
+export type OcrRelationType =
+  | 'left_of'
+  | 'right_of'
+  | 'above'
+  | 'below'
+  | 'nearest'
+  | 'same_row'
+  | 'same_column'
+  | 'associated_control'
+
+export type OcrActionPoint = 'text_center' | 'associated_control'
+
+export interface OcrTargetRelationPayload {
+  type: OcrRelationType
+  anchor_text: string
+  max_distance_ratio: number
+}
+
+export interface OcrTargetPayload {
+  text: string
+  match_mode: OcrMatchMode
+  case_sensitive: boolean
+  occurrence: number
+  scope: OcrTargetScope
+  language: OcrLanguageProfile
+  role: OcrElementRole
+  min_confidence: number
+  min_score: number
+  ambiguity_margin: number
+  action_point: OcrActionPoint
+  relation?: OcrTargetRelationPayload
+}
+
+export interface OcrSelectOptionPayload {
+  field_target: OcrTargetPayload
+  option_target: OcrTargetPayload
+  verify_selected: boolean
+}
+
+export interface OcrAssertPayload {
+  scope: OcrAssertionScope
+  assertion: OcrAssertionMode
+  ocr_target: OcrTargetPayload
+  selector?: string
+  expected_count?: number
+}
 
 export type InputMode = 'fill' | 'type' | 'otp'
 
@@ -514,6 +574,71 @@ export interface TestRun {
   errorCaseCount: number
 }
 
+export interface OcrRect {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+export interface OcrCandidateSummary {
+  rank: number
+  matchedText: string
+  role: string
+  confidence: number
+  score: number
+  viewportCssRect: OcrRect
+  documentCssRect: OcrRect
+}
+
+export interface OcrEvidenceMetadata {
+  scope: string | null
+  language: string | null
+  matchedText: string | null
+  role: string | null
+  confidence: number | null
+  score: number | null
+  pixelRect: OcrRect | null
+  ratioRect: OcrRect | null
+  viewportCssRect: OcrRect | null
+  documentCssRect: OcrRect | null
+  actionPoint: { x: number; y: number } | null
+  actionPointMode: string | null
+  candidateCount: number
+  candidates: OcrCandidateSummary[]
+  preprocessVariants: string[]
+  tiles: { scanned: number; captured: number }
+  cache: {
+    analysisHits: number
+    analysisMisses: number
+    snapshotHits: number
+    snapshotMisses: number
+    generation: number | null
+    lastInvalidationReason: string | null
+  }
+  revalidation: {
+    required: boolean
+    attempted: boolean
+    passed: boolean | null
+  }
+  durationMs: {
+    ocr: number
+    locate: number
+  }
+  errorCode: string | null
+  assertion: string | null
+  assertionStatus: string | null
+  assertionScope: string | null
+  expectedCount: number | null
+  matchedCount: number | null
+  legacyElementScope: boolean
+}
+
+export interface StepResultMetadata {
+  ocr?: OcrEvidenceMetadata
+  [key: string]: unknown
+}
+
 export interface StepResult {
   id: number
   stepNo: number
@@ -530,6 +655,7 @@ export interface StepResult {
   branchKey: string | null
   branchName: string | null
   branchStepIndex: number | null
+  resultMetadata: StepResultMetadata
   artifactLabel?: string
   repairResourceType: 'template' | 'component' | 'test_case' | null
   repairResourceId: number | null

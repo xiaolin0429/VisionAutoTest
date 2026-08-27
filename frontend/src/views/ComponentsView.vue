@@ -140,7 +140,8 @@ async function loadComponents() {
     const routeComponentId = Number(route.query.componentId ?? NaN)
     if (
       selectedComponentId.value === null &&
-      components.value.some((item) => item.id === routeComponentId)
+      Number.isInteger(routeComponentId) &&
+      routeComponentId > 0
     ) {
       selectedComponentId.value = routeComponentId
     }
@@ -169,6 +170,13 @@ async function selectComponent(componentId: number) {
       getComponentDetail(componentId),
       getComponentSteps(componentId)
     ])
+    if (
+      !components.value.some(
+        (component: Component): boolean => component.id === detail.id
+      )
+    ) {
+      components.value = [detail, ...components.value]
+    }
     currentComponent.value = { ...detail, steps }
     const routeStepNo = Number(route.query.stepNo ?? NaN)
     highlightedStepNo.value = Number.isNaN(routeStepNo) ? null : routeStepNo
@@ -268,9 +276,18 @@ async function submitSteps() {
 }
 
 function getStepTemplateOptions(step: StepDraft) {
-  // @param step Current step draft whose assertion type determines the compatible template strategy.
-  if (step.type !== 'template_assert' && step.type !== 'ocr_assert') return []
-  const expectedStrategy = step.type === 'template_assert' ? 'template' : 'ocr'
+  // @param step Current step draft whose assertion or locator determines the compatible template strategy.
+  const usesVisualLocator =
+    ['click', 'input', 'scroll', 'long_press'].includes(step.type) &&
+    step.locator === 'visual'
+  if (
+    step.type !== 'template_assert' &&
+    step.type !== 'ocr_assert' &&
+    !usesVisualLocator
+  ) {
+    return []
+  }
+  const expectedStrategy = step.type === 'ocr_assert' ? 'ocr' : 'template'
   return templates.value
     .filter((item) => item.matchStrategy === expectedStrategy)
     .map((item) => ({ id: item.id, label: `${item.name} (#${item.id}) · ${item.status}` }))

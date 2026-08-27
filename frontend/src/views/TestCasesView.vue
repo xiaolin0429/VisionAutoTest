@@ -5,9 +5,12 @@ import { ElMessage } from 'element-plus'
 import MetricCard from '@/components/MetricCard.vue'
 import SectionCard from '@/components/SectionCard.vue'
 import StatusTag from '@/components/StatusTag.vue'
-import StepEditorDialog from '@/components/step/StepEditorDialog.vue'
-import { WORKSPACE_STORAGE_KEY } from '@/constants/storage'
-import { listComponents } from '@/api/modules/components'
+import StepCanvasEditor from '@/components/step/canvas/StepCanvasEditor.vue'
+import {
+  getComponentDetail,
+  getComponentSteps,
+  listComponents
+} from '@/api/modules/components'
 import {
   cloneTestCase,
   createTestCase,
@@ -26,7 +29,23 @@ import {
 } from '@/utils/readiness'
 import { STEP_TYPE_LABELS, type StepDraft } from '@/utils/steps'
 import { useStepEditor } from '@/composables/useStepEditor'
-import type { Component, ExecutionReadinessIssue, StepType, Template, TestCase } from '@/types/models'
+import { useAuthStore } from '@/stores/auth'
+import { useWorkspaceStore } from '@/stores/workspace'
+import type {
+  Component,
+  ExecutionReadinessIssue,
+  Step,
+  StepType,
+  StepWritePayload,
+  Template,
+  TestCase
+} from '@/types/models'
+import type {
+  EditableStepPath,
+  StepGraphComponentPreview,
+  StepStructurePath
+} from '@/types/stepGraph'
+import { isEditableStepPath } from '@/utils/stepGraph'
 
 interface StepTemplateOption {
   id: number
@@ -36,6 +55,8 @@ interface StepTemplateOption {
 const stepEditor = useStepEditor({ allowComponentCall: true })
 const route = useRoute()
 const router = useRouter()
+const authStore = useAuthStore()
+const workspaceStore = useWorkspaceStore()
 
 const loading = ref(false)
 const savingCase = ref(false)
@@ -47,6 +68,19 @@ const selectedCaseId = ref<number | null>(null)
 const currentCase = ref<TestCase | null>(null)
 const readinessIssuesByCaseId = ref<Record<number, ExecutionReadinessIssue[]>>({})
 const highlightedStepNo = ref<number | null>(null)
+const stepCanvasVisible = ref(false)
+const stepCanvasRef = ref<InstanceType<typeof StepCanvasEditor> | null>(null)
+const selectedCanvasPath = ref<StepStructurePath | null>(null)
+const componentPreviews = ref<Record<number, StepGraphComponentPreview>>({})
+const loadingComponentPreviewIds = new Set<number>()
+let handledRepairTargetKey = ''
+
+const currentUserId = computed(
+  (): number => authStore.user?.id ?? authStore.currentSession?.user.id ?? 0
+)
+const currentWorkspaceId = computed(
+  (): number => workspaceStore.currentWorkspaceId ?? 0
+)
 
 const searchKeyword = ref('')
 const filterStatus = ref('')
@@ -73,7 +107,6 @@ function handleSearchInput() {
 }
 
 const caseDialogVisible = ref(false)
-const stepDialogVisible = ref(false)
 const caseDialogMode = ref<'create' | 'edit'>('create')
 
 const caseForm = reactive({
@@ -213,7 +246,7 @@ function getStepTemplateHint(step: StepDraft) {
   return messages.join(' ')
 }
 
-async function loadCaseList() {
+async function loadCaseList(): Promise<void> {
   // Loads the case list plus readiness issues, then reconciles current selection with route/query state.
   const options: { keyword?: string; status?: string } = {}
   if (searchKeyword.value.trim()) {
@@ -226,27 +259,65 @@ async function loadCaseList() {
   testCases.value = await listTestCases(
     Object.keys(options).length > 0 ? options : undefined
   )
-  const workspaceId = Number(localStorage.getItem(WORKSPACE_STORAGE_KEY) ?? 0)
+  const workspaceId = currentWorkspaceId.value
   const readiness = workspaceId
     ? await getWorkspaceExecutionReadiness(workspaceId).catch(() => null)
     : null
   readinessIssuesByCaseId.value = (readiness?.issues ?? [])
-    .filter((issue) => issue.resourceType === 'test_case' && issue.resourceId !== null)
-    .reduce<Record<number, ExecutionReadinessIssue[]>>((acc, issue) => {
-      const testCaseId = issue.resourceId as number
-      acc[testCaseId] = [...(acc[testCaseId] ?? []), issue]
-      return acc
-    }, {})
+    .filter(
+      (issue: ExecutionReadinessIssue): boolean =>
+        issue.resourceType === 'test_case' && issue.resourceId !== null
+    )
+    .reduce<Record<number, ExecutionReadinessIssue[]>>(
+      (
+        acc: Record<number, ExecutionReadinessIssue[]>,
+        issue: ExecutionReadinessIssue
+      ): Record<number, ExecutionReadinessIssue[]> => {
+        const testCaseId = issue.resourceId as number
+        acc[testCaseId] = [...(acc[testCaseId] ?? []), issue]
+        return acc
+      },
+      {}
+    )
 
-  if (!testCases.value.some((item) => item.id === selectedCaseId.value)) {
+  if (
+    !testCases.value.some(
+      (item: TestCase): boolean => item.id === selectedCaseId.value
+    )
+  ) {
     const routeTestCaseId = Number(route.query.testCaseId ?? NaN)
-    selectedCaseId.value = testCases.value.some((item) => item.id === routeTestCaseId)
+    selectedCaseId.value = testCases.value.some(
+      (item: TestCase): boolean => item.id === routeTestCaseId
+    )
       ? routeTestCaseId
       : testCases.value[0]?.id ?? null
   }
 }
 
-async function loadCaseDetail(testCaseId: number | null) {
+function resolveTopStepPath(
+  steps: TestCase['steps'],
+  stepNo: number
+): EditableStepPath | null {
+  const index = steps.findIndex(
+    (step: TestCase['steps'][number]): boolean => step.stepNo === stepNo
+  )
+  return index >= 0 ? `top:${index}` : null
+}
+
+function selectCase(testCaseId: number): void {
+  handledRepairTargetKey = ''
+  highlightedStepNo.value = null
+  selectedCaseId.value = testCaseId
+  const { stepNo: _stepNo, ...query } = route.query
+  void router.replace({
+    query: {
+      ...query,
+      testCaseId: String(testCaseId)
+    }
+  })
+}
+
+async function loadCaseDetail(testCaseId: number | null): Promise<void> {
   // @param testCaseId Selected test-case id, or null when no case should be shown in the detail panel.
   if (!testCaseId) {
     currentCase.value = null
@@ -258,14 +329,19 @@ async function loadCaseDetail(testCaseId: number | null) {
 
   try {
     currentCase.value = await getTestCaseDetail(testCaseId)
+    const routeTestCaseId = Number(route.query.testCaseId ?? NaN)
     const routeStepNo = Number(route.query.stepNo ?? NaN)
-    highlightedStepNo.value = Number.isNaN(routeStepNo) ? null : routeStepNo
-    if (
-      highlightedStepNo.value !== null &&
-      currentCase.value.steps.some((step) => step.stepNo === highlightedStepNo.value)
-    ) {
-      void router.replace({ query: { ...route.query, testCaseId: String(testCaseId) } })
-      openStepDialog()
+    const repairPath =
+      routeTestCaseId === testCaseId && Number.isInteger(routeStepNo)
+        ? resolveTopStepPath(currentCase.value.steps, routeStepNo)
+        : null
+    highlightedStepNo.value = repairPath ? routeStepNo : null
+    if (repairPath) {
+      const repairTargetKey = `${testCaseId}:${routeStepNo}`
+      if (handledRepairTargetKey !== repairTargetKey) {
+        handledRepairTargetKey = repairTargetKey
+        openStepCanvas(routeStepNo)
+      }
     }
   } finally {
     loading.value = false
@@ -370,49 +446,178 @@ async function handleCloneCase() {
   }
 }
 
-function openStepDialog() {
+function openStepCanvas(targetStepNo: number | null = null): void {
   if (!currentCase.value) {
     ElMessage.warning('请先选择一个用例。')
     return
   }
 
   stepEditor.initFromSteps(currentCase.value.steps)
-  stepDialogVisible.value = true
+  selectedCanvasPath.value =
+    targetStepNo === null
+      ? null
+      : resolveTopStepPath(currentCase.value.steps, targetStepNo)
+  stepCanvasVisible.value = true
+  void loadComponentPreviews(
+    currentCase.value.steps.flatMap(
+      (step: Step): number[] =>
+        step.type === 'component_call' && step.componentId !== null
+          ? [step.componentId]
+          : []
+    )
+  )
 }
 
-async function handleSaveSteps() {
-  if (!currentCase.value) return
-  const success = await stepEditor.saveSteps(async (payload) => {
-    await replaceTestCaseSteps(currentCase.value!.id, payload)
-  })
-  if (success) {
-    stepDialogVisible.value = false
-    await loadCaseDetail(currentCase.value.id)
+function mapComponentPreviewStep(step: Step): StepGraphComponentPreview['steps'][number] {
+  return {
+    name: step.name,
+    type: step.type,
+    summary: [step.target, step.note].filter(Boolean).join(' · '),
+    timeoutMs: step.timeoutMs,
+    retryTimes: step.retryTimes
   }
+}
+
+async function loadComponentPreview(componentId: number): Promise<void> {
+  if (
+    loadingComponentPreviewIds.has(componentId) ||
+    componentPreviews.value[componentId]?.loadState === 'ready'
+  ) {
+    return
+  }
+  loadingComponentPreviewIds.add(componentId)
+  const candidate = components.value.find(
+    (component: Component): boolean => component.id === componentId
+  )
+  componentPreviews.value = {
+    ...componentPreviews.value,
+    [componentId]: {
+      componentId,
+      name: candidate?.name ?? `组件 #${componentId}`,
+      status: candidate?.status ?? 'loading',
+      steps: [],
+      loadState: 'loading'
+    }
+  }
+  try {
+    const [detail, steps] = await Promise.all([
+      getComponentDetail(componentId),
+      getComponentSteps(componentId)
+    ])
+    componentPreviews.value = {
+      ...componentPreviews.value,
+      [componentId]: {
+        componentId,
+        name: detail.name,
+        status: detail.status,
+        steps: steps.map(mapComponentPreviewStep),
+        loadState: 'ready'
+      }
+    }
+  } catch (error: unknown) {
+    componentPreviews.value = {
+      ...componentPreviews.value,
+      [componentId]: {
+        componentId,
+        name: candidate?.name ?? `组件 #${componentId}`,
+        status: candidate?.status ?? '加载失败',
+        steps: [],
+        loadState: 'error',
+        errorMessage:
+          error instanceof Error ? error.message : '组件详情或步骤加载失败。'
+      }
+    }
+  } finally {
+    loadingComponentPreviewIds.delete(componentId)
+  }
+}
+
+async function loadComponentPreviews(componentIds: readonly number[]): Promise<void> {
+  const uniqueIds = [...new Set(
+    componentIds.filter(
+      (componentId: number): boolean =>
+        Number.isInteger(componentId) && componentId > 0
+    )
+  )]
+  await Promise.all(
+    uniqueIds.map(
+      async (componentId: number): Promise<void> =>
+        loadComponentPreview(componentId)
+    )
+  )
+}
+
+function openComponentDetail(componentId: number): void {
+  stepCanvasVisible.value = false
+  void router.push({
+    name: 'components',
+    query: { componentId: String(componentId) }
+  })
+}
+
+function handleCanvasDraftsUpdate(drafts: StepDraft[]): void {
+  stepEditor.normalizeStepDrafts(drafts)
+}
+
+function handleCanvasSelection(path: StepStructurePath | null): void {
+  selectedCanvasPath.value = path
+}
+
+function handleCanvasReady(): void {
+  const path = selectedCanvasPath.value
+  if (path && isEditableStepPath(path)) {
+    void stepCanvasRef.value?.locate(path)
+  }
+}
+
+function handleCanvasClosed(): void {
+  selectedCanvasPath.value = null
+  stepEditor.resetState()
+}
+
+async function handleSaveSteps(drafts: StepDraft[]): Promise<void> {
+  const testCaseId = currentCase.value?.id
+  if (!testCaseId) {
+    return
+  }
+
+  stepEditor.normalizeStepDrafts(drafts)
+  const success = await stepEditor.saveSteps(
+    async (payload: StepWritePayload[]): Promise<void> => {
+      await replaceTestCaseSteps(testCaseId, payload)
+    }
+  )
+  if (!success) {
+    return
+  }
+
+  const refreshedCase = await getTestCaseDetail(testCaseId)
+  currentCase.value = refreshedCase
+  stepEditor.initFromSteps(refreshedCase.steps)
+  stepCanvasRef.value?.markSaved(stepEditor.stepDrafts.value)
+  stepCanvasVisible.value = false
 }
 
 watch(
   selectedCaseId,
-  async (testCaseId) => {
+  async (testCaseId: number | null): Promise<void> => {
     await loadCaseDetail(testCaseId)
   },
   { immediate: true }
 )
 
-onMounted(async () => {
+onMounted(async (): Promise<void> => {
   loading.value = true
 
   try {
-    const [caseItems, componentItems, templateItems] = await Promise.all([
-      listTestCases(),
+    const [, componentItems, templateItems] = await Promise.all([
+      loadCaseList(),
       listComponents(),
       listTemplates()
     ])
 
-    testCases.value = caseItems
     components.value = componentItems
     templates.value = templateItems
-    selectedCaseId.value = caseItems[0]?.id ?? null
   } finally {
     loading.value = false
   }
@@ -487,7 +692,7 @@ onMounted(async () => {
                 : 'border-slate-200 bg-slate-50 hover:border-slate-300'
             ]"
             type="button"
-            @click="selectedCaseId = item.id; router.replace({ query: { ...route.query, testCaseId: String(item.id) } })"
+            @click="selectCase(item.id)"
           >
             <div class="flex items-start justify-between gap-3">
               <div>
@@ -562,7 +767,7 @@ onMounted(async () => {
                       v-if="canResolveReadinessByNavigation(issue)"
                       plain
                       size="small"
-                      @click="issue.code === 'STEP_CONFIGURATION_INVALID' ? openStepDialog() : openEditCaseDialog()"
+                      @click="issue.code === 'STEP_CONFIGURATION_INVALID' ? openStepCanvas() : openEditCaseDialog()"
                     >
                       {{ issue.code === 'STEP_CONFIGURATION_INVALID' ? '去编排步骤' : getReadinessActionLabel(issue) }}
                     </el-button>
@@ -618,7 +823,7 @@ onMounted(async () => {
             <el-button
               :disabled="!currentCase"
               color="#2563eb"
-              @click="openStepDialog"
+              @click="openStepCanvas()"
             >
               编排步骤
             </el-button>
@@ -716,28 +921,34 @@ onMounted(async () => {
       </template>
     </el-dialog>
 
-    <StepEditorDialog
-      :visible="stepDialogVisible"
+    <StepCanvasEditor
+      ref="stepCanvasRef"
+      :visible="stepCanvasVisible"
+      :user-id="currentUserId"
+      :workspace-id="currentWorkspaceId"
+      :test-case-id="currentCase?.id ?? 0"
+      :title="currentCase?.name ?? '步骤画布'"
+      :test-case-code="currentCase?.code ?? ''"
       :step-drafts="stepEditor.stepDrafts.value"
-      :saving-steps="stepEditor.savingSteps.value"
-      :step-submit-attempted="stepEditor.stepSubmitAttempted.value"
-      :has-step-validation-errors="stepEditor.hasStepValidationErrors.value"
-      :step-type-options="stepEditor.stepTypeOptions"
+      :component-previews="componentPreviews"
+      :selected-path="selectedCanvasPath"
+      :saving="stepEditor.savingSteps.value"
+      :status-message="stepEditor.stepSaveError.value?.message ?? ''"
       :templates="templates"
       :components="components"
       :allow-component-call="true"
-      :get-step-error-fn="stepEditor.getStepError"
-      :should-open-advanced-payload-fn="stepEditor.shouldOpenAdvancedPayload"
+      :validate-step-fn="stepEditor.validateStep"
       :get-step-template-options-fn="getStepTemplateOptions"
       :get-step-template-hint-fn="getStepTemplateHint"
       :format-component-option-label-fn="formatComponentOptionLabel"
-      @update:visible="stepDialogVisible = $event"
-      @add-step="stepEditor.addStep()"
-      @remove-step="stepEditor.removeStep($event)"
-      @move-step="(index, direction) => stepEditor.moveStep(index, direction)"
-      @update-step-type="(step, value) => stepEditor.handleStepTypeModelUpdate(step, value)"
+      @update:visible="stepCanvasVisible = $event"
+      @update:selected-path="handleCanvasSelection"
+      @update:step-drafts="handleCanvasDraftsUpdate"
       @save="handleSaveSteps"
-      @closed="stepEditor.resetState()"
+      @closed="handleCanvasClosed"
+      @open-component="openComponentDetail"
+      @ready="handleCanvasReady"
+      @request-component-previews="loadComponentPreviews"
     />
   </div>
 </template>

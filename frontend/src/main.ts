@@ -10,7 +10,10 @@ import {
   resetClientSessionState,
   resolveSessionLifecycleMessage
 } from './auth/sessionRuntime'
-import { reportAppError } from './utils/error'
+import {
+  isBenignResizeObserverErrorEvent,
+  reportAppError
+} from './utils/error'
 import { useAuthStore } from './stores/auth'
 import { pinia } from './stores/pinia'
 import './styles/index.css'
@@ -23,6 +26,11 @@ app.config.errorHandler = (error) => {
 }
 
 window.addEventListener('error', (event) => {
+  const isBenignResizeObserverError = isBenignResizeObserverErrorEvent(event)
+  if (isBenignResizeObserverError) {
+    event.preventDefault()
+    return
+  }
   console.error('[window-error]', event.error ?? event.message)
   void reportAppError(router, event.error ?? event.message, 'window')
 })

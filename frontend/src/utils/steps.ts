@@ -3,8 +3,16 @@ import type {
   LocatorType,
   LongPressButton,
   NavigateWaitUntil,
+  OcrActionPoint,
+  OcrAssertionMode,
+  OcrAssertionScope,
   OcrAssertMatchMode,
+  OcrElementRole,
+  OcrLanguageProfile,
   OcrLocatorMatchMode,
+  OcrRelationType,
+  OcrTargetPayload,
+  OcrTargetScope,
   ScrollBehaviorMode,
   ScrollDirection,
   ScrollTargetType,
@@ -27,14 +35,49 @@ export type ConditionalBranchConditionType =
   | 'template_visible'
   | 'selector_exists'
 
+export interface OcrTargetRelationDraft {
+  type: OcrRelationType
+  anchorText: string
+  maxDistanceRatio: number
+}
+
+export interface OcrTargetDraft {
+  text: string
+  matchMode: OcrLocatorMatchMode
+  caseSensitive: boolean
+  occurrence: number
+  scope: OcrTargetScope
+  language: OcrLanguageProfile
+  role: OcrElementRole
+  minConfidence: number
+  minScore: number
+  ambiguityMargin: number
+  actionPoint: OcrActionPoint
+  relation: OcrTargetRelationDraft | null
+}
+
+export interface OcrTargetValidationErrors {
+  text?: string
+  matchMode?: string
+  occurrence?: string
+  scope?: string
+  language?: string
+  role?: string
+  minConfidence?: string
+  minScore?: string
+  ambiguityMargin?: string
+  actionPoint?: string
+  relationType?: string
+  relationAnchorText?: string
+  relationMaxDistanceRatio?: string
+}
+
 export interface ConditionalBranchDraft {
   id: number
   branchKey: string
   branchName: string
   conditionType: ConditionalBranchConditionType
-  expectedText: string
-  matchMode: OcrAssertMatchMode
-  caseSensitive: boolean
+  ocrTarget: OcrTargetDraft
   templateId: number | null
   threshold: number | null
   selector: string
@@ -59,9 +102,9 @@ export interface StepDraft {
   otpLength: number | null
   perCharDelayMs: number | null
   threshold: number | null
-  expectedText: string
-  matchMode: OcrAssertMatchMode
-  caseSensitive: boolean
+  ocrAssertionScope: OcrAssertionScope
+  ocrAssertionMode: OcrAssertionMode
+  ocrExpectedCount: number | null
   url: string
   waitUntil: NavigateWaitUntil
   scrollTarget: ScrollTargetType
@@ -71,10 +114,10 @@ export interface StepDraft {
   durationMs: number | null
   button: LongPressButton
   locator: LocatorType
-  ocrText: string
-  ocrMatchMode: OcrLocatorMatchMode
-  ocrCaseSensitive: boolean
-  ocrOccurrence: number
+  ocrTarget: OcrTargetDraft
+  fieldTarget: OcrTargetDraft
+  optionTarget: OcrTargetDraft
+  verifySelected: boolean
   extraPayloadJson: string
   timeoutMs: number
   retryTimes: number
@@ -97,8 +140,9 @@ export interface StepValidationErrors {
   perCharDelayMs?: string
   templateId?: string
   threshold?: string
-  expectedText?: string
-  matchMode?: string
+  ocrAssertionScope?: string
+  ocrAssertionMode?: string
+  ocrExpectedCount?: string
   componentId?: string
   timeoutMs?: string
   retryTimes?: string
@@ -111,10 +155,17 @@ export interface StepValidationErrors {
   behavior?: string
   durationMs?: string
   button?: string
-  ocrText?: string
-  ocrMatchMode?: string
-  ocrOccurrence?: string
+  ocrTarget?: string
+  fieldTarget?: string
+  optionTarget?: string
 }
+
+export interface StepTemplateOption {
+  id: number
+  label: string
+}
+
+export type StepFieldErrorGetter = (field: keyof StepValidationErrors) => string
 
 export interface StepTypeOption {
   label: string
@@ -125,6 +176,7 @@ export const STEP_TYPE_LABELS: Record<StepType, string> = {
   wait: '等待',
   click: '点击',
   input: '输入',
+  select_option: 'OCR 选择',
   template_assert: '模板断言',
   ocr_assert: 'OCR 断言',
   component_call: '组件调用',
@@ -136,7 +188,66 @@ export const STEP_TYPE_LABELS: Record<StepType, string> = {
 
 export const OCR_MATCH_MODE_OPTIONS: Array<{ label: string; value: OcrAssertMatchMode }> = [
   { label: '包含', value: 'contains' },
-  { label: '完全匹配', value: 'exact' }
+  { label: '完全匹配', value: 'exact' },
+  { label: '正则表达式', value: 'regex' },
+  { label: '模糊匹配', value: 'fuzzy' }
+]
+
+export const OCR_TARGET_SCOPE_OPTIONS: Array<{ label: string; value: OcrTargetScope }> = [
+  { label: '当前视口', value: 'viewport' },
+  { label: '整页分段扫描', value: 'page' }
+]
+
+export const OCR_ASSERTION_SCOPE_OPTIONS: Array<{
+  label: string
+  value: OcrAssertionScope
+}> = [
+  ...OCR_TARGET_SCOPE_OPTIONS,
+  { label: '兼容元素区域', value: 'element_legacy' }
+]
+
+export const OCR_ASSERTION_MODE_OPTIONS: Array<{
+  label: string
+  value: OcrAssertionMode
+}> = [
+  { label: '存在', value: 'present' },
+  { label: '不存在', value: 'absent' },
+  { label: '数量', value: 'count' },
+  { label: '关系', value: 'relation' }
+]
+
+export const OCR_LANGUAGE_OPTIONS: Array<{ label: string; value: OcrLanguageProfile }> = [
+  { label: '自动', value: 'auto' },
+  { label: '中英混合', value: 'zh_en' },
+  { label: '英文', value: 'en' },
+  { label: '拉丁字符', value: 'latin' },
+  { label: '日文', value: 'japan' },
+  { label: '韩文', value: 'korean' }
+]
+
+export const OCR_ROLE_OPTIONS: Array<{ label: string; value: OcrElementRole }> = [
+  { label: '不限', value: 'any' },
+  { label: '普通文字', value: 'text' },
+  { label: '按钮', value: 'button' },
+  { label: '输入区域', value: 'input' },
+  { label: '菜单项', value: 'menu_item' },
+  { label: '标签', value: 'label' }
+]
+
+export const OCR_ACTION_POINT_OPTIONS: Array<{ label: string; value: OcrActionPoint }> = [
+  { label: '文字中心', value: 'text_center' },
+  { label: '关联控件中心', value: 'associated_control' }
+]
+
+export const OCR_RELATION_TYPE_OPTIONS: Array<{ label: string; value: OcrRelationType }> = [
+  { label: '位于锚点左侧', value: 'left_of' },
+  { label: '位于锚点右侧', value: 'right_of' },
+  { label: '位于锚点上方', value: 'above' },
+  { label: '位于锚点下方', value: 'below' },
+  { label: '离锚点最近', value: 'nearest' },
+  { label: '与锚点同行', value: 'same_row' },
+  { label: '与锚点同列', value: 'same_column' },
+  { label: '锚点关联控件', value: 'associated_control' }
 ]
 
 export const NAVIGATE_WAIT_UNTIL_OPTIONS: Array<{ label: string; value: NavigateWaitUntil }> = [
@@ -173,8 +284,7 @@ export const LOCATOR_TYPE_OPTIONS: Array<{ label: string; value: LocatorType }> 
 ]
 
 export const OCR_LOCATOR_MATCH_MODE_OPTIONS: Array<{ label: string; value: OcrLocatorMatchMode }> = [
-  { label: '包含', value: 'contains' },
-  { label: '完全匹配', value: 'exact' }
+  ...OCR_MATCH_MODE_OPTIONS
 ]
 
 export const INPUT_MODE_OPTIONS: Array<{ label: string; value: InputMode }> = [
@@ -199,6 +309,29 @@ const DEFAULT_LONG_PRESS_DURATION_MS = 800
 const DEFAULT_INPUT_MODE: InputMode = 'fill'
 const DEFAULT_OTP_PER_CHAR_DELAY_MS = 80
 const DEFAULT_VISUAL_ANCHOR_RATIO = 0.5
+const DEFAULT_OCR_MIN_CONFIDENCE = 0.75
+const DEFAULT_OCR_MIN_SCORE = 0.75
+const DEFAULT_OCR_AMBIGUITY_MARGIN = 0.1
+
+export function createOcrTargetDraft(
+  overrides: Partial<OcrTargetDraft> = {}
+): OcrTargetDraft {
+  return {
+    text: '',
+    matchMode: 'exact',
+    caseSensitive: false,
+    occurrence: 1,
+    scope: 'viewport',
+    language: 'zh_en',
+    role: 'any',
+    minConfidence: DEFAULT_OCR_MIN_CONFIDENCE,
+    minScore: DEFAULT_OCR_MIN_SCORE,
+    ambiguityMargin: DEFAULT_OCR_AMBIGUITY_MARGIN,
+    actionPoint: 'text_center',
+    relation: null,
+    ...overrides
+  }
+}
 
 function createConditionalBranchDraft(index: number): ConditionalBranchDraft {
   // @param index Zero-based branch index used for draft ids, default labels, and branch keys.
@@ -207,9 +340,7 @@ function createConditionalBranchDraft(index: number): ConditionalBranchDraft {
     branchKey: `branch_${index + 1}`,
     branchName: `分支 ${index + 1}`,
     conditionType: 'ocr_text_visible',
-    expectedText: '',
-    matchMode: 'contains',
-    caseSensitive: false,
+    ocrTarget: createOcrTargetDraft(),
     templateId: null,
     threshold: null,
     selector: '',
@@ -237,9 +368,9 @@ export function createBranchChildStepDraft(index: number): StepDraft {
     otpLength: null,
     perCharDelayMs: DEFAULT_OTP_PER_CHAR_DELAY_MS,
     threshold: null,
-    expectedText: '',
-    matchMode: 'contains',
-    caseSensitive: false,
+    ocrAssertionScope: 'viewport',
+    ocrAssertionMode: 'present',
+    ocrExpectedCount: null,
     url: '',
     waitUntil: 'load',
     scrollTarget: 'page',
@@ -249,10 +380,15 @@ export function createBranchChildStepDraft(index: number): StepDraft {
     durationMs: DEFAULT_LONG_PRESS_DURATION_MS,
     button: 'left',
     locator: 'selector',
-    ocrText: '',
-    ocrMatchMode: 'contains',
-    ocrCaseSensitive: false,
-    ocrOccurrence: 1,
+    ocrTarget: createOcrTargetDraft(),
+    fieldTarget: createOcrTargetDraft({
+      role: 'input',
+      actionPoint: 'associated_control'
+    }),
+    optionTarget: createOcrTargetDraft({
+      role: 'menu_item'
+    }),
+    verifySelected: true,
     extraPayloadJson: '{}',
     timeoutMs: DEFAULT_TIMEOUT_MS,
     retryTimes: 0,
@@ -265,6 +401,10 @@ export function createBranchChildStepDraft(index: number): StepDraft {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
+}
+
+function hasOwn(value: Record<string, unknown>, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(value, key)
 }
 
 function isNavigateWaitUntil(value: unknown): value is NavigateWaitUntil {
@@ -311,7 +451,58 @@ function isLocatorType(value: unknown): value is LocatorType {
 }
 
 function isOcrLocatorMatchMode(value: unknown): value is OcrLocatorMatchMode {
-  return value === 'exact' || value === 'contains'
+  return value === 'exact' || value === 'contains' || value === 'regex' || value === 'fuzzy'
+}
+
+function isOcrTargetScope(value: unknown): value is OcrTargetScope {
+  return value === 'viewport' || value === 'page'
+}
+
+function isOcrAssertionScope(value: unknown): value is OcrAssertionScope {
+  return isOcrTargetScope(value) || value === 'element_legacy'
+}
+
+function isOcrAssertionMode(value: unknown): value is OcrAssertionMode {
+  return value === 'present' || value === 'absent' || value === 'count' || value === 'relation'
+}
+
+function isOcrLanguageProfile(value: unknown): value is OcrLanguageProfile {
+  return (
+    value === 'auto' ||
+    value === 'zh_en' ||
+    value === 'en' ||
+    value === 'latin' ||
+    value === 'japan' ||
+    value === 'korean'
+  )
+}
+
+function isOcrElementRole(value: unknown): value is OcrElementRole {
+  return (
+    value === 'any' ||
+    value === 'text' ||
+    value === 'button' ||
+    value === 'input' ||
+    value === 'menu_item' ||
+    value === 'label'
+  )
+}
+
+function isOcrActionPoint(value: unknown): value is OcrActionPoint {
+  return value === 'text_center' || value === 'associated_control'
+}
+
+function isOcrRelationType(value: unknown): value is OcrRelationType {
+  return (
+    value === 'left_of' ||
+    value === 'right_of' ||
+    value === 'above' ||
+    value === 'below' ||
+    value === 'nearest' ||
+    value === 'same_row' ||
+    value === 'same_column' ||
+    value === 'associated_control'
+  )
 }
 
 function isInputMode(value: unknown): value is InputMode {
@@ -328,6 +519,116 @@ function stringifyPayload(payload: Record<string, unknown>) {
   return JSON.stringify(payload, null, 2)
 }
 
+function numberInRange(value: unknown, fallback: number): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : fallback
+}
+
+function parseOcrTargetPayload(
+  value: unknown,
+  defaults: OcrTargetDraft = createOcrTargetDraft()
+): OcrTargetDraft {
+  if (!isRecord(value)) {
+    return { ...defaults }
+  }
+
+  const relation = isRecord(value.relation)
+    ? {
+        type: isOcrRelationType(value.relation.type)
+          ? value.relation.type
+          : 'nearest',
+        anchorText:
+          typeof value.relation.anchor_text === 'string'
+            ? value.relation.anchor_text
+            : '',
+        maxDistanceRatio: numberInRange(
+          value.relation.max_distance_ratio,
+          0.25
+        )
+      }
+    : null
+
+  return {
+    text: typeof value.text === 'string' ? value.text : defaults.text,
+    matchMode: isOcrLocatorMatchMode(value.match_mode)
+      ? value.match_mode
+      : defaults.matchMode,
+    caseSensitive:
+      typeof value.case_sensitive === 'boolean'
+        ? value.case_sensitive
+        : defaults.caseSensitive,
+    occurrence:
+      typeof value.occurrence === 'number' && Number.isFinite(value.occurrence)
+        ? value.occurrence
+        : defaults.occurrence,
+    scope: isOcrTargetScope(value.scope) ? value.scope : defaults.scope,
+    language: isOcrLanguageProfile(value.language)
+      ? value.language
+      : defaults.language,
+    role: isOcrElementRole(value.role) ? value.role : defaults.role,
+    minConfidence: numberInRange(value.min_confidence, defaults.minConfidence),
+    minScore: numberInRange(value.min_score, defaults.minScore),
+    ambiguityMargin: numberInRange(
+      value.ambiguity_margin,
+      defaults.ambiguityMargin
+    ),
+    actionPoint: isOcrActionPoint(value.action_point)
+      ? value.action_point
+      : defaults.actionPoint,
+    relation
+  }
+}
+
+function parseLocatorOcrTarget(payload: Record<string, unknown>): OcrTargetDraft {
+  if (hasOwn(payload, 'ocr_target')) {
+    return parseOcrTargetPayload(payload.ocr_target)
+  }
+  return parseOcrTargetPayload({
+    text: payload.ocr_text,
+    match_mode: isOcrLocatorMatchMode(payload.ocr_match_mode)
+      ? payload.ocr_match_mode
+      : 'contains',
+    case_sensitive: payload.ocr_case_sensitive === true,
+    occurrence: payload.ocr_occurrence,
+    scope: 'viewport'
+  })
+}
+
+export function buildOcrTargetPayload(
+  target: OcrTargetDraft,
+  scopeOverride?: OcrTargetScope
+): OcrTargetPayload {
+  return {
+    text: target.text.trim(),
+    match_mode: target.matchMode,
+    case_sensitive: target.caseSensitive,
+    occurrence: Number(target.occurrence),
+    scope: scopeOverride ?? target.scope,
+    language: target.language,
+    role: target.role,
+    min_confidence: Number(target.minConfidence),
+    min_score: Number(target.minScore),
+    ambiguity_margin: Number(target.ambiguityMargin),
+    action_point: target.actionPoint,
+    ...(target.relation
+      ? {
+          relation: {
+            type: target.relation.type,
+            anchor_text: target.relation.anchorText.trim(),
+            max_distance_ratio: Number(target.relation.maxDistanceRatio)
+          }
+        }
+      : {})
+  }
+}
+
+function removeOcrLocatorPayload(payload: Record<string, unknown>): void {
+  delete payload.ocr_target
+  delete payload.ocr_text
+  delete payload.ocr_match_mode
+  delete payload.ocr_case_sensitive
+  delete payload.ocr_occurrence
+}
+
 function formatTextValue(value: unknown) {
   if (typeof value !== 'string' || !value.trim()) {
     return '--'
@@ -340,19 +641,13 @@ function buildLocatorSummary(payload: Record<string, unknown>) {
   // @param payload Step payload used to build a readable locator summary in step overviews.
   const locator = isLocatorType(payload.locator) ? payload.locator : 'selector'
   if (locator === 'ocr') {
-    const matchMode = isOcrLocatorMatchMode(payload.ocr_match_mode)
-      ? payload.ocr_match_mode
-      : 'contains'
-    const caseSensitive = payload.ocr_case_sensitive === true ? '区分大小写' : '忽略大小写'
-    const occurrence =
-      typeof payload.ocr_occurrence === 'number' && Number.isFinite(payload.ocr_occurrence)
-        ? payload.ocr_occurrence
-        : 1
+    const target = parseLocatorOcrTarget(payload)
+    const caseSensitive = target.caseSensitive ? '区分大小写' : '忽略大小写'
 
     return {
       locator,
-      target: `OCR ${formatTextValue(payload.ocr_text)}`,
-      note: `${matchMode} · ${caseSensitive} · 第 ${occurrence} 个匹配`
+      target: `OCR ${formatTextValue(target.text)}`,
+      note: `${target.matchMode} · ${caseSensitive} · 第 ${target.occurrence} 个匹配 · ${target.scope} · ${target.language} · ${target.role}`
     }
   }
 
@@ -398,6 +693,7 @@ export function createStepTypeOptions(options: { allowComponentCall: boolean }):
     'wait',
     'click',
     'input',
+    'select_option',
     'template_assert',
     'ocr_assert',
     'navigate',
@@ -418,46 +714,10 @@ export function createStepTypeOptions(options: { allowComponentCall: boolean }):
 
 export function createEmptyStepDraft(index: number): StepDraft {
   // @param index Zero-based step index used to seed draft ids and initial `stepNo`.
+  const draft = createBranchChildStepDraft(index)
   return {
-    id: -Date.now() - index,
-    stepNo: index + 1,
-    name: '',
-    type: 'wait',
-    templateId: null,
-    componentId: null,
-    waitMs: DEFAULT_WAIT_MS,
-    selector: '',
-    visualTemplateId: null,
-    visualThreshold: null,
-    visualAnchorXRatio: DEFAULT_VISUAL_ANCHOR_RATIO,
-    visualAnchorYRatio: DEFAULT_VISUAL_ANCHOR_RATIO,
-    text: '',
-    inputMode: DEFAULT_INPUT_MODE,
-    otpLength: null,
-    perCharDelayMs: DEFAULT_OTP_PER_CHAR_DELAY_MS,
-    threshold: null,
-    expectedText: '',
-    matchMode: 'contains',
-    caseSensitive: false,
-    url: '',
-    waitUntil: 'load',
-    scrollTarget: 'page',
-    direction: 'down',
-    distance: DEFAULT_SCROLL_DISTANCE,
-    behavior: 'auto',
-    durationMs: DEFAULT_LONG_PRESS_DURATION_MS,
-    button: 'left',
-    locator: 'selector',
-    ocrText: '',
-    ocrMatchMode: 'contains',
-    ocrCaseSensitive: false,
-    ocrOccurrence: 1,
-    extraPayloadJson: '{}',
-    timeoutMs: DEFAULT_TIMEOUT_MS,
-    retryTimes: 0,
+    ...draft,
     conditionalBranches: [createConditionalBranchDraft(0)],
-    elseBranchEnabled: false,
-    elseBranchName: '默认分支',
     elseSteps: [createBranchChildStepDraft(0)]
   }
 }
@@ -498,6 +758,58 @@ export function parseExtraPayloadJson(step: Pick<StepDraft, 'extraPayloadJson'>)
   }
 }
 
+const STRUCTURED_PAYLOAD_KEYS = new Set([
+  'ms',
+  'locator',
+  'selector',
+  'template_id',
+  'threshold',
+  'anchor_x_ratio',
+  'anchor_y_ratio',
+  'ocr_target',
+  'ocr_text',
+  'ocr_match_mode',
+  'ocr_case_sensitive',
+  'ocr_occurrence',
+  'field_target',
+  'option_target',
+  'verify_selected',
+  'text',
+  'input_mode',
+  'otp_length',
+  'per_char_delay_ms',
+  'scope',
+  'assertion',
+  'expected_count',
+  'expected_text',
+  'match_mode',
+  'case_sensitive',
+  'url',
+  'wait_until',
+  'target',
+  'direction',
+  'distance',
+  'behavior',
+  'duration_ms',
+  'button',
+  'branches',
+  'else_branch'
+])
+
+function sanitizeAdvancedPayload(raw: string): string {
+  const parsed = parseExtraPayloadJson({ extraPayloadJson: raw })
+  const value = 'value' in parsed ? parsed.value : undefined
+  if (!value) {
+    return '{}'
+  }
+  const sanitized = Object.fromEntries(
+    Object.entries(value).filter(
+      ([key]: [string, unknown]): boolean => !STRUCTURED_PAYLOAD_KEYS.has(key)
+    )
+  )
+  return stringifyPayload(sanitized)
+}
+
 export function supportsOcrLocator(type: StepType): boolean {
   return type === 'click' || type === 'input' || type === 'scroll' || type === 'long_press'
 }
@@ -506,76 +818,20 @@ export function normalizeStepByType(step: StepDraft, nextType: StepType): StepDr
   // @param step Existing draft that may contain fields from a previous step type.
   // @param nextType Target step type chosen by the user.
   // @returns A draft reshaped so only fields relevant to the target type remain active.
-  const keepLocator = supportsOcrLocator(nextType)
+  if (step.type === nextType) {
+    return { ...step }
+  }
+
+  const defaults = createEmptyStepDraft(step.stepNo - 1)
   return {
-    ...step,
+    ...defaults,
+    id: step.id,
+    stepNo: step.stepNo,
+    name: step.name,
     type: nextType,
-    templateId: nextType === 'template_assert' || nextType === 'ocr_assert' ? step.templateId : null,
-    componentId: nextType === 'component_call' ? step.componentId : null,
-    waitMs: nextType === 'wait' ? step.waitMs ?? DEFAULT_WAIT_MS : null,
-    selector:
-      nextType === 'click' ||
-      nextType === 'input' ||
-      nextType === 'ocr_assert' ||
-      nextType === 'scroll' ||
-      nextType === 'long_press'
-        ? step.selector
-        : '',
-    visualTemplateId:
-      nextType === 'click' || nextType === 'input' || nextType === 'scroll' || nextType === 'long_press'
-        ? step.visualTemplateId
-        : null,
-    visualThreshold:
-      nextType === 'click' || nextType === 'input' || nextType === 'scroll' || nextType === 'long_press'
-        ? step.visualThreshold
-        : null,
-    visualAnchorXRatio:
-      nextType === 'click' || nextType === 'input' || nextType === 'scroll' || nextType === 'long_press'
-        ? step.visualAnchorXRatio
-        : DEFAULT_VISUAL_ANCHOR_RATIO,
-    visualAnchorYRatio:
-      nextType === 'click' || nextType === 'input' || nextType === 'scroll' || nextType === 'long_press'
-        ? step.visualAnchorYRatio
-        : DEFAULT_VISUAL_ANCHOR_RATIO,
-    text: nextType === 'input' ? step.text : '',
-    inputMode: nextType === 'input' ? step.inputMode : DEFAULT_INPUT_MODE,
-    otpLength: nextType === 'input' ? step.otpLength : null,
-    perCharDelayMs: nextType === 'input' ? step.perCharDelayMs : DEFAULT_OTP_PER_CHAR_DELAY_MS,
-    threshold: nextType === 'template_assert' ? step.threshold : null,
-    expectedText: nextType === 'ocr_assert' ? step.expectedText : '',
-    matchMode: nextType === 'ocr_assert' ? step.matchMode : 'contains',
-    caseSensitive: nextType === 'ocr_assert' ? step.caseSensitive : false,
-    url: nextType === 'navigate' ? step.url : '',
-    waitUntil: nextType === 'navigate' ? step.waitUntil : 'load',
-    scrollTarget: nextType === 'scroll' ? step.scrollTarget : 'page',
-    direction: nextType === 'scroll' ? step.direction : 'down',
-    distance: nextType === 'scroll' ? step.distance ?? DEFAULT_SCROLL_DISTANCE : null,
-    behavior: nextType === 'scroll' ? step.behavior : 'auto',
-    durationMs: nextType === 'long_press' ? step.durationMs ?? DEFAULT_LONG_PRESS_DURATION_MS : null,
-    button: nextType === 'long_press' ? step.button : 'left',
-    locator: keepLocator ? step.locator : 'selector',
-    ocrText: keepLocator ? step.ocrText : '',
-    ocrMatchMode: keepLocator ? step.ocrMatchMode : 'contains',
-    ocrCaseSensitive: keepLocator ? step.ocrCaseSensitive : false,
-    ocrOccurrence: keepLocator ? step.ocrOccurrence : 1,
-    extraPayloadJson:
-      nextType === 'conditional_branch'
-        ? step.extraPayloadJson || '{"branches":[]}'
-        : step.extraPayloadJson,
-    conditionalBranches:
-      nextType === 'conditional_branch'
-        ? step.conditionalBranches.length > 0
-          ? step.conditionalBranches
-          : [createConditionalBranchDraft(0)]
-        : [createConditionalBranchDraft(0)],
-    elseBranchEnabled: nextType === 'conditional_branch' ? step.elseBranchEnabled : false,
-    elseBranchName: nextType === 'conditional_branch' ? step.elseBranchName : '默认分支',
-    elseSteps:
-      nextType === 'conditional_branch'
-        ? step.elseSteps.length > 0
-          ? step.elseSteps
-          : [createBranchChildStepDraft(0)]
-        : [createBranchChildStepDraft(0)]
+    extraPayloadJson: sanitizeAdvancedPayload(step.extraPayloadJson),
+    timeoutMs: step.timeoutMs,
+    retryTimes: step.retryTimes
   }
 }
 
@@ -599,20 +855,14 @@ export function buildStepDraft(step: Step): StepDraft {
         typeof payload.anchor_x_ratio === 'number' ? payload.anchor_x_ratio : DEFAULT_VISUAL_ANCHOR_RATIO
       draft.visualAnchorYRatio =
         typeof payload.anchor_y_ratio === 'number' ? payload.anchor_y_ratio : DEFAULT_VISUAL_ANCHOR_RATIO
-      draft.ocrText = typeof payload.ocr_text === 'string' ? payload.ocr_text : ''
-      draft.ocrMatchMode = isOcrLocatorMatchMode(payload.ocr_match_mode) ? payload.ocr_match_mode : 'contains'
-      draft.ocrCaseSensitive = payload.ocr_case_sensitive === true
-      draft.ocrOccurrence = typeof payload.ocr_occurrence === 'number' && payload.ocr_occurrence >= 1 ? payload.ocr_occurrence : 1
+      draft.ocrTarget = parseLocatorOcrTarget(payload)
       delete payload.locator
       delete payload.selector
       delete payload.template_id
       delete payload.threshold
       delete payload.anchor_x_ratio
       delete payload.anchor_y_ratio
-      delete payload.ocr_text
-      delete payload.ocr_match_mode
-      delete payload.ocr_case_sensitive
-      delete payload.ocr_occurrence
+      removeOcrLocatorPayload(payload)
       break
     case 'input':
       draft.locator = isLocatorType(payload.locator) ? payload.locator : 'selector'
@@ -630,10 +880,7 @@ export function buildStepDraft(step: Step): StepDraft {
         typeof payload.per_char_delay_ms === 'number' && payload.per_char_delay_ms >= 0
           ? payload.per_char_delay_ms
           : DEFAULT_OTP_PER_CHAR_DELAY_MS
-      draft.ocrText = typeof payload.ocr_text === 'string' ? payload.ocr_text : ''
-      draft.ocrMatchMode = isOcrLocatorMatchMode(payload.ocr_match_mode) ? payload.ocr_match_mode : 'contains'
-      draft.ocrCaseSensitive = payload.ocr_case_sensitive === true
-      draft.ocrOccurrence = typeof payload.ocr_occurrence === 'number' && payload.ocr_occurrence >= 1 ? payload.ocr_occurrence : 1
+      draft.ocrTarget = parseLocatorOcrTarget(payload)
       delete payload.locator
       delete payload.selector
       delete payload.template_id
@@ -644,10 +891,21 @@ export function buildStepDraft(step: Step): StepDraft {
       delete payload.input_mode
       delete payload.otp_length
       delete payload.per_char_delay_ms
-      delete payload.ocr_text
-      delete payload.ocr_match_mode
-      delete payload.ocr_case_sensitive
-      delete payload.ocr_occurrence
+      removeOcrLocatorPayload(payload)
+      break
+    case 'select_option':
+      draft.fieldTarget = parseOcrTargetPayload(
+        payload.field_target,
+        draft.fieldTarget
+      )
+      draft.optionTarget = parseOcrTargetPayload(
+        payload.option_target,
+        draft.optionTarget
+      )
+      draft.verifySelected = payload.verify_selected !== false
+      delete payload.field_target
+      delete payload.option_target
+      delete payload.verify_selected
       break
     case 'template_assert':
       draft.threshold =
@@ -658,10 +916,35 @@ export function buildStepDraft(step: Step): StepDraft {
       break
     case 'ocr_assert':
       draft.selector = typeof payload.selector === 'string' ? payload.selector : ''
-      draft.expectedText = typeof payload.expected_text === 'string' ? payload.expected_text : ''
-      draft.matchMode = payload.match_mode === 'exact' ? 'exact' : 'contains'
-      draft.caseSensitive = payload.case_sensitive === true
+      draft.ocrAssertionScope = isOcrAssertionScope(payload.scope)
+        ? payload.scope
+        : draft.selector.trim()
+          ? 'element_legacy'
+          : isRecord(payload.ocr_target) && payload.ocr_target.scope === 'page'
+            ? 'page'
+            : 'viewport'
+      draft.ocrAssertionMode = isOcrAssertionMode(payload.assertion)
+        ? payload.assertion
+        : 'present'
+      draft.ocrExpectedCount =
+        typeof payload.expected_count === 'number' &&
+        Number.isFinite(payload.expected_count)
+          ? payload.expected_count
+          : null
+      draft.ocrTarget = hasOwn(payload, 'ocr_target')
+        ? parseOcrTargetPayload(payload.ocr_target)
+        : parseOcrTargetPayload({
+            text: payload.expected_text,
+            match_mode:
+              payload.match_mode === 'exact' ? 'exact' : 'contains',
+            case_sensitive: payload.case_sensitive === true,
+            scope: 'viewport'
+          })
       delete payload.selector
+      delete payload.scope
+      delete payload.assertion
+      delete payload.expected_count
+      delete payload.ocr_target
       delete payload.expected_text
       delete payload.match_mode
       delete payload.case_sensitive
@@ -688,10 +971,7 @@ export function buildStepDraft(step: Step): StepDraft {
           ? payload.distance
           : DEFAULT_SCROLL_DISTANCE
       draft.behavior = isScrollBehavior(payload.behavior) ? payload.behavior : 'auto'
-      draft.ocrText = typeof payload.ocr_text === 'string' ? payload.ocr_text : ''
-      draft.ocrMatchMode = isOcrLocatorMatchMode(payload.ocr_match_mode) ? payload.ocr_match_mode : 'contains'
-      draft.ocrCaseSensitive = payload.ocr_case_sensitive === true
-      draft.ocrOccurrence = typeof payload.ocr_occurrence === 'number' && payload.ocr_occurrence >= 1 ? payload.ocr_occurrence : 1
+      draft.ocrTarget = parseLocatorOcrTarget(payload)
       delete payload.target
       delete payload.locator
       delete payload.selector
@@ -702,10 +982,7 @@ export function buildStepDraft(step: Step): StepDraft {
       delete payload.direction
       delete payload.distance
       delete payload.behavior
-      delete payload.ocr_text
-      delete payload.ocr_match_mode
-      delete payload.ocr_case_sensitive
-      delete payload.ocr_occurrence
+      removeOcrLocatorPayload(payload)
       break
     case 'long_press':
       draft.locator = isLocatorType(payload.locator) ? payload.locator : 'selector'
@@ -721,10 +998,7 @@ export function buildStepDraft(step: Step): StepDraft {
           ? payload.duration_ms
           : DEFAULT_LONG_PRESS_DURATION_MS
       draft.button = isLongPressButton(payload.button) ? payload.button : 'left'
-      draft.ocrText = typeof payload.ocr_text === 'string' ? payload.ocr_text : ''
-      draft.ocrMatchMode = isOcrLocatorMatchMode(payload.ocr_match_mode) ? payload.ocr_match_mode : 'contains'
-      draft.ocrCaseSensitive = payload.ocr_case_sensitive === true
-      draft.ocrOccurrence = typeof payload.ocr_occurrence === 'number' && payload.ocr_occurrence >= 1 ? payload.ocr_occurrence : 1
+      draft.ocrTarget = parseLocatorOcrTarget(payload)
       delete payload.locator
       delete payload.selector
       delete payload.template_id
@@ -733,10 +1007,7 @@ export function buildStepDraft(step: Step): StepDraft {
       delete payload.anchor_y_ratio
       delete payload.duration_ms
       delete payload.button
-      delete payload.ocr_text
-      delete payload.ocr_match_mode
-      delete payload.ocr_case_sensitive
-      delete payload.ocr_occurrence
+      removeOcrLocatorPayload(payload)
       break
     case 'component_call':
       break
@@ -761,10 +1032,16 @@ export function buildStepDraft(step: Step): StepDraft {
                 condition.type === 'template_visible' || condition.type === 'selector_exists'
                   ? condition.type
                   : 'ocr_text_visible',
-              expectedText:
-                typeof condition.expected_text === 'string' ? condition.expected_text : '',
-              matchMode: condition.match_mode === 'exact' ? 'exact' : 'contains',
-              caseSensitive: condition.case_sensitive === true,
+              ocrTarget: hasOwn(condition, 'ocr_target') || hasOwn(condition, 'ocr_text')
+                ? parseLocatorOcrTarget(condition)
+                : parseOcrTargetPayload({
+                    text: condition.expected_text,
+                    match_mode: isOcrLocatorMatchMode(condition.match_mode)
+                      ? condition.match_mode
+                      : 'contains',
+                    case_sensitive: condition.case_sensitive === true,
+                    scope: 'viewport'
+                  }),
               templateId: typeof condition.template_id === 'number' ? condition.template_id : null,
               threshold: typeof condition.threshold === 'number' ? condition.threshold : null,
               selector: typeof condition.selector === 'string' ? condition.selector : '',
@@ -809,6 +1086,8 @@ export function buildStepDraft(step: Step): StepDraft {
             })
         )
       }
+      delete payload.branches
+      delete payload.else_branch
       break
   }
 
@@ -823,6 +1102,79 @@ export function buildStepDraft(step: Step): StepDraft {
     extraPayloadJson: stringifyPayload(payload),
     timeoutMs: step.timeoutMs,
     retryTimes: step.retryTimes
+  }
+}
+
+export function validateOcrTargetDraft(
+  target: OcrTargetDraft
+): OcrTargetValidationErrors {
+  const errors: OcrTargetValidationErrors = {}
+  if (!target.text.trim()) {
+    errors.text = 'OCR 目标文字不能为空。'
+  }
+  if (!isOcrLocatorMatchMode(target.matchMode)) {
+    errors.matchMode = 'OCR 匹配模式无效。'
+  } else if (target.matchMode === 'regex' && target.text.trim()) {
+    try {
+      new RegExp(target.text)
+    } catch {
+      errors.text = 'OCR 正则表达式无效。'
+    }
+  }
+  if (!Number.isInteger(target.occurrence) || target.occurrence < 1) {
+    errors.occurrence = 'OCR 匹配序号必须为大于等于 1 的整数。'
+  }
+  if (!isOcrTargetScope(target.scope)) {
+    errors.scope = 'OCR 扫描范围无效。'
+  }
+  if (!isOcrLanguageProfile(target.language)) {
+    errors.language = 'OCR 语言档案无效。'
+  }
+  if (!isOcrElementRole(target.role)) {
+    errors.role = 'OCR 角色提示无效。'
+  }
+  for (const [field, value, message] of [
+    ['minConfidence', target.minConfidence, '最低 OCR 置信度必须在 0 到 1 之间。'],
+    ['minScore', target.minScore, '最低综合分必须在 0 到 1 之间。'],
+    ['ambiguityMargin', target.ambiguityMargin, '歧义分差必须在 0 到 1 之间。']
+  ] as const) {
+    if (!Number.isFinite(value) || value < 0 || value > 1) {
+      errors[field] = message
+    }
+  }
+  if (!isOcrActionPoint(target.actionPoint)) {
+    errors.actionPoint = 'OCR 操作点无效。'
+  }
+  if (target.relation) {
+    if (!isOcrRelationType(target.relation.type)) {
+      errors.relationType = 'OCR 关系类型无效。'
+    }
+    if (!target.relation.anchorText.trim()) {
+      errors.relationAnchorText = 'OCR 关系必须填写锚点文字。'
+    }
+    if (
+      !Number.isFinite(target.relation.maxDistanceRatio) ||
+      target.relation.maxDistanceRatio < 0 ||
+      target.relation.maxDistanceRatio > 1
+    ) {
+      errors.relationMaxDistanceRatio = 'OCR 关系最大距离比例必须在 0 到 1 之间。'
+    }
+  }
+  return errors
+}
+
+function firstOcrTargetError(target: OcrTargetDraft): string | undefined {
+  return Object.values(validateOcrTargetDraft(target))[0]
+}
+
+function setOcrTargetError(
+  errors: StepValidationErrors,
+  field: 'ocrTarget' | 'fieldTarget' | 'optionTarget',
+  target: OcrTargetDraft
+): void {
+  const error = firstOcrTargetError(target)
+  if (error) {
+    errors[field] = error
   }
 }
 
@@ -850,15 +1202,7 @@ export function validateStepDraft(step: StepDraft): StepValidationErrors {
       break
     case 'click':
       if (step.locator === 'ocr') {
-        if (!step.ocrText.trim()) {
-          errors.ocrText = '点击步骤使用 OCR 定位时必须填写识别文本。'
-        }
-        if (!isOcrLocatorMatchMode(step.ocrMatchMode)) {
-          errors.ocrMatchMode = 'OCR 匹配模式仅支持 exact 或 contains。'
-        }
-        if (!Number.isInteger(step.ocrOccurrence) || step.ocrOccurrence < 1) {
-          errors.ocrOccurrence = 'OCR 匹配序号必须为大于等于 1 的整数。'
-        }
+        setOcrTargetError(errors, 'ocrTarget', step.ocrTarget)
       } else if (step.locator === 'visual') {
         if (step.visualTemplateId === null) {
           errors.visualTemplateId = '点击步骤使用视觉模板定位时必须选择模板。'
@@ -888,15 +1232,7 @@ export function validateStepDraft(step: StepDraft): StepValidationErrors {
       break
     case 'input':
       if (step.locator === 'ocr') {
-        if (!step.ocrText.trim()) {
-          errors.ocrText = '输入步骤使用 OCR 定位时必须填写识别文本。'
-        }
-        if (!isOcrLocatorMatchMode(step.ocrMatchMode)) {
-          errors.ocrMatchMode = 'OCR 匹配模式仅支持 exact 或 contains。'
-        }
-        if (!Number.isInteger(step.ocrOccurrence) || step.ocrOccurrence < 1) {
-          errors.ocrOccurrence = 'OCR 匹配序号必须为大于等于 1 的整数。'
-        }
+        setOcrTargetError(errors, 'ocrTarget', step.ocrTarget)
       } else if (step.locator === 'visual') {
         if (step.visualTemplateId === null) {
           errors.visualTemplateId = '输入步骤使用视觉模板定位时必须选择模板。'
@@ -940,6 +1276,10 @@ export function validateStepDraft(step: StepDraft): StepValidationErrors {
         errors.perCharDelayMs = '逐字符延迟必须大于等于 0 ms。'
       }
       break
+    case 'select_option':
+      setOcrTargetError(errors, 'fieldTarget', step.fieldTarget)
+      setOcrTargetError(errors, 'optionTarget', step.optionTarget)
+      break
     case 'template_assert':
       if (step.templateId === null) {
         errors.templateId = '模板断言必须选择模板。'
@@ -952,14 +1292,24 @@ export function validateStepDraft(step: StepDraft): StepValidationErrors {
       }
       break
     case 'ocr_assert':
-      if (!step.selector.trim()) {
-        errors.selector = 'OCR 断言必须填写选择器。'
+      if (!isOcrAssertionScope(step.ocrAssertionScope)) {
+        errors.ocrAssertionScope = 'OCR 断言范围无效。'
       }
-      if (!step.expectedText.trim()) {
-        errors.expectedText = 'OCR 断言必须填写期望文本。'
+      if (step.ocrAssertionScope === 'element_legacy' && !step.selector.trim()) {
+        errors.selector = '兼容元素区域模式必须填写选择器。'
       }
-      if (step.matchMode !== 'exact' && step.matchMode !== 'contains') {
-        errors.matchMode = '匹配模式仅支持 exact 或 contains。'
+      if (!isOcrAssertionMode(step.ocrAssertionMode)) {
+        errors.ocrAssertionMode = 'OCR 断言模式无效。'
+      }
+      setOcrTargetError(errors, 'ocrTarget', step.ocrTarget)
+      if (
+        step.ocrAssertionMode === 'count' &&
+        (!Number.isInteger(step.ocrExpectedCount) || (step.ocrExpectedCount ?? -1) < 0)
+      ) {
+        errors.ocrExpectedCount = 'OCR 期望数量必须为大于等于 0 的整数。'
+      }
+      if (step.ocrAssertionMode === 'relation' && !step.ocrTarget.relation) {
+        errors.ocrTarget = '关系断言必须配置 OCR 相对关系。'
       }
       break
     case 'component_call':
@@ -992,8 +1342,9 @@ export function validateStepDraft(step: StepDraft): StepValidationErrors {
           break
         }
         if (branch.conditionType === 'ocr_text_visible') {
-          if (!branch.expectedText.trim()) {
-            errors.extraPayloadJson = 'OCR 文本可见条件必须填写期望文本。'
+          const targetError = firstOcrTargetError(branch.ocrTarget)
+          if (targetError) {
+            errors.extraPayloadJson = `OCR 文本可见条件无效：${targetError}`
             break
           }
         } else if (branch.conditionType === 'template_visible') {
@@ -1064,15 +1415,7 @@ export function validateStepDraft(step: StepDraft): StepValidationErrors {
       }
       if (step.scrollTarget === 'element') {
         if (step.locator === 'ocr') {
-          if (!step.ocrText.trim()) {
-            errors.ocrText = '元素滑动使用 OCR 定位时必须填写识别文本。'
-          }
-          if (!isOcrLocatorMatchMode(step.ocrMatchMode)) {
-            errors.ocrMatchMode = 'OCR 匹配模式仅支持 exact 或 contains。'
-          }
-          if (!Number.isInteger(step.ocrOccurrence) || step.ocrOccurrence < 1) {
-            errors.ocrOccurrence = 'OCR 匹配序号必须为大于等于 1 的整数。'
-          }
+          setOcrTargetError(errors, 'ocrTarget', step.ocrTarget)
         } else if (step.locator === 'visual') {
           if (step.visualTemplateId === null) {
             errors.visualTemplateId = '元素滑动使用视觉模板定位时必须选择模板。'
@@ -1112,15 +1455,7 @@ export function validateStepDraft(step: StepDraft): StepValidationErrors {
       break
     case 'long_press':
       if (step.locator === 'ocr') {
-        if (!step.ocrText.trim()) {
-          errors.ocrText = '长按步骤使用 OCR 定位时必须填写识别文本。'
-        }
-        if (!isOcrLocatorMatchMode(step.ocrMatchMode)) {
-          errors.ocrMatchMode = 'OCR 匹配模式仅支持 exact 或 contains。'
-        }
-        if (!Number.isInteger(step.ocrOccurrence) || step.ocrOccurrence < 1) {
-          errors.ocrOccurrence = 'OCR 匹配序号必须为大于等于 1 的整数。'
-        }
+        setOcrTargetError(errors, 'ocrTarget', step.ocrTarget)
       } else if (step.locator === 'visual') {
         if (step.visualTemplateId === null) {
           errors.visualTemplateId = '长按步骤使用视觉模板定位时必须选择模板。'
@@ -1173,10 +1508,7 @@ function buildStructuredPayload(step: StepDraft): Record<string, unknown> {
       return step.locator === 'ocr'
         ? {
             locator: 'ocr',
-            ocr_text: step.ocrText.trim(),
-            ocr_match_mode: step.ocrMatchMode,
-            ocr_case_sensitive: step.ocrCaseSensitive,
-            ocr_occurrence: Number(step.ocrOccurrence)
+            ocr_target: buildOcrTargetPayload(step.ocrTarget)
           }
         : step.locator === 'visual'
           ? {
@@ -1194,10 +1526,7 @@ function buildStructuredPayload(step: StepDraft): Record<string, unknown> {
         ...(step.locator === 'ocr'
           ? {
               locator: 'ocr',
-              ocr_text: step.ocrText.trim(),
-              ocr_match_mode: step.ocrMatchMode,
-              ocr_case_sensitive: step.ocrCaseSensitive,
-              ocr_occurrence: Number(step.ocrOccurrence)
+              ocr_target: buildOcrTargetPayload(step.ocrTarget)
             }
           : step.locator === 'visual'
             ? {
@@ -1219,6 +1548,12 @@ function buildStructuredPayload(step: StepDraft): Record<string, unknown> {
           ? { per_char_delay_ms: Number(step.perCharDelayMs) }
           : {})
       }
+    case 'select_option':
+      return {
+        field_target: buildOcrTargetPayload(step.fieldTarget),
+        option_target: buildOcrTargetPayload(step.optionTarget),
+        verify_selected: step.verifySelected
+      }
     case 'template_assert':
       return step.threshold === null
         ? {}
@@ -1227,10 +1562,18 @@ function buildStructuredPayload(step: StepDraft): Record<string, unknown> {
           }
     case 'ocr_assert':
       return {
-        selector: step.selector.trim(),
-        expected_text: step.expectedText,
-        match_mode: step.matchMode,
-        case_sensitive: step.caseSensitive
+        scope: step.ocrAssertionScope,
+        assertion: step.ocrAssertionMode,
+        ocr_target: buildOcrTargetPayload(
+          step.ocrTarget,
+          step.ocrAssertionScope === 'page' ? 'page' : 'viewport'
+        ),
+        ...(step.ocrAssertionScope === 'element_legacy'
+          ? { selector: step.selector.trim() }
+          : {}),
+        ...(step.ocrAssertionMode === 'count' && step.ocrExpectedCount !== null
+          ? { expected_count: Number(step.ocrExpectedCount) }
+          : {})
       }
     case 'component_call':
       return {}
@@ -1241,9 +1584,7 @@ function buildStructuredPayload(step: StepDraft): Record<string, unknown> {
             branch.conditionType === 'ocr_text_visible'
               ? {
                   type: 'ocr_text_visible',
-                  expected_text: branch.expectedText.trim(),
-                  match_mode: branch.matchMode,
-                  case_sensitive: branch.caseSensitive
+                  ocr_target: buildOcrTargetPayload(branch.ocrTarget)
                 }
               : branch.conditionType === 'template_visible'
                 ? {
@@ -1289,10 +1630,7 @@ function buildStructuredPayload(step: StepDraft): Record<string, unknown> {
       if (step.scrollTarget === 'element') {
         if (step.locator === 'ocr') {
           payload.locator = 'ocr'
-          payload.ocr_text = step.ocrText.trim()
-          payload.ocr_match_mode = step.ocrMatchMode
-          payload.ocr_case_sensitive = step.ocrCaseSensitive
-          payload.ocr_occurrence = Number(step.ocrOccurrence)
+          payload.ocr_target = buildOcrTargetPayload(step.ocrTarget)
         } else if (step.locator === 'visual') {
           payload.locator = 'visual'
           payload.template_id = step.visualTemplateId
@@ -1312,10 +1650,7 @@ function buildStructuredPayload(step: StepDraft): Record<string, unknown> {
       return step.locator === 'ocr'
         ? {
             locator: 'ocr',
-            ocr_text: step.ocrText.trim(),
-            ocr_match_mode: step.ocrMatchMode,
-            ocr_case_sensitive: step.ocrCaseSensitive,
-            ocr_occurrence: Number(step.ocrOccurrence),
+            ocr_target: buildOcrTargetPayload(step.ocrTarget),
             duration_ms: Number(step.durationMs ?? DEFAULT_LONG_PRESS_DURATION_MS),
             button: step.button
           }
@@ -1337,9 +1672,21 @@ function buildStructuredPayload(step: StepDraft): Record<string, unknown> {
   }
 }
 
-export function buildStepWritePayload(step: StepDraft, index: number): StepWritePayload {
+function buildAdditionalPayload(step: StepDraft): Record<string, unknown> {
   const extraPayload = parseExtraPayloadJson(step)
-  const additionalPayload = 'value' in extraPayload ? extraPayload.value : {}
+  const value = 'value' in extraPayload ? extraPayload.value : undefined
+  if (!value) {
+    return {}
+  }
+  return Object.fromEntries(
+    Object.entries(value).filter(
+      ([key]: [string, unknown]): boolean => !STRUCTURED_PAYLOAD_KEYS.has(key)
+    )
+  )
+}
+
+export function buildStepWritePayload(step: StepDraft, index: number): StepWritePayload {
+  const additionalPayload = buildAdditionalPayload(step)
 
   return {
     stepNo: index + 1,
@@ -1357,8 +1704,7 @@ export function buildStepWritePayload(step: StepDraft, index: number): StepWrite
 }
 
 function buildNestedStepWritePayload(step: StepDraft, index: number): Record<string, unknown> {
-  const extraPayload = parseExtraPayloadJson(step)
-  const additionalPayload = 'value' in extraPayload ? extraPayload.value : {}
+  const additionalPayload = buildAdditionalPayload(step)
 
   return {
     step_type: step.type,
@@ -1392,7 +1738,7 @@ export function formatStepSummary(source: StepSummarySource) {
         const locatorSummary = buildLocatorSummary(payload)
         const knownKeys =
           locatorSummary.locator === 'ocr'
-            ? ['locator', 'ocr_text', 'ocr_match_mode', 'ocr_case_sensitive', 'ocr_occurrence']
+            ? ['locator', 'ocr_target', 'ocr_text', 'ocr_match_mode', 'ocr_case_sensitive', 'ocr_occurrence']
             : locatorSummary.locator === 'visual'
               ? ['locator', 'template_id', 'threshold', 'anchor_x_ratio', 'anchor_y_ratio']
             : ['selector']
@@ -1412,7 +1758,7 @@ export function formatStepSummary(source: StepSummarySource) {
         }
         const knownKeys =
           locatorSummary.locator === 'ocr'
-            ? ['locator', 'ocr_text', 'ocr_match_mode', 'ocr_case_sensitive', 'ocr_occurrence', 'text', 'input_mode', 'otp_length', 'per_char_delay_ms']
+            ? ['locator', 'ocr_target', 'ocr_text', 'ocr_match_mode', 'ocr_case_sensitive', 'ocr_occurrence', 'text', 'input_mode', 'otp_length', 'per_char_delay_ms']
             : locatorSummary.locator === 'visual'
               ? ['locator', 'template_id', 'threshold', 'anchor_x_ratio', 'anchor_y_ratio', 'text', 'input_mode', 'otp_length', 'per_char_delay_ms']
             : ['selector', 'text', 'input_mode', 'otp_length', 'per_char_delay_ms']
@@ -1424,6 +1770,17 @@ export function formatStepSummary(source: StepSummarySource) {
         )}`
       }
       }
+    case 'select_option': {
+      const fieldTarget = parseOcrTargetPayload(payload.field_target)
+      const optionTarget = parseOcrTargetPayload(payload.option_target)
+      return {
+        target: `OCR 选择 ${formatTextValue(fieldTarget.text)} → ${formatTextValue(optionTarget.text)}`,
+        note: `${payload.verify_selected === false ? '不验证选中结果' : '验证选中结果'} · ${fieldTarget.language}/${optionTarget.language} · ${timeoutAndRetry}${formatExtraPayloadKeys(
+          payload,
+          ['field_target', 'option_target', 'verify_selected']
+        )}`
+      }
+    }
     case 'template_assert': {
       const threshold =
         typeof payload.threshold === 'number' && Number.isFinite(payload.threshold)
@@ -1435,13 +1792,33 @@ export function formatStepSummary(source: StepSummarySource) {
       }
     }
     case 'ocr_assert': {
-      const matchMode = payload.match_mode === 'exact' ? 'exact' : 'contains'
-      const caseSensitive = payload.case_sensitive === true ? '区分大小写' : '忽略大小写'
+      const scope = isOcrAssertionScope(payload.scope)
+        ? payload.scope
+        : typeof payload.selector === 'string' && payload.selector.trim()
+          ? 'element_legacy'
+          : 'viewport'
+      const target = hasOwn(payload, 'ocr_target')
+        ? parseOcrTargetPayload(payload.ocr_target)
+        : parseOcrTargetPayload({
+            text: payload.expected_text,
+            match_mode: payload.match_mode,
+            case_sensitive: payload.case_sensitive,
+            scope: 'viewport'
+          })
+      const assertion = isOcrAssertionMode(payload.assertion)
+        ? payload.assertion
+        : 'present'
+      const scopeLabel =
+        scope === 'element_legacy'
+          ? `兼容元素区域 ${formatTextValue(payload.selector)}`
+          : scope === 'page'
+            ? '整页'
+            : '当前视口'
       return {
-        target: `OCR ${formatTextValue(payload.selector)}`,
-        note: `期望文本 ${formatTextValue(payload.expected_text)} · ${matchMode} · ${caseSensitive} · ${timeoutAndRetry}${formatExtraPayloadKeys(
+        target: `OCR ${assertion} ${formatTextValue(target.text)}`,
+        note: `${scopeLabel} · ${target.matchMode} · ${target.language} · ${target.role}${assertion === 'count' ? ` · 期望数量 ${String(payload.expected_count ?? '--')}` : ''} · ${timeoutAndRetry}${formatExtraPayloadKeys(
           payload,
-          ['selector', 'expected_text', 'match_mode', 'case_sensitive']
+          ['scope', 'assertion', 'ocr_target', 'selector', 'expected_count', 'expected_text', 'match_mode', 'case_sensitive']
         )}`
       }
     }
@@ -1485,7 +1862,7 @@ export function formatStepSummary(source: StepSummarySource) {
       const knownKeys =
         target === 'element'
           ? (locatorSummary?.locator === 'ocr'
-              ? ['target', 'locator', 'ocr_text', 'ocr_match_mode', 'ocr_case_sensitive', 'ocr_occurrence', 'direction', 'distance', 'behavior']
+              ? ['target', 'locator', 'ocr_target', 'ocr_text', 'ocr_match_mode', 'ocr_case_sensitive', 'ocr_occurrence', 'direction', 'distance', 'behavior']
               : locatorSummary?.locator === 'visual'
                 ? ['target', 'locator', 'template_id', 'threshold', 'anchor_x_ratio', 'anchor_y_ratio', 'direction', 'distance', 'behavior']
               : ['target', 'selector', 'direction', 'distance', 'behavior'])
@@ -1507,7 +1884,7 @@ export function formatStepSummary(source: StepSummarySource) {
           : DEFAULT_LONG_PRESS_DURATION_MS
         const knownKeys =
           locatorSummary.locator === 'ocr'
-            ? ['locator', 'ocr_text', 'ocr_match_mode', 'ocr_case_sensitive', 'ocr_occurrence', 'duration_ms', 'button']
+            ? ['locator', 'ocr_target', 'ocr_text', 'ocr_match_mode', 'ocr_case_sensitive', 'ocr_occurrence', 'duration_ms', 'button']
           : locatorSummary.locator === 'visual'
             ? ['locator', 'template_id', 'threshold', 'anchor_x_ratio', 'anchor_y_ratio', 'duration_ms', 'button']
             : ['selector', 'duration_ms', 'button']

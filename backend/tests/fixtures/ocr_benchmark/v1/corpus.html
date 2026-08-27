@@ -1,0 +1,772 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="color-scheme" content="light dark" />
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        margin: 0;
+        min-height: 100%;
+      }
+
+      body {
+        overflow: hidden;
+      }
+
+      .scene {
+        display: none;
+        position: relative;
+        width: 100vw;
+        height: 100vh;
+        padding: 48px;
+      }
+
+      .scene.active {
+        display: block;
+      }
+
+      .benchmark-text {
+        display: inline-block;
+        position: relative;
+        white-space: nowrap;
+        line-height: 1.2;
+      }
+
+      button,
+      input,
+      .input-shell,
+      .menu {
+        border-radius: 10px;
+      }
+
+      button {
+        min-height: 52px;
+        padding: 0 28px;
+        font: inherit;
+      }
+
+      input {
+        height: 54px;
+        padding: 0 18px;
+        font: inherit;
+      }
+
+      .panel {
+        border-radius: 22px;
+        padding: 34px;
+      }
+
+      .row {
+        display: flex;
+        align-items: center;
+        gap: 24px;
+        margin-top: 30px;
+      }
+
+      .menu {
+        display: grid;
+        gap: 12px;
+        padding: 18px;
+      }
+
+      .menu-item {
+        padding: 13px 18px;
+        border-radius: 8px;
+      }
+
+      #scene-clear-zh-en {
+        color: #172033;
+        background: #eef3f9;
+        font-family: Arial, "PingFang SC", sans-serif;
+      }
+
+      #scene-clear-zh-en .panel {
+        width: 1050px;
+        height: 620px;
+        margin: 0 auto;
+        background: #ffffff;
+        border: 2px solid #c9d4e3;
+      }
+
+      #scene-clear-zh-en .title {
+        font: 700 34px/1.2 Arial, sans-serif;
+      }
+
+      #scene-clear-zh-en .chinese {
+        margin-top: 28px;
+        font: 26px/1.2 "PingFang SC", "Hiragino Sans GB", sans-serif;
+      }
+
+      #scene-clear-zh-en .mixed {
+        margin-top: 24px;
+        font: 22px/1.2 "Trebuchet MS", "PingFang SC", sans-serif;
+      }
+
+      #scene-clear-zh-en button {
+        color: #ffffff;
+        background: #175cd3;
+        border: 2px solid #0f4db5;
+        font: 700 22px/1.2 Arial, sans-serif;
+      }
+
+      #scene-clear-zh-en input {
+        width: 330px;
+        color: #172033;
+        background: #ffffff;
+        border: 2px solid #34445c;
+        font: 20px/1.2 Georgia, "PingFang SC", serif;
+      }
+
+      #scene-clear-zh-en input::placeholder {
+        color: #59677b;
+        opacity: 1;
+      }
+
+      #scene-clear-zh-en .field-label {
+        width: 160px;
+        font: 20px/1.2 "Courier New", monospace;
+      }
+
+      #scene-clear-zh-en .menu {
+        position: absolute;
+        right: 90px;
+        bottom: 60px;
+        width: 260px;
+        color: #14213a;
+        background: #f7f9fc;
+        border: 2px solid #72819a;
+        font: 18px/1.2 "Times New Roman", serif;
+      }
+
+      #scene-clear-zh-en .menu-item {
+        border: 1px solid #b6c1d0;
+      }
+
+      #scene-clear-en-dark {
+        color: #f7f8fb;
+        background: #0f172a;
+        font-family: Arial, sans-serif;
+      }
+
+      #scene-clear-en-dark .panel {
+        width: 1640px;
+        height: 900px;
+        margin: 20px auto 0;
+        background: #172033;
+        border: 2px solid #73819a;
+      }
+
+      #scene-clear-en-dark .title {
+        font: 700 32px/1.2 "Trebuchet MS", sans-serif;
+      }
+
+      #scene-clear-en-dark .font-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 30px 70px;
+        margin-top: 45px;
+      }
+
+      #scene-clear-en-dark .font-grid > div {
+        padding: 22px;
+        border: 1px solid #64748b;
+        background: #202b40;
+      }
+
+      #scene-clear-en-dark .arial-small {
+        font: 16px/1.2 Arial, sans-serif;
+      }
+
+      #scene-clear-en-dark .times-medium {
+        font: 22px/1.2 "Times New Roman", serif;
+      }
+
+      #scene-clear-en-dark .courier-large {
+        font: 28px/1.2 "Courier New", monospace;
+      }
+
+      #scene-clear-en-dark .georgia-medium {
+        font: 22px/1.2 Georgia, serif;
+      }
+
+      #scene-clear-en-dark button {
+        color: #f8fafc;
+        background: #334155;
+        border: 2px solid #94a3b8;
+        font: 700 20px/1.2 Arial, sans-serif;
+      }
+
+      #scene-clear-en-dark input {
+        width: 380px;
+        color: #f8fafc;
+        background: #111827;
+        border: 2px solid #94a3b8;
+        font: 20px/1.2 "Trebuchet MS", sans-serif;
+      }
+
+      #scene-clear-en-dark input::placeholder {
+        color: #cbd5e1;
+        opacity: 1;
+      }
+
+      #scene-clear-en-dark .ambiguity {
+        display: flex;
+        gap: 34px;
+        margin-top: 48px;
+      }
+
+      #scene-disturbed-japanese {
+        color: #49505b;
+        background:
+          repeating-linear-gradient(
+            35deg,
+            rgba(76, 88, 104, 0.08) 0,
+            rgba(76, 88, 104, 0.08) 3px,
+            transparent 3px,
+            transparent 17px
+          ),
+          linear-gradient(135deg, #c8ced4, #aeb8c2);
+        font-family: "Hiragino Kaku Gothic ProN", "Yu Gothic", sans-serif;
+      }
+
+      #scene-disturbed-japanese .panel {
+        width: 1240px;
+        height: 760px;
+        margin: 20px auto 0;
+        background: rgba(222, 226, 230, 0.88);
+        border: 2px solid #949da8;
+      }
+
+      #scene-disturbed-japanese .title {
+        color: #5f6873;
+        font: 30px/1.2 "Hiragino Kaku Gothic ProN", sans-serif;
+      }
+
+      #scene-disturbed-japanese .tilt-positive {
+        margin-top: 80px;
+        transform: rotate(10deg);
+        transform-origin: left center;
+        font: 24px/1.2 "Yu Mincho", "Hiragino Mincho ProN", serif;
+      }
+
+      #scene-disturbed-japanese .tilt-negative {
+        margin: 90px 0 0 370px;
+        transform: rotate(-10deg);
+        transform-origin: left center;
+        font: 22px/1.2 "Hiragino Kaku Gothic ProN", sans-serif;
+      }
+
+      #scene-disturbed-japanese .blurred {
+        margin-top: 80px;
+        filter: blur(0.45px);
+        font: 20px/1.2 "Hiragino Kaku Gothic ProN", sans-serif;
+      }
+
+      #scene-disturbed-japanese button {
+        margin: 70px 0 0 740px;
+        color: #626b75;
+        background: #b7bec5;
+        border: 2px solid #7c8793;
+        font: 22px/1.2 "Hiragino Kaku Gothic ProN", sans-serif;
+      }
+
+      #scene-disturbed-japanese .menu {
+        position: absolute;
+        right: 120px;
+        top: 120px;
+        width: 270px;
+        background: rgba(196, 202, 209, 0.92);
+        border: 2px solid #7f8994;
+        font: 20px/1.2 "Yu Gothic", sans-serif;
+      }
+
+      #scene-disturbed-japanese .menu-item {
+        border: 1px solid #8f99a4;
+      }
+
+      #scene-disturbed-korean-mobile {
+        color: #e5e7eb;
+        background: #111827;
+        font-family: "Apple SD Gothic Neo", sans-serif;
+      }
+
+      #scene-disturbed-korean-mobile .scene {
+        padding: 0;
+      }
+
+      #scene-disturbed-korean-mobile .mobile-card {
+        position: absolute;
+        inset: 30px 18px;
+        padding: 28px 24px;
+        border: 2px solid #536174;
+        border-radius: 22px;
+        background:
+          repeating-linear-gradient(
+            90deg,
+            rgba(255, 255, 255, 0.025) 0,
+            rgba(255, 255, 255, 0.025) 2px,
+            transparent 2px,
+            transparent 13px
+          ),
+          #1f2937;
+      }
+
+      #scene-disturbed-korean-mobile .title {
+        font: 700 26px/1.2 "Apple SD Gothic Neo", sans-serif;
+      }
+
+      #scene-disturbed-korean-mobile .mobile-label {
+        margin-top: 54px;
+        color: #c5cbd4;
+        font: 18px/1.2 "Apple SD Gothic Neo", sans-serif;
+      }
+
+      #scene-disturbed-korean-mobile input {
+        width: 100%;
+        margin-top: 14px;
+        color: #e5e7eb;
+        background: #374151;
+        border: 2px solid #6b7280;
+        font: 18px/1.2 "Apple SD Gothic Neo", sans-serif;
+      }
+
+      #scene-disturbed-korean-mobile input::placeholder {
+        color: #aeb5c0;
+        opacity: 1;
+      }
+
+      #scene-disturbed-korean-mobile button {
+        width: 100%;
+        margin-top: 38px;
+        color: #f8fafc;
+        background: #344e78;
+        border: 2px solid #72819b;
+        font: 700 20px/1.2 "Apple SD Gothic Neo", sans-serif;
+      }
+
+      #scene-disturbed-korean-mobile .occluded-wrap {
+        position: relative;
+        margin-top: 62px;
+        width: max-content;
+        color: #c8ced8;
+        font: 18px/1.2 "Apple SD Gothic Neo", sans-serif;
+      }
+
+      #scene-disturbed-korean-mobile .occluder {
+        position: absolute;
+        z-index: 2;
+        right: -1px;
+        top: -2px;
+        width: 20%;
+        height: calc(100% + 4px);
+        background: #263244;
+      }
+
+      #scene-disturbed-korean-mobile .menu {
+        margin-top: 44px;
+        padding: 12px;
+        color: #d5dae2;
+        background: #283548;
+        border: 2px solid #5d6b7d;
+        font: 17px/1.2 "Apple SD Gothic Neo", sans-serif;
+      }
+
+      #scene-disturbed-korean-mobile .menu-item {
+        border: 1px solid #556275;
+      }
+    </style>
+  </head>
+  <body>
+    <main
+      id="scene-clear-zh-en"
+      class="scene"
+      data-scene="clear_zh_en"
+      data-language-profile="zh_en"
+      data-quality="clear"
+    >
+      <section class="panel">
+        <span
+          class="benchmark-text title"
+          data-benchmark-id="zh-en-title"
+          data-text="Vision OCR Console"
+          data-language="en"
+          data-role="text"
+          data-target="unique"
+        >Vision OCR Console</span>
+        <div>
+          <span
+            class="benchmark-text chinese"
+            data-benchmark-id="zh-success"
+            data-text="提交成功"
+            data-language="zh"
+            data-role="text"
+            data-target="unique"
+          >提交成功</span>
+        </div>
+        <div>
+          <span
+            class="benchmark-text mixed"
+            data-benchmark-id="zh-en-mixed"
+            data-text="Account 状态 Ready"
+            data-language="zh_en"
+            data-role="text"
+            data-target="unique"
+            data-match-mode="fuzzy"
+          >Account 状态 Ready</span>
+        </div>
+        <div class="row">
+          <button id="zh-run-button" type="button">
+            <span
+              class="benchmark-text"
+              data-benchmark-id="zh-run"
+              data-text="运行测试"
+              data-language="zh"
+              data-role="button"
+              data-target="unique"
+              data-action-id="zh-run-button"
+            >运行测试</span>
+          </button>
+          <input
+            id="zh-placeholder-input"
+            data-benchmark-id="zh-placeholder"
+            data-text="输入账号"
+            data-language="zh"
+            data-role="placeholder"
+            data-target="unique"
+            data-input-text="true"
+            placeholder="输入账号"
+          />
+        </div>
+        <div class="row">
+          <label id="zh-account-label" for="zh-account-input">
+            <span
+              class="benchmark-text field-label"
+              data-benchmark-id="zh-label"
+              data-text="账号标签"
+              data-language="zh"
+              data-role="label_input"
+              data-target="unique"
+              data-action-id="zh-account-input"
+              data-action-point="associated_control"
+            >账号标签</span>
+          </label>
+          <input id="zh-account-input" aria-label="benchmark account" />
+        </div>
+        <nav class="menu">
+          <div class="menu-item">
+            <span
+              class="benchmark-text"
+              data-benchmark-id="zh-menu-settings"
+              data-text="系统设置"
+              data-language="zh"
+              data-role="menu"
+              data-target="unique"
+            >系统设置</span>
+          </div>
+          <div class="menu-item">
+            <span
+              class="benchmark-text"
+              data-benchmark-id="zh-menu-report"
+              data-text="查看报告"
+              data-language="zh"
+              data-role="menu"
+              data-target="unique"
+            >查看报告</span>
+          </div>
+        </nav>
+      </section>
+    </main>
+
+    <main
+      id="scene-clear-en-dark"
+      class="scene"
+      data-scene="clear_en_dark"
+      data-language-profile="en"
+      data-quality="clear"
+    >
+      <section class="panel">
+        <span
+          class="benchmark-text title"
+          data-benchmark-id="en-title"
+          data-text="Automation Control Center"
+          data-language="en"
+          data-role="text"
+          data-target="unique"
+        >Automation Control Center</span>
+        <div class="font-grid">
+          <div>
+            <span
+              class="benchmark-text arial-small"
+              data-benchmark-id="en-arial-small"
+              data-text="Account status ready"
+              data-language="en"
+              data-role="text"
+              data-target="unique"
+            >Account status ready</span>
+          </div>
+          <div>
+            <span
+              class="benchmark-text times-medium"
+              data-benchmark-id="en-times-medium"
+              data-text="Visual report available"
+              data-language="en"
+              data-role="text"
+              data-target="unique"
+            >Visual report available</span>
+          </div>
+          <div>
+            <span
+              class="benchmark-text courier-large"
+              data-benchmark-id="en-courier-large"
+              data-text="Request VAT-2048"
+              data-language="en"
+              data-role="text"
+              data-target="unique"
+            >Request VAT-2048</span>
+          </div>
+          <div>
+            <span
+              class="benchmark-text georgia-medium"
+              data-benchmark-id="en-georgia-medium"
+              data-text="Confirm operation"
+              data-language="en"
+              data-role="text"
+              data-target="unique"
+            >Confirm operation</span>
+          </div>
+        </div>
+        <div class="row">
+          <button id="en-submit-button" type="button">
+            <span
+              class="benchmark-text"
+              data-benchmark-id="en-submit"
+              data-text="Submit Report"
+              data-language="en"
+              data-role="button"
+              data-target="unique"
+              data-action-id="en-submit-button"
+            >Submit Report</span>
+          </button>
+          <input
+            id="en-search-input"
+            data-benchmark-id="en-placeholder"
+            data-text="Search records"
+            data-language="en"
+            data-role="placeholder"
+            data-target="unique"
+            data-input-text="true"
+            placeholder="Search records"
+          />
+        </div>
+        <div class="ambiguity">
+          <button id="en-archive-a" type="button">
+            <span
+              class="benchmark-text"
+              data-benchmark-id="en-archive-a"
+              data-text="Archive"
+              data-language="en"
+              data-role="button"
+              data-target="ambiguous"
+              data-ambiguity-group="archive"
+              data-action-id="en-archive-a"
+            >Archive</span>
+          </button>
+          <button id="en-archive-b" type="button">
+            <span
+              class="benchmark-text"
+              data-benchmark-id="en-archive-b"
+              data-text="Archive"
+              data-language="en"
+              data-role="button"
+              data-target="ambiguous"
+              data-ambiguity-group="archive"
+              data-action-id="en-archive-b"
+            >Archive</span>
+          </button>
+        </div>
+      </section>
+    </main>
+
+    <main
+      id="scene-disturbed-japanese"
+      class="scene"
+      data-scene="disturbed_japanese"
+      data-language-profile="japan"
+      data-quality="disturbed"
+    >
+      <section class="panel">
+        <span
+          class="benchmark-text title"
+          data-benchmark-id="ja-title"
+          data-text="日本語メニュー"
+          data-language="ja"
+          data-role="text"
+          data-target="unique"
+        >日本語メニュー</span>
+        <div>
+          <span
+            class="benchmark-text tilt-positive"
+            data-benchmark-id="ja-positive-tilt"
+            data-text="注文を確認"
+            data-language="ja"
+            data-role="text"
+            data-target="unique"
+          >注文を確認</span>
+        </div>
+        <div>
+          <span
+            class="benchmark-text tilt-negative"
+            data-benchmark-id="ja-negative-tilt"
+            data-text="結果を表示"
+            data-language="ja"
+            data-role="text"
+            data-target="unique"
+          >結果を表示</span>
+        </div>
+        <div>
+          <span
+            class="benchmark-text blurred"
+            data-benchmark-id="ja-blurred"
+            data-text="検索を開始"
+            data-language="ja"
+            data-role="text"
+            data-target="unique"
+          >検索を開始</span>
+        </div>
+        <button id="ja-action-button" type="button">
+          <span
+            class="benchmark-text"
+            data-benchmark-id="ja-action"
+            data-text="次へ進む"
+            data-language="ja"
+            data-role="button"
+            data-target="unique"
+            data-action-id="ja-action-button"
+          >次へ進む</span>
+        </button>
+        <nav class="menu">
+          <div class="menu-item">
+            <span
+              class="benchmark-text"
+              data-benchmark-id="ja-menu-profile"
+              data-text="プロフィール"
+              data-language="ja"
+              data-role="menu"
+              data-target="unique"
+            >プロフィール</span>
+          </div>
+          <div class="menu-item">
+            <span
+              class="benchmark-text"
+              data-benchmark-id="ja-menu-settings"
+              data-text="設定を開く"
+              data-language="ja"
+              data-role="menu"
+              data-target="unique"
+            >設定を開く</span>
+          </div>
+        </nav>
+      </section>
+    </main>
+
+    <main
+      id="scene-disturbed-korean-mobile"
+      class="scene"
+      data-scene="disturbed_korean_mobile"
+      data-language-profile="korean"
+      data-quality="disturbed"
+    >
+      <section class="mobile-card">
+        <span
+          class="benchmark-text title"
+          data-benchmark-id="ko-title"
+          data-text="모바일 자동화"
+          data-language="ko"
+          data-role="text"
+          data-target="unique"
+        >모바일 자동화</span>
+        <div>
+          <span
+            class="benchmark-text mobile-label"
+            data-benchmark-id="ko-label"
+            data-text="사용자 이름"
+            data-language="ko"
+            data-role="label_input"
+            data-target="unique"
+            data-action-id="ko-account-input"
+            data-action-point="associated_control"
+          >사용자 이름</span>
+        </div>
+        <input
+          id="ko-account-input"
+          data-benchmark-id="ko-placeholder"
+          data-text="계정을 입력"
+          data-language="ko"
+          data-role="placeholder"
+          data-target="unique"
+          data-input-text="true"
+          placeholder="계정을 입력"
+        />
+        <button id="ko-continue-button" type="button">
+          <span
+            class="benchmark-text"
+            data-benchmark-id="ko-continue"
+            data-text="계속 진행"
+            data-language="ko"
+            data-role="button"
+            data-target="unique"
+            data-action-id="ko-continue-button"
+          >계속 진행</span>
+        </button>
+        <div class="occluded-wrap">
+          <span
+            class="benchmark-text"
+            data-benchmark-id="ko-occluded"
+            data-text="부분 가림 텍스트"
+            data-language="ko"
+            data-role="text"
+            data-target="unique"
+          >부분 가림 텍스트</span>
+          <span class="occluder" aria-hidden="true"></span>
+        </div>
+        <nav class="menu">
+          <div class="menu-item">
+            <span
+              class="benchmark-text"
+              data-benchmark-id="ko-menu-profile"
+              data-text="프로필 메뉴"
+              data-language="ko"
+              data-role="menu"
+              data-target="unique"
+            >프로필 메뉴</span>
+          </div>
+          <div class="menu-item">
+            <span
+              class="benchmark-text"
+              data-benchmark-id="ko-menu-report"
+              data-text="보고서 보기"
+              data-language="ko"
+              data-role="menu"
+              data-target="unique"
+            >보고서 보기</span>
+          </div>
+        </nav>
+      </section>
+    </main>
+
+    <script>
+      const requestedScene = new URLSearchParams(window.location.search).get("scene");
+      const scene = document.querySelector(`[data-scene="${requestedScene}"]`);
+      if (!scene) {
+        throw new Error(`Unknown benchmark scene: ${requestedScene}`);
+      }
+      scene.classList.add("active");
+      document.documentElement.dataset.ready = "true";
+    </script>
+  </body>
+</html>

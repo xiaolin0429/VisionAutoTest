@@ -5,6 +5,10 @@ from sqlalchemy.orm import Session
 from app.core.http import ApiError
 from app.models import Template
 from app.services.step_validation_common import assert_template
+from app.workers.ocr_contract import (
+    OcrContractError,
+    normalize_ocr_branch_condition,
+)
 
 
 def validate_conditional_branch_payload(
@@ -80,27 +84,14 @@ def validate_branch_condition(
 
     condition_type = condition.get("type")
     if condition_type == "ocr_text_visible":
-        expected_text = condition.get("expected_text")
-        if not isinstance(expected_text, str) or not expected_text.strip():
+        try:
+            normalize_ocr_branch_condition(condition)
+        except OcrContractError as exc:
             raise ApiError(
                 code="STEP_CONFIGURATION_INVALID",
-                message="ocr_text_visible requires expected_text.",
+                message=f"Invalid ocr_text_visible condition: {exc}",
                 status_code=422,
-            )
-        match_mode = condition.get("match_mode")
-        if match_mode is not None and match_mode not in {"exact", "contains"}:
-            raise ApiError(
-                code="STEP_CONFIGURATION_INVALID",
-                message="ocr_text_visible match_mode must be `exact` or `contains`.",
-                status_code=422,
-            )
-        case_sensitive = condition.get("case_sensitive")
-        if case_sensitive is not None and not isinstance(case_sensitive, bool):
-            raise ApiError(
-                code="STEP_CONFIGURATION_INVALID",
-                message="ocr_text_visible case_sensitive must be boolean.",
-                status_code=422,
-            )
+            ) from exc
         return
 
     if condition_type == "template_visible":

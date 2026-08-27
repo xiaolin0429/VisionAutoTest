@@ -14,7 +14,12 @@ from tests.support.fakes import (
 from tests.support.runtime import _reset_local_data, app_client
 
 
-def _create_basic_test_run(client):
+def _create_basic_test_run(
+    client,
+    *,
+    step_type: str = "wait",
+    payload_json: dict | None = None,
+):
     login_resp = client.post(
         "/api/v1/sessions",
         json={"username": TEST_ADMIN_USERNAME, "password": TEST_ADMIN_PASSWORD},
@@ -57,9 +62,9 @@ def _create_basic_test_run(client):
         json=[
             {
                 "step_no": 1,
-                "step_type": "wait",
+                "step_type": step_type,
                 "step_name": "Wait Render",
-                "payload_json": {"ms": 100},
+                "payload_json": payload_json or {"ms": 100},
             }
         ],
         headers=workspace_headers,
@@ -215,6 +220,7 @@ def test_mvp_backend_smoke_flow(monkeypatch):
         assert step_results_resp.json()["data"][0]["repair_resource_id"] == test_case_id
         assert step_results_resp.json()["data"][0]["repair_route_path"] == "/cases"
         assert step_results_resp.json()["data"][0]["repair_step_no"] == 1
+        assert step_results_resp.json()["data"][0]["result_metadata_json"] == {}
 
         with SessionLocal() as db:
             report = (
@@ -249,6 +255,108 @@ def test_mvp_backend_smoke_flow(monkeypatch):
             assert artifact.case_run_id == case_runs[0]["id"]
             assert artifact.step_result_id is None
             assert artifact.artifact_url == f"/api/v1/media-objects/{media.id}/content"
+
+
+def test_step_result_metadata_is_persisted_and_returned_by_api(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _reset_local_data()
+    expected_metadata = {
+        "ocr": {
+            "language": "zh_en",
+            "candidate_count": 1,
+        }
+    }
+    _install_fake_browser_adapter(
+        monkeypatch,
+        result_metadata_json=expected_metadata,
+    )
+
+    with app_client() as client:
+        workspace_headers, test_run_id = _create_basic_test_run(client)
+        case_runs_response = client.get(
+            f"/api/v1/test-runs/{test_run_id}/case-runs",
+            headers=workspace_headers,
+        )
+        case_run_id = case_runs_response.json()["data"][0]["id"]
+        step_results_response = client.get(
+            f"/api/v1/case-runs/{case_run_id}/step-results",
+            headers=workspace_headers,
+        )
+
+        assert step_results_response.status_code == 200
+        assert (
+            step_results_response.json()["data"][0]["result_metadata_json"]
+            == expected_metadata
+        )
+
+
+@pytest.mark.parametrize(
+    ("step_status", "error_code"),
+    [
+        ("passed", None),
+        ("error", "OCR_TARGET_AMBIGUOUS"),
+    ],
+)
+def test_ocr_action_evidence_is_persisted_for_success_and_safe_rejection(
+    monkeypatch: pytest.MonkeyPatch,
+    step_status: str,
+    error_code: str | None,
+) -> None:
+    _reset_local_data()
+    ocr_metadata: dict[str, object] = {
+        "scope": "viewport",
+        "language": "zh_en",
+        "candidate_count": 2,
+        "candidates": [],
+    }
+    if error_code is not None:
+        ocr_metadata["error_code"] = error_code
+    expected_metadata = {"ocr": ocr_metadata}
+    _install_fake_browser_adapter(
+        monkeypatch,
+        result_metadata_json=expected_metadata,
+        actual_artifact_type="ocr_action",
+        step_status=step_status,
+        failure_reason_code=error_code,
+    )
+
+    with app_client() as client:
+        workspace_headers, test_run_id = _create_basic_test_run(
+            client,
+            step_type="click",
+            payload_json={
+                "locator": "ocr",
+                "ocr_target": {"text": "Submit"},
+            },
+        )
+        case_runs_response = client.get(
+            f"/api/v1/test-runs/{test_run_id}/case-runs",
+            headers=workspace_headers,
+        )
+        case_run_id = case_runs_response.json()["data"][0]["id"]
+        step_results_response = client.get(
+            f"/api/v1/case-runs/{case_run_id}/step-results",
+            headers=workspace_headers,
+        )
+        step_result = step_results_response.json()["data"][0]
+
+        assert step_result["status"] == step_status
+        assert step_result["result_metadata_json"] == expected_metadata
+        assert step_result["actual_media_object_id"] is not None
+
+        report_response = client.get(
+            f"/api/v1/test-runs/{test_run_id}/report",
+            headers=workspace_headers,
+        )
+        artifacts_response = client.get(
+            f"/api/v1/reports/{report_response.json()['data']['id']}/artifacts",
+            headers=workspace_headers,
+        )
+        artifact_types = {
+            item["artifact_type"] for item in artifacts_response.json()["data"]
+        }
+        assert artifact_types == {"ocr_action", "run_screenshot"}
 
 
 def test_empty_suite_cannot_create_test_run():
@@ -1835,7 +1943,7 @@ def test_ocr_assert_failure_marks_run_failed(monkeypatch):
         assert artifacts_resp.status_code == 200
         assert {item["artifact_type"] for item in artifacts_resp.json()["data"]} == {
             "run_screenshot",
-            "step_ocr",
+            "ocr_assert",
         }
         assert all(
             item["artifact_url"]

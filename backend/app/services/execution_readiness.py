@@ -17,8 +17,15 @@ from app.models import (
     SuiteCase,
     User,
 )
+from app.services.branch_validator import validate_conditional_branch_payload
 from app.services.execution_steps import get_component_in_workspace
 from app.services.helpers import count_total, require_workspace_access
+from app.services.step_validation_common import validate_select_option_payload
+from app.workers.ocr_contract import (
+    OcrContractError,
+    normalize_ocr_assert_payload,
+    normalize_ocr_branch_condition,
+)
 
 EXECUTABLE_TEMPLATE_STATUS = "published"
 
@@ -166,6 +173,46 @@ def validate_case_execution_readiness(
 
 
 def validate_visual_step_readiness(db: Session, *, workspace_id: int, step) -> None:
+    if step.step_type == "conditional_branch":
+        payload = step.payload_json or {}
+        validate_conditional_branch_payload(
+            db,
+            workspace_id=workspace_id,
+            payload=payload,
+        )
+        branches = payload["branches"]
+        for branch in branches:
+            _validate_branch_step_readiness(
+                db,
+                workspace_id=workspace_id,
+                branch=branch,
+            )
+        else_branch = payload.get("else_branch")
+        if isinstance(else_branch, dict) and else_branch.get("enabled") is True:
+            _validate_branch_step_readiness(
+                db,
+                workspace_id=workspace_id,
+                branch={"condition": None, "steps": else_branch.get("steps")},
+            )
+        return
+
+    if step.step_type == "select_option":
+        if step.template_id is not None:
+            raise ApiError(
+                code="STEP_CONFIGURATION_INVALID",
+                message="select_option does not allow template_id fallback.",
+                status_code=422,
+            )
+        try:
+            validate_select_option_payload(step.payload_json or {})
+        except OcrContractError as exc:
+            raise ApiError(
+                code="STEP_CONFIGURATION_INVALID",
+                message=f"Invalid select_option payload: {exc}",
+                status_code=422,
+            ) from exc
+        return
+
     if step.step_type not in {"template_assert", "ocr_assert"}:
         return
 
@@ -177,20 +224,14 @@ def validate_visual_step_readiness(db: Session, *, workspace_id: int, step) -> N
         )
 
     if step.step_type == "ocr_assert":
-        payload = step.payload_json or {}
-        selector = payload.get("selector")
-        expected_text = payload.get("expected_text")
-        if (
-            not isinstance(selector, str)
-            or not selector.strip()
-            or not isinstance(expected_text, str)
-            or not expected_text.strip()
-        ):
+        try:
+            normalize_ocr_assert_payload(step.payload_json or {})
+        except OcrContractError as exc:
             raise ApiError(
                 code="STEP_CONFIGURATION_INVALID",
-                message="ocr_assert step requires selector and expected_text.",
+                message=f"Invalid ocr_assert payload: {exc}",
                 status_code=422,
-            )
+            ) from exc
 
     if step.template_id is None:
         return
@@ -369,6 +410,23 @@ def inspect_execution_step_issues(
     issues: list[dict[str, Any]] = []
     if step.step_type == "conditional_branch":
         payload = step.payload_json or {}
+        try:
+            validate_conditional_branch_payload(
+                db,
+                workspace_id=workspace_id,
+                payload=payload,
+            )
+        except ApiError as exc:
+            if exc.code == "STEP_CONFIGURATION_INVALID":
+                issues.append(
+                    build_readiness_issue(
+                        code=exc.code,
+                        message=f"步骤 {step.step_name} 的条件分支配置无效：{exc.message}",
+                        resource_type="step",
+                        route_path=route_path,
+                    )
+                )
+                return issues
         branches = payload.get("branches")
         if not isinstance(branches, list) or not branches:
             issues.append(
@@ -402,6 +460,23 @@ def inspect_execution_step_issues(
                 )
             )
         return issues
+    if step.step_type == "select_option":
+        try:
+            if step.template_id is not None:
+                raise OcrContractError(
+                    "select_option does not allow template_id fallback."
+                )
+            validate_select_option_payload(step.payload_json or {})
+        except OcrContractError as exc:
+            issues.append(
+                build_readiness_issue(
+                    code="STEP_CONFIGURATION_INVALID",
+                    message=f"步骤 {step.step_name} 的 OCR 选择配置无效：{exc}",
+                    resource_type="step",
+                    route_path=route_path,
+                )
+            )
+        return issues
     if step.step_type == "template_assert" and step.template_id is None:
         issues.append(
             build_readiness_issue(
@@ -414,19 +489,13 @@ def inspect_execution_step_issues(
         return issues
 
     if step.step_type == "ocr_assert":
-        payload = step.payload_json or {}
-        selector = payload.get("selector")
-        expected_text = payload.get("expected_text")
-        if (
-            not isinstance(selector, str)
-            or not selector.strip()
-            or not isinstance(expected_text, str)
-            or not expected_text.strip()
-        ):
+        try:
+            normalize_ocr_assert_payload(step.payload_json or {})
+        except OcrContractError as exc:
             issues.append(
                 build_readiness_issue(
                     code="STEP_CONFIGURATION_INVALID",
-                    message=f"步骤 {step.step_name} 缺少 OCR 断言所需的 selector 或 expected_text。",
+                    message=f"步骤 {step.step_name} 的 OCR 断言配置无效：{exc}",
                     resource_type="step",
                     route_path=route_path,
                 )
@@ -521,7 +590,19 @@ def inspect_branch_payload_issues(
     condition = branch.get("condition")
     if condition is not None and isinstance(condition, dict):
         condition_type = condition.get("type")
-        if condition_type == "template_visible":
+        if condition_type == "ocr_text_visible":
+            try:
+                normalize_ocr_branch_condition(condition)
+            except OcrContractError as exc:
+                issues.append(
+                    build_readiness_issue(
+                        code="STEP_CONFIGURATION_INVALID",
+                        message=f"步骤 {step_name} 的 OCR 条件配置无效：{exc}",
+                        resource_type="step",
+                        route_path=route_path,
+                    )
+                )
+        elif condition_type == "template_visible":
             template_id = condition.get("template_id")
             template = (
                 db.get(Template, template_id) if isinstance(template_id, int) else None
@@ -605,6 +686,48 @@ def inspect_branch_payload_issues(
             )
         )
     return issues
+
+
+def _validate_branch_step_readiness(
+    db: Session,
+    *,
+    workspace_id: int,
+    branch: object,
+) -> None:
+    if not isinstance(branch, dict):
+        raise ApiError(
+            code="STEP_CONFIGURATION_INVALID",
+            message="conditional_branch branches must be objects.",
+            status_code=422,
+        )
+    steps = branch.get("steps")
+    if not isinstance(steps, list) or not steps:
+        raise ApiError(
+            code="STEP_CONFIGURATION_INVALID",
+            message="conditional_branch branch requires non-empty steps.",
+            status_code=422,
+        )
+    for raw_step in steps:
+        if not isinstance(raw_step, dict):
+            raise ApiError(
+                code="STEP_CONFIGURATION_INVALID",
+                message="conditional_branch branch steps must be objects.",
+                status_code=422,
+            )
+        pseudo_step = type(
+            "BranchStep",
+            (),
+            {
+                "step_type": raw_step.get("step_type"),
+                "payload_json": raw_step.get("payload_json") or {},
+                "template_id": raw_step.get("template_id"),
+            },
+        )
+        validate_visual_step_readiness(
+            db,
+            workspace_id=workspace_id,
+            step=pseudo_step,
+        )
 
 
 def count_active_environment_profiles(db: Session, *, workspace_id: int) -> int:

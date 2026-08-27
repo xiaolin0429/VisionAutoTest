@@ -4,6 +4,7 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 
 from tests.support.constants import (
     ACTUAL_ARTIFACT_BYTES,
@@ -14,18 +15,27 @@ from tests.support.constants import (
 )
 
 
-def _install_fake_browser_adapter(monkeypatch) -> None:
+def _install_fake_browser_adapter(
+    monkeypatch: Any,
+    *,
+    result_metadata_json: dict[str, Any] | None = None,
+    actual_artifact_type: str | None = None,
+    step_status: str = "passed",
+    failure_reason_code: str | None = None,
+) -> None:
     from app.workers.browser import (
         BrowserArtifact,
         BrowserStepResult,
         CaseExecutionResult,
     )
+    from app.workers.vision import VisionArtifact
 
     class FakeBrowserAdapter:
         supported_step_types = {
             "wait",
             "click",
             "input",
+            "select_option",
             "navigate",
             "scroll",
             "long_press",
@@ -74,17 +84,50 @@ def _install_fake_browser_adapter(monkeypatch) -> None:
                     BrowserStepResult(
                         step_no=step.step_no,
                         step_type=step.step_type,
-                        status="passed",
+                        status=step_status,
                         started_at=started_at,
                         finished_at=finished_at,
                         duration_ms=1,
-                        score_value=1.0,
+                        error_message=(
+                            "OCR action was rejected."
+                            if step_status == "error"
+                            else None
+                        ),
+                        score_value=1.0 if step_status == "passed" else None,
+                        actual_artifact=(
+                            VisionArtifact(
+                                file_name=(
+                                    f"case-run-{case_run_id}-step-"
+                                    f"{step.step_no}-{actual_artifact_type}.png"
+                                ),
+                                content_type="image/png",
+                                content_bytes=OCR_ARTIFACT_BYTES,
+                                artifact_type=actual_artifact_type,
+                            )
+                            if actual_artifact_type is not None
+                            else None
+                        ),
                         parent_step_no=getattr(step, "parent_step_no", None),
                         branch_key=getattr(step, "branch_key", None),
                         branch_name=getattr(step, "branch_name", None),
                         branch_step_index=getattr(step, "branch_step_index", None),
+                        result_metadata_json=dict(result_metadata_json or {}),
                     )
                 )
+                if step_status != "passed":
+                    return CaseExecutionResult(
+                        status=step_status,
+                        step_results=step_results,
+                        failure_reason_code=(
+                            failure_reason_code or "STEP_EXECUTION_ERROR"
+                        ),
+                        failure_summary="OCR action was rejected.",
+                        artifact=BrowserArtifact(
+                            file_name=f"case-run-{case_run_id}.png",
+                            content_type="image/png",
+                            content_bytes=TINY_PNG_BYTES,
+                        ),
+                    )
 
             return CaseExecutionResult(
                 status="passed",
@@ -271,6 +314,7 @@ def _install_counting_browser_adapter(
             "wait",
             "click",
             "input",
+            "select_option",
             "navigate",
             "scroll",
             "long_press",

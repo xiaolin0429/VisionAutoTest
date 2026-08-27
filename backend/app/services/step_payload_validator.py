@@ -13,11 +13,17 @@ from app.services.step_validation_common import (
     SUPPORTED_LOCATOR_TYPES,
     SUPPORTED_LONG_PRESS_BUTTONS,
     SUPPORTED_NAVIGATE_WAIT_UNTIL,
-    SUPPORTED_OCR_MATCH_MODES,
     SUPPORTED_SCROLL_BEHAVIORS,
     SUPPORTED_SCROLL_DIRECTIONS,
     SUPPORTED_SCROLL_TARGETS,
+    SUPPORTED_STEP_TYPES,
     assert_template,
+    validate_select_option_payload,
+)
+from app.workers.ocr_contract import (
+    OcrContractError,
+    normalize_ocr_assert_payload,
+    normalize_ocr_target_payload,
 )
 
 
@@ -27,6 +33,13 @@ def validate_step_payload(
     step_type = item.get("step_type")
     payload = item.get("payload_json") or {}
     template_id = item.get("template_id")
+
+    if step_type not in SUPPORTED_STEP_TYPES:
+        raise ApiError(
+            code="STEP_CONFIGURATION_INVALID",
+            message=f"Unsupported step_type: {step_type}.",
+            status_code=422,
+        )
 
     if step_type == "conditional_branch":
         if not allow_component_call:
@@ -53,6 +66,23 @@ def validate_step_payload(
                 message="component_call step requires component_id.",
                 status_code=422,
             )
+        return
+
+    if step_type == "select_option":
+        if template_id is not None:
+            raise ApiError(
+                code="STEP_CONFIGURATION_INVALID",
+                message="select_option does not allow template_id fallback.",
+                status_code=422,
+            )
+        try:
+            validate_select_option_payload(payload)
+        except OcrContractError as exc:
+            raise ApiError(
+                code="STEP_CONFIGURATION_INVALID",
+                message=f"Invalid select_option payload: {exc}",
+                status_code=422,
+            ) from exc
         return
 
     if template_id is not None:
@@ -119,20 +149,14 @@ def validate_step_payload(
         return
 
     if step_type == "ocr_assert":
-        selector = payload.get("selector")
-        expected_text = payload.get("expected_text")
-        if not isinstance(selector, str) or not selector.strip():
+        try:
+            normalize_ocr_assert_payload(payload)
+        except OcrContractError as exc:
             raise ApiError(
                 code="STEP_CONFIGURATION_INVALID",
-                message="ocr_assert step requires payload_json.selector.",
+                message=f"Invalid ocr_assert payload: {exc}",
                 status_code=422,
-            )
-        if not isinstance(expected_text, str) or not expected_text.strip():
-            raise ApiError(
-                code="STEP_CONFIGURATION_INVALID",
-                message="ocr_assert step requires payload_json.expected_text.",
-                status_code=422,
-            )
+            ) from exc
         if template_id is not None:
             template = db.get(Template, template_id)
             assert template is not None
@@ -142,20 +166,6 @@ def validate_step_payload(
                     message="ocr_assert step requires template match_strategy `ocr`.",
                     status_code=422,
                 )
-        match_mode = payload.get("match_mode")
-        if match_mode is not None and match_mode not in {"exact", "contains"}:
-            raise ApiError(
-                code="STEP_CONFIGURATION_INVALID",
-                message="ocr_assert match_mode must be `exact` or `contains`.",
-                status_code=422,
-            )
-        case_sensitive = payload.get("case_sensitive")
-        if case_sensitive is not None and not isinstance(case_sensitive, bool):
-            raise ApiError(
-                code="STEP_CONFIGURATION_INVALID",
-                message="ocr_assert case_sensitive must be boolean.",
-                status_code=422,
-            )
         return
 
     if step_type == "click":
@@ -341,42 +351,14 @@ def validate_interaction_locator(
 
 
 def validate_ocr_locator_fields(payload: dict, step_type: str) -> None:
-    ocr_text = payload.get("ocr_text")
-    if not isinstance(ocr_text, str) or not ocr_text.strip():
+    try:
+        normalize_ocr_target_payload(payload)
+    except OcrContractError as exc:
         raise ApiError(
             code="STEP_CONFIGURATION_INVALID",
-            message=f"{step_type} step with OCR locator requires payload_json.ocr_text.",
+            message=f"Invalid {step_type} OCR locator payload: {exc}",
             status_code=422,
-        )
-
-    ocr_match_mode = payload.get("ocr_match_mode")
-    if ocr_match_mode is not None and ocr_match_mode not in SUPPORTED_OCR_MATCH_MODES:
-        raise ApiError(
-            code="STEP_CONFIGURATION_INVALID",
-            message=f"{step_type} ocr_match_mode must be `exact` or `contains`.",
-            status_code=422,
-        )
-
-    ocr_case_sensitive = payload.get("ocr_case_sensitive")
-    if ocr_case_sensitive is not None and not isinstance(ocr_case_sensitive, bool):
-        raise ApiError(
-            code="STEP_CONFIGURATION_INVALID",
-            message=f"{step_type} ocr_case_sensitive must be boolean.",
-            status_code=422,
-        )
-
-    ocr_occurrence = payload.get("ocr_occurrence")
-    if ocr_occurrence is not None:
-        if (
-            isinstance(ocr_occurrence, bool)
-            or not isinstance(ocr_occurrence, int)
-            or ocr_occurrence < 1
-        ):
-            raise ApiError(
-                code="STEP_CONFIGURATION_INVALID",
-                message=f"{step_type} ocr_occurrence must be a positive integer.",
-                status_code=422,
-            )
+        ) from exc
 
 
 def validate_visual_locator_fields(payload: dict, step_type: str) -> None:

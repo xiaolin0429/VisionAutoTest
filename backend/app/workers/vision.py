@@ -4,7 +4,12 @@ import re
 import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Literal, Protocol
+from threading import RLock
+from typing import Literal, Protocol, Sequence
+
+from app.core.config import get_settings
+from app.workers.ocr_engine import OcrEnginePool, OcrRecognitionPipeline
+from app.workers.ocr_types import OcrEngineLanguageProfile, OcrLanguageProfile
 
 
 @dataclass(slots=True)
@@ -91,6 +96,7 @@ class VisionAssertionAdapter(Protocol):
         self,
         *,
         image_png_bytes: bytes,
+        language_profile: OcrLanguageProfile | None = None,
     ) -> dict: ...
 
     def build_mask_preview(
@@ -124,7 +130,16 @@ def build_vision_assertion_adapter() -> VisionAssertionAdapter:
 
 
 class DefaultVisionAssertionAdapter:
-    _ocr_engine = None
+    _shared_ocr_pipeline: OcrRecognitionPipeline | None = None
+    _shared_ocr_settings_signature: tuple[object, ...] | None = None
+    _shared_ocr_pipeline_lock = RLock()
+
+    def __init__(
+        self,
+        *,
+        ocr_pipeline: OcrRecognitionPipeline | None = None,
+    ) -> None:
+        self._ocr_pipeline = ocr_pipeline
 
     def assert_template(
         self,
@@ -237,52 +252,30 @@ class DefaultVisionAssertionAdapter:
         self,
         *,
         image_png_bytes: bytes,
+        language_profile: OcrLanguageProfile | None = None,
     ) -> dict:
         cv2 = self._load_cv2()
-        paddle_ocr = self._load_paddle_ocr()
         image = self._decode_image(cv2, image_png_bytes)
-        image_height, image_width = image.shape[:2]
-        result = paddle_ocr.ocr(image, cls=False)
-        blocks: list[dict] = []
-        order_no = 1
-        for line_group in result or []:
-            if not line_group:
-                continue
-            for line in line_group:
-                if len(line) < 2 or not isinstance(line[1], tuple):
-                    continue
-                if not isinstance(line[0], (list, tuple)) or not line[0]:
-                    continue
-                text = str(line[1][0]).strip()
-                confidence = float(line[1][1]) if len(line[1]) > 1 else 0.0
-                polygon_points = [
-                    self._normalize_point(point, image_width, image_height)
-                    for point in line[0]
-                ]
-                if not polygon_points:
-                    continue
-                pixel_rect = self._build_pixel_rect(
-                    polygon_points, image_width, image_height
-                )
-                blocks.append(
-                    {
-                        "order_no": order_no,
-                        "text": text,
-                        "confidence": confidence,
-                        "polygon_points": polygon_points,
-                        "pixel_rect": pixel_rect,
-                        "ratio_rect": self._build_ratio_rect(
-                            pixel_rect, image_width, image_height
-                        ),
-                    }
-                )
-                order_no += 1
-        return {
-            "engine_name": "paddleocr",
-            "image_width": image_width,
-            "image_height": image_height,
-            "blocks": blocks,
-        }
+        effective_language_profile = language_profile
+        if effective_language_profile is None:
+            effective_language_profile = (
+                get_settings().ocr_default_language_profile
+            )
+        return self._get_ocr_pipeline().analyze(
+            image=image,
+            language_profile=effective_language_profile,
+        )
+
+    def prewarm_ocr(
+        self,
+        language_profiles: Sequence[OcrEngineLanguageProfile] | None = None,
+        *,
+        strict: bool = False,
+    ) -> dict[OcrEngineLanguageProfile, str | None]:
+        return self._get_ocr_pipeline().engine_pool.warmup(
+            language_profiles,
+            strict=strict,
+        )
 
     def build_mask_preview(
         self,
@@ -400,19 +393,49 @@ class DefaultVisionAssertionAdapter:
             ) from exc
         return cv2
 
-    def _load_paddle_ocr(self):
-        if self.__class__._ocr_engine is not None:
-            return self.__class__._ocr_engine
-        try:
-            from paddleocr import PaddleOCR
-        except ImportError as exc:  # pragma: no cover
-            raise RuntimeError(
-                "PaddleOCR is not installed. Please install `paddleocr`."
-            ) from exc
-        self.__class__._ocr_engine = PaddleOCR(
-            use_angle_cls=False, lang="ch", show_log=False
+    def _get_ocr_pipeline(self) -> OcrRecognitionPipeline:
+        if self._ocr_pipeline is not None:
+            return self._ocr_pipeline
+
+        settings = get_settings()
+        settings_signature: tuple[object, ...] = (
+            settings.ocr_allowed_language_profiles,
+            settings.ocr_model_root,
+            settings.ocr_allow_model_download,
+            settings.ocr_engine_cache_size,
+            settings.ocr_preprocessing_profile,
+            settings.ocr_max_preprocess_variants,
+            settings.ocr_default_min_confidence,
         )
-        return self.__class__._ocr_engine
+        adapter_type = type(self)
+        with adapter_type._shared_ocr_pipeline_lock:
+            if (
+                adapter_type._shared_ocr_pipeline is None
+                or adapter_type._shared_ocr_settings_signature
+                != settings_signature
+            ):
+                engine_pool = OcrEnginePool(
+                    allowed_language_profiles=(
+                        settings.ocr_allowed_language_profiles
+                    ),
+                    model_root=settings.ocr_model_root,
+                    allow_model_download=settings.ocr_allow_model_download,
+                    cache_size=settings.ocr_engine_cache_size,
+                )
+                adapter_type._shared_ocr_pipeline = OcrRecognitionPipeline(
+                    engine_pool=engine_pool,
+                    preprocessing_profile=(
+                        settings.ocr_preprocessing_profile
+                    ),
+                    max_preprocess_variants=(
+                        settings.ocr_max_preprocess_variants
+                    ),
+                    minimum_confidence=(
+                        settings.ocr_default_min_confidence
+                    ),
+                )
+                adapter_type._shared_ocr_settings_signature = settings_signature
+            return adapter_type._shared_ocr_pipeline
 
     def _decode_image(self, cv2, image_bytes: bytes):
         import numpy as np

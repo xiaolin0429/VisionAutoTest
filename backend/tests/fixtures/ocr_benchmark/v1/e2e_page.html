@@ -1,0 +1,227 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        margin: 0;
+        min-height: 100%;
+        color: #172033;
+        background: #eef3f9;
+        font-family: Arial, sans-serif;
+      }
+
+      main {
+        position: relative;
+        width: min(760px, calc(100vw - 24px));
+        min-height: 820px;
+        margin: 12px auto;
+        padding: 22px;
+        overflow: hidden;
+        border: 2px solid #9aabc1;
+        border-radius: 18px;
+        background: #ffffff;
+      }
+
+      h1 {
+        margin: 0 0 18px;
+        font-size: 26px;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 16px;
+      }
+
+      button,
+      input {
+        width: 100%;
+        height: 52px;
+        color: #172033;
+        background: #ffffff;
+        border: 2px solid #34445c;
+        border-radius: 9px;
+        font: 700 18px Arial, sans-serif;
+      }
+
+      input {
+        padding: 0 14px;
+        font-weight: 400;
+      }
+
+      input::placeholder {
+        color: #4b596d;
+        opacity: 1;
+      }
+
+      .select-shell {
+        position: relative;
+      }
+
+      #country-menu {
+        position: absolute;
+        z-index: 3;
+        top: 56px;
+        left: 0;
+        width: 100%;
+        padding: 8px;
+        border: 2px solid #34445c;
+        border-radius: 9px;
+        background: #ffffff;
+      }
+
+      #country-menu[hidden] {
+        display: none;
+      }
+
+      #country-menu button + button {
+        margin-top: 6px;
+      }
+
+      #branch-ready {
+        margin: 22px 0 12px;
+        font-size: 20px;
+        font-weight: 700;
+      }
+
+      #scroll-box {
+        width: 100%;
+        height: 145px;
+        overflow: auto;
+        border: 2px solid #34445c;
+        border-radius: 9px;
+        background: #f5f8fc;
+      }
+
+      #scroll-content {
+        height: 480px;
+        padding: 20px;
+        font-size: 19px;
+        font-weight: 700;
+      }
+
+      #scroll-end {
+        margin-top: 370px;
+      }
+
+      #status {
+        margin-top: 18px;
+        min-height: 50px;
+        padding: 13px 16px;
+        border: 2px solid #7688a0;
+        border-radius: 9px;
+        background: #eef3f9;
+        font-size: 19px;
+        font-weight: 700;
+      }
+
+      @media (max-width: 520px) {
+        main {
+          min-height: 810px;
+          padding: 16px;
+        }
+
+        h1 {
+          margin-bottom: 14px;
+          font-size: 23px;
+        }
+
+        .grid {
+          grid-template-columns: 1fr;
+          gap: 10px;
+        }
+
+        button,
+        input {
+          height: 48px;
+          font-size: 17px;
+        }
+
+        #country-menu {
+          top: 52px;
+        }
+
+        #branch-ready {
+          margin: 16px 0 10px;
+          font-size: 18px;
+        }
+
+        #scroll-box {
+          height: 120px;
+        }
+
+        #status {
+          margin-top: 12px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Pure OCR Web Acceptance</h1>
+      <div class="grid">
+        <button id="run-action" type="button">Run Action</button>
+        <input id="account-input" placeholder="Type account" />
+        <div class="select-shell">
+          <button id="country-field" type="button">Choose country</button>
+          <div id="country-menu" hidden>
+            <button type="button" data-country="China">China</button>
+            <button type="button" data-country="Japan">Japan</button>
+          </div>
+        </div>
+        <button id="hold-action" type="button">Hold Action</button>
+      </div>
+      <div id="branch-ready">Branch Ready</div>
+      <div id="scroll-box">
+        <div id="scroll-content">
+          <span>Scroll Region</span>
+          <div id="scroll-end">Scroll End</div>
+        </div>
+      </div>
+      <div id="status">Idle Status</div>
+    </main>
+    <script>
+      const status = document.querySelector("#status");
+      document.querySelector("#run-action").addEventListener("click", () => {
+        status.textContent = "Action Complete";
+      });
+
+      const countryField = document.querySelector("#country-field");
+      const countryMenu = document.querySelector("#country-menu");
+      countryField.addEventListener("click", () => {
+        countryMenu.hidden = false;
+      });
+      document.querySelectorAll("[data-country]").forEach((option) => {
+        option.addEventListener("click", () => {
+          countryField.textContent = option.dataset.country;
+          countryMenu.hidden = true;
+          status.textContent = "Selection Complete";
+        });
+      });
+
+      const holdAction = document.querySelector("#hold-action");
+      let holdTimer = null;
+      holdAction.addEventListener("mousedown", () => {
+        holdTimer = window.setTimeout(() => {
+          status.textContent = "Long Pressed";
+        }, 100);
+      });
+      holdAction.addEventListener("mouseup", () => {
+        window.clearTimeout(holdTimer);
+      });
+
+      document.querySelector("#scroll-box").addEventListener("scroll", (event) => {
+        if (event.currentTarget.scrollTop > 0) {
+          status.textContent = "Element Scrolled";
+        }
+      });
+    </script>
+  </body>
+</html>

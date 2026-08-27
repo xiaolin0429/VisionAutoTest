@@ -8,6 +8,7 @@ from app.workers.browser_step_handlers import (
     execute_navigate,
     execute_ocr_assert,
     execute_scroll,
+    execute_select_option,
     execute_template_assert,
     execute_wait,
 )
@@ -17,6 +18,7 @@ STEP_HANDLER_REGISTRY = {
     "wait": execute_wait,
     "click": execute_click,
     "input": execute_input,
+    "select_option": execute_select_option,
     "navigate": execute_navigate,
     "scroll": execute_scroll,
     "long_press": execute_long_press,

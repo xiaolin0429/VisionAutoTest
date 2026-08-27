@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Any
 
 from sqlalchemy import (
     BigInteger,
@@ -12,6 +13,7 @@ from sqlalchemy import (
     Numeric,
     String,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -116,6 +118,12 @@ class StepResult(Base, CreatedAtMixin):
     branch_key: Mapped[str | None] = mapped_column(String(64), nullable=True)
     branch_name: Mapped[str | None] = mapped_column(String(128), nullable=True)
     branch_step_index: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    result_metadata_json: Mapped[dict[str, Any]] = mapped_column(
+        JSON,
+        nullable=False,
+        default=dict,
+        server_default=text("'{}'::json"),
+    )
 
 
 class RunReport(Base, CreatedAtMixin):

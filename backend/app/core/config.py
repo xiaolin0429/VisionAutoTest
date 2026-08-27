@@ -4,8 +4,14 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field, model_validator
+from pydantic import Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from app.workers.ocr_types import (
+    OcrEngineLanguageProfile,
+    OcrLanguageProfile,
+    OcrPreprocessingProfile,
+)
 
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
 PLACEHOLDER_DEFAULT_ADMIN_PASSWORD = "change-me-before-use"
@@ -29,6 +35,26 @@ class Settings(BaseSettings):
     execution_worker_batch_size: int = 10
     playwright_headless: bool = True
     playwright_navigation_timeout_ms: int = 15000
+    ocr_default_language_profile: OcrLanguageProfile = "zh_en"
+    ocr_allowed_language_profiles: tuple[OcrEngineLanguageProfile, ...] = (
+        "zh_en",
+        "en",
+        "latin",
+        "japan",
+        "korean",
+    )
+    ocr_model_root: Path = Path(".data/ocr-models")
+    ocr_allow_model_download: bool = False
+    ocr_engine_cache_size: int = Field(default=3, ge=1, le=16)
+    ocr_preprocessing_profile: OcrPreprocessingProfile = "balanced"
+    ocr_max_preprocess_variants: int = Field(default=5, ge=1, le=16)
+    ocr_max_page_tiles: int = Field(default=20, ge=1, le=1000)
+    ocr_page_tile_overlap_ratio: float = Field(default=0.20, gt=0.0, le=0.5)
+    ocr_default_min_confidence: float = Field(default=0.75, ge=0.0, le=1.0)
+    ocr_default_min_score: float = Field(default=0.75, ge=0.0, le=1.0)
+    ocr_default_ambiguity_margin: float = Field(default=0.10, ge=0.0, le=1.0)
+    ocr_evidence_max_candidates: int = Field(default=5, ge=1, le=20)
+    ocr_evidence_max_text_length: int = Field(default=160, ge=16, le=512)
     # 认证生命周期：access_token 2小时，refresh_token 7天
     # refresh_token 单次消费，续期后旧令牌进入 used 状态
     access_token_ttl_seconds: int = 7200
@@ -45,6 +71,13 @@ class Settings(BaseSettings):
         env_prefix="VAT_",
         extra="ignore",
     )
+
+    @field_validator("ocr_model_root", mode="before")
+    @classmethod
+    def validate_ocr_model_root(cls, value: object) -> object:
+        if isinstance(value, str) and not value.strip():
+            raise ValueError("VAT_OCR_MODEL_ROOT must be a non-empty path.")
+        return value
 
     @model_validator(mode="after")
     def validate_security_defaults(self) -> "Settings":
@@ -91,6 +124,24 @@ class Settings(BaseSettings):
         if self.execution_worker_batch_size <= 0:
             raise ValueError(
                 "VAT_EXECUTION_WORKER_BATCH_SIZE must be greater than zero."
+            )
+        if not self.ocr_allowed_language_profiles:
+            raise ValueError(
+                "VAT_OCR_ALLOWED_LANGUAGE_PROFILES must contain at least one language profile."
+            )
+        if len(set(self.ocr_allowed_language_profiles)) != len(
+            self.ocr_allowed_language_profiles
+        ):
+            raise ValueError(
+                "VAT_OCR_ALLOWED_LANGUAGE_PROFILES must not contain duplicates."
+            )
+        if (
+            self.ocr_default_language_profile != "auto"
+            and self.ocr_default_language_profile
+            not in self.ocr_allowed_language_profiles
+        ):
+            raise ValueError(
+                "VAT_OCR_DEFAULT_LANGUAGE_PROFILE must be auto or included in VAT_OCR_ALLOWED_LANGUAGE_PROFILES."
             )
         return self
 

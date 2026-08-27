@@ -37,6 +37,9 @@ testpaths = ["tests"]
 markers = [
   "playwright: tests that require a real Playwright/Chromium runtime",
   "vision: tests that cover OCR, visual assertion, or baseline adoption flows",
+  "ocr_benchmark: deterministic OCR corpus or metric acceptance tests",
+  "ocr_fake: OCR algorithm tests that do not claim real model accuracy",
+  "ocr_real_model: tests that execute installed PaddleOCR models",
 ]
 
 [tool.setuptools.packages.find]

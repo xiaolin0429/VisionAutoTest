@@ -3,8 +3,14 @@ from __future__ import annotations
 from decimal import Decimal
 from typing import TYPE_CHECKING, Sequence
 
+from app.workers.ocr_contract import normalize_ocr_branch_condition
+from app.workers.ocr_engine import OcrEngineError
+from app.workers.ocr_targeting import OcrTargetingError
+from app.workers.ocr_types import OcrErrorCode
+
 if TYPE_CHECKING:
     from app.workers.browser import BrowserStep
+    from app.workers.ocr_session import PageOcrSession
     from app.workers.vision import TemplateAssertionContext
 
 
@@ -15,6 +21,7 @@ def should_execute_branch_step(
     step: BrowserStep,
     steps: Sequence[BrowserStep],
     template_contexts: dict[int, TemplateAssertionContext],
+    ocr_session: PageOcrSession | None = None,
 ) -> bool:
     parent_step_no = step.parent_step_no
     if parent_step_no is None:
@@ -27,6 +34,7 @@ def should_execute_branch_step(
         page,
         payload=parent_step.payload_json or {},
         template_contexts=template_contexts,
+        ocr_session=ocr_session,
     )
     if selected is None:
         return False
@@ -42,6 +50,7 @@ def select_matching_branch(
     *,
     payload: dict,
     template_contexts: dict[int, TemplateAssertionContext],
+    ocr_session: PageOcrSession | None = None,
 ) -> dict | None:
     branches = (
         payload.get("branches") if isinstance(payload.get("branches"), list) else []
@@ -54,6 +63,7 @@ def select_matching_branch(
             page,
             condition=branch.get("condition"),
             template_contexts=template_contexts,
+            ocr_session=ocr_session,
         ):
             return branch
     else_branch = payload.get("else_branch")
@@ -72,6 +82,7 @@ def evaluate_branch_condition(
     *,
     condition: object,
     template_contexts: dict[int, TemplateAssertionContext],
+    ocr_session: PageOcrSession | None = None,
 ) -> bool:
     if not isinstance(condition, dict):
         raise ValueError("conditional_branch requires condition object.")
@@ -82,21 +93,19 @@ def evaluate_branch_condition(
             raise ValueError("selector_exists requires selector.")
         return page.locator(selector).count() > 0
     if condition_type == "ocr_text_visible":
-        expected_text = condition.get("expected_text")
-        if not isinstance(expected_text, str) or not expected_text.strip():
-            raise ValueError("ocr_text_visible requires expected_text.")
-        screenshot_bytes = page.screenshot(type="png", full_page=False)
-        try:
-            adapter._vision_adapter.locate_by_ocr(
-                image_png_bytes=screenshot_bytes,
-                target_text=expected_text.strip(),
-                match_mode=condition.get("match_mode", "contains"),
-                case_sensitive=bool(condition.get("case_sensitive", False)),
-                occurrence=1,
+        if ocr_session is None:
+            raise OcrEngineError(
+                OcrErrorCode.OCR_ENGINE_UNAVAILABLE,
+                "ocr_text_visible requires a case-local PageOcrSession.",
             )
+        target = normalize_ocr_branch_condition(condition)
+        try:
+            ocr_session.resolve(target)
             return True
-        except RuntimeError:
-            return False
+        except OcrTargetingError as exc:
+            if exc.code == OcrErrorCode.OCR_TARGET_NOT_FOUND:
+                return False
+            raise
     if condition_type == "template_visible":
         template_id = condition.get("template_id")
         if isinstance(template_id, bool) or not isinstance(template_id, int):

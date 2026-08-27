@@ -2,20 +2,26 @@ import { ApiError, requestData, requestPage } from '@/api/client'
 import type {
   DeviceProfileReadDTO,
   EnvironmentProfileReadDTO,
+  OcrRectDTO,
+  OcrResultMetadataDTO,
   ReportArtifactReadDTO,
   ReportSummaryDTO,
   RunReportReadDTO,
   StepResultReadDTO,
+  StepResultMetadataDTO,
   TestCaseReadDTO,
   TestCaseRunReadDTO,
   TestRunReadDTO,
   TestSuiteReadDTO
 } from '@/types/backend'
 import type {
+  OcrEvidenceMetadata,
+  OcrRect,
   ReportArtifact,
   ReportSummary,
   RunDetail,
   RunReport,
+  StepResultMetadata,
   TestRun
 } from '@/types/models'
 
@@ -90,6 +96,87 @@ function mapRun(
   }
 }
 
+function mapOcrRect(item: OcrRectDTO | undefined): OcrRect | null {
+  if (!item) {
+    return null
+  }
+  return {
+    x: item.x,
+    y: item.y,
+    width: item.width,
+    height: item.height
+  }
+}
+
+function mapOcrMetadata(item: OcrResultMetadataDTO): OcrEvidenceMetadata {
+  return {
+    scope: item.scope ?? null,
+    language: item.language ?? null,
+    matchedText: item.matched_text ?? null,
+    role: item.role ?? null,
+    confidence: item.confidence ?? null,
+    score: item.score ?? null,
+    pixelRect: mapOcrRect(item.pixel_rect),
+    ratioRect: mapOcrRect(item.ratio_rect),
+    viewportCssRect: mapOcrRect(item.viewport_css_rect),
+    documentCssRect: mapOcrRect(item.document_css_rect),
+    actionPoint: item.action_point
+      ? { x: item.action_point.x, y: item.action_point.y }
+      : null,
+    actionPointMode: item.action_point_mode ?? null,
+    candidateCount: item.candidate_count ?? 0,
+    candidates: (item.candidates ?? []).map((candidate) => ({
+      rank: candidate.rank,
+      matchedText: candidate.matched_text,
+      role: candidate.role,
+      confidence: candidate.confidence,
+      score: candidate.score,
+      viewportCssRect: mapOcrRect(candidate.viewport_css_rect) as OcrRect,
+      documentCssRect: mapOcrRect(candidate.document_css_rect) as OcrRect
+    })),
+    preprocessVariants: item.preprocess_variants ?? [],
+    tiles: {
+      scanned: item.tiles?.scanned ?? 0,
+      captured: item.tiles?.captured ?? 0
+    },
+    cache: {
+      analysisHits: item.cache?.analysis_hits ?? 0,
+      analysisMisses: item.cache?.analysis_misses ?? 0,
+      snapshotHits: item.cache?.snapshot_hits ?? 0,
+      snapshotMisses: item.cache?.snapshot_misses ?? 0,
+      generation: item.cache?.generation ?? null,
+      lastInvalidationReason: item.cache?.last_invalidation_reason ?? null
+    },
+    revalidation: {
+      required: item.revalidation?.required ?? false,
+      attempted: item.revalidation?.attempted ?? false,
+      passed: item.revalidation?.passed ?? null
+    },
+    durationMs: {
+      ocr: item.duration_ms?.ocr ?? 0,
+      locate: item.duration_ms?.locate ?? 0
+    },
+    errorCode: item.error_code ?? null,
+    assertion: item.assertion ?? null,
+    assertionStatus: item.assertion_status ?? null,
+    assertionScope: item.assertion_scope ?? null,
+    expectedCount: item.expected_count ?? null,
+    matchedCount: item.matched_count ?? null,
+    legacyElementScope: item.legacy_element_scope ?? false
+  }
+}
+
+export function mapStepResultMetadata(
+  item: StepResultMetadataDTO
+): StepResultMetadata {
+  const { ocr, ...otherMetadata } = item
+  const mapped: StepResultMetadata = { ...otherMetadata }
+  if (ocr) {
+    mapped.ocr = mapOcrMetadata(ocr)
+  }
+  return mapped
+}
+
 function mapStepResult(item: StepResultReadDTO) {
   // @param item Backend step-result DTO enriched with repair metadata.
   const branchPrefix =
@@ -118,6 +205,7 @@ function mapStepResult(item: StepResultReadDTO) {
     branchKey: item.branch_key,
     branchName: item.branch_name,
     branchStepIndex: item.branch_step_index,
+    resultMetadata: mapStepResultMetadata(item.result_metadata_json),
     repairResourceType: item.repair_resource_type,
     repairResourceId: item.repair_resource_id,
     repairRoutePath: item.repair_route_path,

@@ -145,7 +145,8 @@
   - `run_screenshot`
   - `step_actual`
   - `step_diff`
-  - `step_ocr`
+  - `ocr_action`
+  - `ocr_assert`
 - `report_artifacts` 作为报告级索引，允许同时关联 `case_run_id` 与 `step_result_id`，前端不应再依赖文件名或备注推断证据来源。
 - `report_artifacts.artifact_url` 当前定义为稳定访问路径，统一返回 `/api/v1/media-objects/{media_object_id}/content`；它不再等价于底层对象键。
 

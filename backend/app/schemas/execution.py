@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, Field, model_validator
 
 from app.schemas.base import ORMModel
 
@@ -84,6 +84,7 @@ class StepResultRead(ORMModel):
     branch_key: str | None = None
     branch_name: str | None = None
     branch_step_index: int | None = None
+    result_metadata_json: dict[str, Any] = Field(default_factory=dict)
     repair_resource_type: Literal["template", "component", "test_case"] | None = None
     repair_resource_id: int | None = None
     repair_route_path: str | None = None

@@ -3,6 +3,18 @@ import { pinia } from '@/stores/pinia'
 import { useAppErrorStore } from '@/stores/appError'
 import type { AppErrorPayload } from '@/types/errors'
 
+const BENIGN_RESIZE_OBSERVER_MESSAGES = new Set([
+  'ResizeObserver loop limit exceeded',
+  'ResizeObserver loop completed with undelivered notifications.'
+])
+
+export function isBenignResizeObserverErrorEvent(event: ErrorEvent): boolean {
+  return (
+    event.error == null &&
+    BENIGN_RESIZE_OBSERVER_MESSAGES.has(event.message.trim())
+  )
+}
+
 function normalizeUnknownError(error: unknown) {
   if (error instanceof Error) {
     return {

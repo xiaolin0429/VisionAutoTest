@@ -418,6 +418,7 @@ def list_step_results(db: Session, case_run_id: int):
                 "branch_key": step.branch_key,
                 "branch_name": step.branch_name,
                 "branch_step_index": step.branch_step_index,
+                "result_metadata_json": step.result_metadata_json,
                 "repair_resource_type": repair_resource_type,
                 "repair_resource_id": repair_resource_id,
                 "repair_route_path": repair_route_path,
