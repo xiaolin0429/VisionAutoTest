@@ -33,3 +33,7 @@ export function formatStatusLabel(status: string) {
 export function formatRatio(value: number) {
   return `${Math.round(value * 100)}%`
 }
+
+export function formatPercent(value: number | null) {
+  return value === null ? '--' : `${value}%`
+}

@@ -186,16 +186,18 @@ function mapStepResult(item: StepResultReadDTO) {
   return {
     id: item.id,
     stepNo: item.step_no,
-    name: item.step_type
-      ? `${branchPrefix}${item.step_type} · Step ${item.step_no}`
-      : `${branchPrefix}Step ${item.step_no}`,
+    name: `${branchPrefix}${item.step_name?.trim() || `步骤 ${item.step_no}`}`,
     type: item.step_type,
     status: item.status,
     message:
-      item.error_message ??
-      (item.score_value !== null
-        ? `步骤执行完成，score=${item.score_value}`
-        : '步骤执行完成。'),
+      item.status === 'failed'
+        ? '步骤结果与预期不一致，请查看证据和修复建议。'
+        : item.status === 'error'
+          ? '步骤执行异常，本次验证未正常完成。'
+          : item.score_value !== null
+            ? `步骤执行完成，相似度 ${Math.round(item.score_value * 100)}%。`
+            : '步骤执行完成。',
+    technicalMessage: item.error_message,
     durationMs: item.duration_ms,
     scoreValue: item.score_value,
     expectedMediaObjectId: item.expected_media_object_id,
@@ -211,9 +213,9 @@ function mapStepResult(item: StepResultReadDTO) {
     repairRoutePath: item.repair_route_path,
     repairStepNo: item.repair_step_no,
     artifactLabel: item.diff_media_object_id
-      ? `diff-media-object #${item.diff_media_object_id}`
+      ? '差异图'
       : item.actual_media_object_id
-        ? `actual-media-object #${item.actual_media_object_id}`
+        ? '执行截图'
         : undefined
   }
 }
@@ -379,7 +381,16 @@ function mapReportSummary(item: ReportSummaryDTO): ReportSummary {
     failure: item.failure
       ? {
           code: item.failure.code,
-          summary: item.failure.summary
+          summary: item.failure.summary,
+          repairTarget: item.failure.repair_target
+            ? {
+                resourceType: item.failure.repair_target.resource_type,
+                resourceId: item.failure.repair_target.resource_id,
+                resourceName: item.failure.repair_target.resource_name,
+                routePath: item.failure.repair_target.route_path,
+                stepNo: item.failure.repair_target.step_no
+              }
+            : null
         }
       : null,
     timing: {

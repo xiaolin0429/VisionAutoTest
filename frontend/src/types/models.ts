@@ -59,7 +59,7 @@ export interface Workspace {
   description: string
   status: string
   memberCount: number
-  role: string
+  role: string | null
   createdAt: string
   updatedAt: string
 }
@@ -71,13 +71,16 @@ export interface ExecutionReadinessIssue {
   resourceId: number | null
   resourceName: string
   routePath: string | null
+  stepNo: number | null
 }
 
 export interface ExecutionReadinessSummary {
-  scope: 'workspace' | 'test_suite'
+  scope: 'workspace' | 'test_suite' | 'execution_selection'
   status: 'ready' | 'blocked'
   workspaceId: number
   testSuiteId: number | null
+  environmentProfileId: number | null
+  deviceProfileId: number | null
   activeEnvironmentCount: number
   activeTestSuiteCount: number
   blockingIssueCount: number
@@ -646,6 +649,7 @@ export interface StepResult {
   type: string
   status: string
   message: string
+  technicalMessage: string | null
   durationMs: number | null
   scoreValue: number | null
   expectedMediaObjectId: number | null
@@ -657,7 +661,7 @@ export interface StepResult {
   branchStepIndex: number | null
   resultMetadata: StepResultMetadata
   artifactLabel?: string
-  repairResourceType: 'template' | 'component' | 'test_case' | null
+  repairResourceType: RepairResourceType | null
   repairResourceId: number | null
   repairRoutePath: string | null
   repairStepNo: number | null
@@ -685,6 +689,24 @@ export interface ReportSummaryCounts {
 export interface ReportSummaryFailure {
   code: string | null
   summary: string | null
+  repairTarget: RepairTarget | null
+}
+
+export type RepairResourceType =
+  | 'environment_profile'
+  | 'device_profile'
+  | 'test_suite'
+  | 'test_case'
+  | 'component'
+  | 'template'
+  | 'system'
+
+export interface RepairTarget {
+  resourceType: RepairResourceType
+  resourceId: number | null
+  resourceName: string
+  routePath: string | null
+  stepNo: number | null
 }
 
 export interface ReportSummaryTiming {

@@ -9,6 +9,7 @@ from app.core.http import ApiError
 from app.models import (
     BaselineRevision,
     ComponentStep,
+    DeviceProfile,
     EnvironmentProfile,
     Template,
     TestCase,
@@ -20,6 +21,10 @@ from app.models import (
 from app.services.branch_validator import validate_conditional_branch_payload
 from app.services.execution_steps import get_component_in_workspace
 from app.services.helpers import count_total, require_workspace_access
+from app.services.workspace import (
+    validate_device_profile_dimensions,
+    validate_environment_base_url,
+)
 from app.services.step_validation_common import validate_select_option_payload
 from app.workers.ocr_contract import (
     OcrContractError,
@@ -89,6 +94,8 @@ def get_test_suite_execution_readiness(
     *,
     user: User,
     test_suite: TestSuite,
+    environment_profile_id: int | None = None,
+    device_profile_id: int | None = None,
 ) -> dict[str, Any]:
     require_workspace_access(db, user, test_suite.workspace_id)
     active_environment_count = count_active_environment_profiles(
@@ -100,8 +107,8 @@ def get_test_suite_execution_readiness(
         TestSuite.status == "active",
     )
     active_test_suite_count: int = count_total(db, active_suite_stmt)
-    issues = []
-    if active_environment_count == 0:
+    issues: list[dict[str, Any]] = []
+    if environment_profile_id is None and active_environment_count == 0:
         issues.append(
             build_readiness_issue(
                 code="ENVIRONMENT_PROFILE_REQUIRED",
@@ -110,18 +117,117 @@ def get_test_suite_execution_readiness(
                 route_path="/environments",
             )
         )
+    if environment_profile_id is not None:
+        issues.extend(
+            inspect_execution_environment_issues(
+                db,
+                workspace_id=test_suite.workspace_id,
+                environment_profile_id=environment_profile_id,
+            )
+        )
+        if device_profile_id is not None:
+            issues.extend(
+                inspect_execution_device_issues(
+                    db,
+                    workspace_id=test_suite.workspace_id,
+                    device_profile_id=device_profile_id,
+                )
+            )
     issues.extend(inspect_test_suite_execution_issues(db, suite=test_suite))
     normalized_issues = dedupe_readiness_issues(issues)
     return {
-        "scope": "test_suite",
+        "scope": "execution_selection"
+        if environment_profile_id is not None
+        else "test_suite",
         "status": "ready" if not normalized_issues else "blocked",
         "workspace_id": test_suite.workspace_id,
         "test_suite_id": test_suite.id,
+        "environment_profile_id": environment_profile_id,
+        "device_profile_id": device_profile_id
+        if environment_profile_id is not None
+        else None,
         "active_environment_count": active_environment_count,
         "active_test_suite_count": int(active_test_suite_count or 0),
         "blocking_issue_count": len(normalized_issues),
         "issues": normalized_issues,
     }
+
+
+def inspect_execution_environment_issues(
+    db: Session, *, workspace_id: int, environment_profile_id: int
+) -> list[dict[str, Any]]:
+    """Collect selection-level blockers for one explicitly selected environment."""
+    profile = db.get(EnvironmentProfile, environment_profile_id)
+    if profile is None or profile.workspace_id != workspace_id or profile.is_deleted:
+        return [
+            build_readiness_issue(
+                code="ENVIRONMENT_PROFILE_NOT_FOUND",
+                message="所选执行环境不存在或不属于当前工作空间。",
+                resource_type="environment_profile",
+                resource_id=environment_profile_id,
+                route_path="/environments",
+            )
+        ]
+    if profile.status != "active":
+        return [
+            build_readiness_issue(
+                code="ENVIRONMENT_PROFILE_NOT_ACTIVE",
+                message="所选执行环境未启用，无法触发执行。",
+                resource_type="environment_profile",
+                resource_id=profile.id,
+                resource_name=profile.profile_name,
+                route_path="/environments",
+            )
+        ]
+    try:
+        validate_environment_base_url(profile.base_url)
+    except ApiError:
+        return [
+            build_readiness_issue(
+                code="ENVIRONMENT_BASE_URL_INVALID",
+                message="执行环境地址无效，请填写包含 http:// 或 https:// 的完整地址。",
+                resource_type="environment_profile",
+                resource_id=profile.id,
+                resource_name=profile.profile_name,
+                route_path="/environments",
+            )
+        ]
+    return []
+
+
+def inspect_execution_device_issues(
+    db: Session, *, workspace_id: int, device_profile_id: int
+) -> list[dict[str, Any]]:
+    """Collect selection-level blockers for one explicitly selected device profile."""
+    profile = db.get(DeviceProfile, device_profile_id)
+    if profile is None or profile.workspace_id != workspace_id or profile.is_deleted:
+        return [
+            build_readiness_issue(
+                code="DEVICE_PROFILE_INVALID",
+                message="所选设备档案不存在或不属于当前工作空间。",
+                resource_type="device_profile",
+                resource_id=device_profile_id,
+                route_path="/environments",
+            )
+        ]
+    try:
+        validate_device_profile_dimensions(
+            viewport_width=profile.viewport_width,
+            viewport_height=profile.viewport_height,
+            device_scale_factor=float(profile.device_scale_factor),
+        )
+    except ApiError:
+        return [
+            build_readiness_issue(
+                code="DEVICE_PROFILE_INVALID",
+                message="所选设备档案参数无效，视口宽高和缩放因子必须为正数。",
+                resource_type="device_profile",
+                resource_id=profile.id,
+                resource_name=profile.profile_name,
+                route_path="/environments",
+            )
+        ]
+    return []
 
 
 def validate_case_execution_readiness(
@@ -747,6 +853,7 @@ def build_readiness_issue(
     resource_id: int | None = None,
     resource_name: str | None = None,
     route_path: str | None = None,
+    step_no: int | None = None,
 ) -> dict[str, Any]:
     return {
         "code": code,
@@ -755,6 +862,7 @@ def build_readiness_issue(
         "resource_id": resource_id,
         "resource_name": resource_name,
         "route_path": route_path,
+        "step_no": step_no,
     }
 
 
@@ -767,6 +875,7 @@ def dedupe_readiness_issues(issues: list[dict[str, Any]]) -> list[dict[str, Any]
             issue["resource_type"],
             issue.get("resource_id"),
             issue.get("route_path"),
+            issue.get("step_no"),
         )
         if identity in seen:
             continue

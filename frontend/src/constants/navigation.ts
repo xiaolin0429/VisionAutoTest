@@ -15,6 +15,11 @@ export const navigationItems = [
     icon: 'Picture'
   },
   {
+    label: '公共组件',
+    path: '/components',
+    icon: 'Collection'
+  },
+  {
     label: '用例编辑',
     path: '/cases',
     icon: 'EditPen'

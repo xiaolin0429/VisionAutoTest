@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+import re
+from ipaddress import ip_address
+from math import isfinite
+from urllib.parse import urlsplit
+
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
@@ -300,6 +305,64 @@ def list_environment_profiles(
     return items, total
 
 
+def validate_environment_base_url(base_url: str) -> str:
+    """Normalize and validate an execution environment URL.
+
+    The product contract intentionally does not repair missing schemes. Only surrounding
+    whitespace is removed so the stored value remains equivalent to the user's input.
+
+    Args:
+        base_url: Candidate environment entry URL.
+
+    Returns:
+        The stripped absolute HTTP(S) URL.
+
+    Raises:
+        ApiError: If the URL has no supported scheme or usable host.
+    """
+    normalized = base_url.strip()
+    try:
+        parsed = urlsplit(normalized)
+        # Accessing ``port`` also rejects malformed values such as non-numeric ports.
+        _ = parsed.port
+    except ValueError as exc:
+        raise ApiError(
+            code="ENVIRONMENT_BASE_URL_INVALID",
+            message="执行环境地址无效，请填写包含 http:// 或 https:// 的完整地址。",
+            status_code=422,
+        ) from exc
+    hostname = parsed.hostname
+    if (
+        parsed.scheme.lower() not in {"http", "https"}
+        or not hostname
+        or not _is_valid_url_hostname(hostname)
+    ):
+        raise ApiError(
+            code="ENVIRONMENT_BASE_URL_INVALID",
+            message="执行环境地址无效，请填写包含 http:// 或 https:// 的完整地址。",
+            status_code=422,
+        )
+    return normalized
+
+
+def _is_valid_url_hostname(hostname: str) -> bool:
+    if hostname.lower() == "localhost":
+        return True
+    try:
+        ip_address(hostname)
+        return True
+    except ValueError:
+        pass
+    try:
+        ascii_hostname = hostname.rstrip(".").encode("idna").decode("ascii")
+    except UnicodeError:
+        return False
+    if not ascii_hostname or len(ascii_hostname) > 253:
+        return False
+    label_pattern = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$")
+    return all(label_pattern.fullmatch(label) for label in ascii_hostname.split("."))
+
+
 def create_environment_profile(
     db: Session,
     *,
@@ -328,6 +391,7 @@ def create_environment_profile(
         ApiError: If another active profile in the workspace already uses the same name.
     """
     require_workspace_access(db, user, workspace_id)
+    normalized_base_url = validate_environment_base_url(base_url)
     existing = db.scalar(
         select(EnvironmentProfile).where(
             EnvironmentProfile.workspace_id == workspace_id,
@@ -344,7 +408,7 @@ def create_environment_profile(
     profile = EnvironmentProfile(
         workspace_id=workspace_id,
         profile_name=profile_name,
-        base_url=base_url,
+        base_url=normalized_base_url,
         description=description,
         status=status,
         created_by=user.id,
@@ -383,7 +447,7 @@ def update_environment_profile(
     if profile_name is not None:
         profile.profile_name = profile_name
     if base_url is not None:
-        profile.base_url = base_url
+        profile.base_url = validate_environment_base_url(base_url)
     if description is not None:
         profile.description = description
     if status is not None:
@@ -565,6 +629,11 @@ def create_device_profile(
     is_default: bool,
 ) -> DeviceProfile:
     require_workspace_access(db, user, workspace_id)
+    validate_device_profile_dimensions(
+        viewport_width=viewport_width,
+        viewport_height=viewport_height,
+        device_scale_factor=device_scale_factor,
+    )
     if is_default:
         _clear_default_device_profile(db, workspace_id)
     profile = DeviceProfile(
@@ -610,6 +679,17 @@ def update_device_profile(
     is_default: bool | None,
 ) -> DeviceProfile:
     require_workspace_access(db, user, profile.workspace_id)
+    validate_device_profile_dimensions(
+        viewport_width=viewport_width
+        if viewport_width is not None
+        else profile.viewport_width,
+        viewport_height=viewport_height
+        if viewport_height is not None
+        else profile.viewport_height,
+        device_scale_factor=device_scale_factor
+        if device_scale_factor is not None
+        else float(profile.device_scale_factor),
+    )
     if is_default:
         _clear_default_device_profile(db, profile.workspace_id, exclude_id=profile.id)
         profile.is_default = True
@@ -631,6 +711,23 @@ def update_device_profile(
     db.commit()
     db.refresh(profile)
     return profile
+
+
+def validate_device_profile_dimensions(
+    *, viewport_width: int, viewport_height: int, device_scale_factor: float
+) -> None:
+    """Reject device profiles that cannot initialize a browser viewport."""
+    if (
+        viewport_width <= 0
+        or viewport_height <= 0
+        or not isfinite(device_scale_factor)
+        or device_scale_factor <= 0
+    ):
+        raise ApiError(
+            code="DEVICE_PROFILE_INVALID",
+            message="设备档案参数无效，视口宽高和缩放因子必须为正数。",
+            status_code=422,
+        )
 
 
 def _clear_default_device_profile(

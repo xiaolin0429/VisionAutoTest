@@ -36,6 +36,8 @@ function mapExecutionReadiness(
     status: item.status,
     workspaceId: item.workspace_id,
     testSuiteId: item.test_suite_id,
+    environmentProfileId: item.environment_profile_id ?? null,
+    deviceProfileId: item.device_profile_id ?? null,
     activeEnvironmentCount: item.active_environment_count,
     activeTestSuiteCount: item.active_test_suite_count,
     blockingIssueCount: item.blocking_issue_count,
@@ -45,7 +47,8 @@ function mapExecutionReadiness(
       resourceType: issue.resource_type,
       resourceId: issue.resource_id,
       resourceName: issue.resource_name ?? '',
-      routePath: issue.route_path
+      routePath: issue.route_path,
+      stepNo: issue.step_no ?? null
     }))
   }
 }
@@ -160,12 +163,22 @@ export async function replaceSuiteCases(
 }
 
 export async function getTestSuiteExecutionReadiness(
-  testSuiteId: number
+  testSuiteId: number,
+  selection?: {
+    environmentProfileId: number
+    deviceProfileId: number | null
+  }
 ): Promise<ExecutionReadinessSummary> {
   // @param testSuiteId Suite id whose execution-readiness summary should be loaded.
   const response = await requestData<ExecutionReadinessSummaryReadDTO>({
     method: 'get',
-    url: `/test-suites/${testSuiteId}/execution-readiness`
+    url: `/test-suites/${testSuiteId}/execution-readiness`,
+    params: selection
+      ? {
+          environment_profile_id: selection.environmentProfileId,
+          device_profile_id: selection.deviceProfileId ?? undefined
+        }
+      : undefined
   })
 
   return mapExecutionReadiness(response)

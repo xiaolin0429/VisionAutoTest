@@ -30,6 +30,7 @@ from app.services.execution_report import (
     build_report_summary,
     create_report_artifact,
     refresh_report_artifact_summary,
+    resolve_report_repair_target,
 )
 from app.services.execution_status import (
     finalize_cancelled_test_run,
@@ -158,7 +159,14 @@ def process_test_run(test_run_id: int) -> None:
                 )
 
                 persisted_step_results: list[StepResult] = []
+                resolved_step_names = {step.step_no: step.step_name for step in steps}
                 for step_result in execution_result.step_results:
+                    result_metadata = dict(step_result.result_metadata_json or {})
+                    step_name = step_result.step_name or resolved_step_names.get(
+                        step_result.step_no
+                    )
+                    if step_name:
+                        result_metadata["step_name"] = step_name
                     persisted = StepResult(
                         case_run_id=case_run.id,
                         step_no=step_result.step_no,
@@ -174,7 +182,7 @@ def process_test_run(test_run_id: int) -> None:
                         branch_key=step_result.branch_key,
                         branch_name=step_result.branch_name,
                         branch_step_index=step_result.branch_step_index,
-                        result_metadata_json=step_result.result_metadata_json,
+                        result_metadata_json=result_metadata,
                     )
                     db.add(persisted)
                     db.flush()
@@ -299,6 +307,12 @@ def process_test_run(test_run_id: int) -> None:
                             finished_at=test_run.finished_at,
                             failure_code="TEST_RUN_EXECUTION_ERROR",
                             failure_summary="Test run contains no executable cases.",
+                            repair_target=resolve_report_repair_target(
+                                db,
+                                test_run=test_run,
+                                failure_code="TEST_RUN_EXECUTION_ERROR",
+                                case_runs=[],
+                            ),
                         ),
                         generated_at=utc_now(),
                     )

@@ -18,6 +18,7 @@ import {
 import { ApiError } from '@/api/client'
 import { formatDateTime } from '@/utils/format'
 import {
+  getReportConclusion,
   resolveRunRepairTarget
 } from '@/utils/runFailures'
 import type {
@@ -82,15 +83,26 @@ const currentCaseRun = computed(() => {
 })
 
 const repairSummary = computed(() => {
-  const repairTarget = resolveRunRepairTarget(runDetail.value)
+  if (!runDetail.value || !['failed', 'partial_failed', 'error'].includes(runDetail.value.status)) {
+    return null
+  }
+  const repairTarget = resolveRunRepairTarget(
+    runDetail.value,
+    runReport.value?.summary.failure
+  )
   if (!repairTarget) {
     return null
   }
 
   return {
-    title: `优先修复：${repairTarget.caseRunName}`,
+    title:
+      repairTarget.kind === 'system'
+        ? '平台运行环境异常'
+        : `建议修复：${repairTarget.resourceName || repairTarget.caseRunName}`,
     summary: repairTarget.failureSummary,
     actionLabel: repairTarget.label,
+    kind: repairTarget.kind,
+    resourceName: repairTarget.resourceName,
     path: repairTarget.path,
     query: repairTarget.query
   }
@@ -105,22 +117,22 @@ const metrics = computed(() => {
     {
       label: '总用例数',
       value: runDetail.value.summary.totalCases,
-      hint: '取自 test-run 聚合统计字段。'
+      hint: '本次执行纳入的全部用例。'
     },
     {
       label: '通过用例',
       value: runDetail.value.summary.passedCases,
-      hint: '来自 case-runs 聚合统计。'
+      hint: '完成执行且结果符合预期。'
     },
     {
       label: '失败用例',
       value: runDetail.value.summary.failedCases,
-      hint: '失败后可继续下钻 step-results。'
+      hint: '断言未通过的用例数量。'
     },
     {
       label: '执行耗时',
       value: `${runDetail.value.summary.durationSeconds}s`,
-      hint: '由 started_at / finished_at 聚合计算。'
+      hint: '从开始到结束的总耗时。'
     }
   ]
 })
@@ -138,6 +150,17 @@ const reportSummaryCards = computed(() => {
     { label: '失败', value: String(summary.counts.failed) },
     { label: '异常/取消', value: `${summary.counts.error} / ${summary.counts.cancelled}` }
   ]
+})
+
+const reportConclusion = computed(() => {
+  if (!runReport.value) {
+    return ''
+  }
+
+  return getReportConclusion(
+    runReport.value.status,
+    runReport.value.summary.failure
+  )
 })
 
 const reportArtifactTypeEntries = computed(() => {
@@ -439,15 +462,17 @@ function selectCaseRun(caseRun: CaseRun) {
 
 function buildRunSummaryText(detail: RunDetail): string {
   // @param detail Run detail snapshot to turn into a copy-friendly summary string.
-  const passRate = detail.summary.totalCases > 0
-    ? Math.round((detail.summary.passedCases / detail.summary.totalCases) * 100)
-    : 0
+  const effectiveCases =
+    detail.summary.passedCases + detail.summary.failedCases + detail.summary.errorCases
+  const passRate = effectiveCases > 0
+    ? `${Math.round((detail.summary.passedCases / effectiveCases) * 100)}%`
+    : '--'
 
   const lines: string[] = [
     `[执行摘要] 批次 #${detail.id}`,
     `套件: ${detail.suiteName}`,
     `环境: ${detail.environmentName} | 设备: ${detail.deviceName}`,
-    `状态: ${detail.status} | 通过率: ${passRate}% (${detail.summary.passedCases}/${detail.summary.totalCases})`,
+    `状态: ${detail.status} | 通过率: ${passRate} (${detail.summary.passedCases}/${effectiveCases})`,
     `耗时: ${detail.summary.durationSeconds}s | 创建: ${formatDateTime(detail.createdAt)}`
   ]
 
@@ -460,9 +485,7 @@ function buildRunSummaryText(detail: RunDetail): string {
 
     for (const caseRun of failedCases) {
       lines.push(``, `[${caseRun.status.toUpperCase()}] ${caseRun.name}`)
-      if (caseRun.failureSummary) {
-        lines.push(`  摘要: ${caseRun.failureSummary}`)
-      }
+      lines.push(`  摘要: ${formatCaseRunSummary(caseRun)}`)
 
       const failedSteps = caseRun.steps.filter(
         (s) => s.status === 'failed' || s.status === 'error'
@@ -494,6 +517,47 @@ function navigateToRepairTarget(path: string, query: Record<string, string | und
   // @param path Target route returned by run-failure repair resolution.
   // @param query Query params that preserve failure context in the repair page.
   void router.push({ path, query })
+}
+
+function handlePrimaryRepairAction() {
+  if (!repairSummary.value) return
+  if (repairSummary.value.kind === 'system' || !repairSummary.value.path) {
+    void handleRerun()
+    return
+  }
+  navigateToRepairTarget(repairSummary.value.path, repairSummary.value.query)
+}
+
+function formatStepType(type: string) {
+  const labelMap: Record<string, string> = {
+    navigate: '打开页面',
+    click: '点击',
+    input: '输入',
+    wait: '等待',
+    screenshot: '截图',
+    template_assert: '视觉断言',
+    ocr_assert: '文字断言',
+    component_call: '调用公共组件'
+  }
+  return labelMap[type] ?? type
+}
+
+function formatArtifactType(type: string) {
+  const labelMap: Record<string, string> = {
+    run_screenshot: '执行截图',
+    actual_screenshot: '实际截图',
+    expected_screenshot: '基准图',
+    diff_image: '差异图',
+    ocr_annotated_image: 'OCR 标注图'
+  }
+  return labelMap[type] ?? '执行产物'
+}
+
+function formatCaseRunSummary(caseRun: CaseRun) {
+  if (caseRun.status === 'failed') return '用例断言未通过，请查看失败步骤与证据。'
+  if (caseRun.status === 'error') return '用例执行异常，本次验证未正常完成。'
+  if (caseRun.status === 'cancelled') return '用例已取消。'
+  return '用例执行完成。'
 }
 
 async function copyRunSummary() {
@@ -622,8 +686,8 @@ onBeforeUnmount(() => {
     </div>
 
     <SectionCard
-      description="当前页面以 `test-runs`、`case-runs`、`step-results` 三层真实接口做聚合。"
-      title="执行总览"
+      :description="runDetail ? `${runDetail.environmentName} · ${runDetail.deviceName}` : '正在加载执行结果'"
+      :title="runDetail ? `${runDetail.suiteName} · 执行结果` : '执行结果'"
     >
       <template #action>
         <div class="flex items-center gap-3">
@@ -675,7 +739,7 @@ onBeforeUnmount(() => {
         v-if="runDetail"
         class="space-y-6"
       >
-        <div class="grid grid-cols-4 gap-4">
+        <div class="grid grid-cols-2 gap-4 2xl:grid-cols-4">
           <MetricCard
             v-for="metric in metrics"
             :key="metric.label"
@@ -685,7 +749,7 @@ onBeforeUnmount(() => {
           />
         </div>
 
-        <div class="grid grid-cols-4 gap-4">
+        <div class="grid grid-cols-2 gap-4 2xl:grid-cols-4">
           <div class="rounded-2xl border border-slate-200 bg-slate-50 p-4">
             <p class="m-0 text-sm text-slate-500">套件</p>
             <p class="mb-0 mt-3 text-lg font-semibold text-slate-900">{{ runDetail.suiteName }}</p>
@@ -710,19 +774,19 @@ onBeforeUnmount(() => {
           v-if="repairSummary"
           class="rounded-2xl border border-amber-200 bg-amber-50 p-4"
         >
-          <div class="flex items-start justify-between gap-4">
-            <div>
+          <div class="flex flex-col items-start justify-between gap-4 lg:flex-row">
+            <div class="min-w-0">
               <p class="m-0 text-sm font-medium text-amber-900">{{ repairSummary.title }}</p>
               <p class="mb-0 mt-2 text-sm leading-6 text-amber-800">
                 {{ repairSummary.summary }}
               </p>
               <p class="mb-0 mt-2 text-xs text-amber-700">
-                建议动作：返回测试用例页，优先检查失败步骤、断言配置和被引用资源状态。
+                责任资源：{{ repairSummary.resourceName || '请查看执行证据' }}
               </p>
             </div>
             <el-button
               plain
-              @click="navigateToRepairTarget(repairSummary.path, repairSummary.query)"
+              @click="handlePrimaryRepairAction"
             >
               {{ repairSummary.actionLabel }}
             </el-button>
@@ -746,7 +810,7 @@ onBeforeUnmount(() => {
         v-else-if="runReport"
         class="space-y-6"
       >
-        <div class="grid grid-cols-4 gap-4">
+        <div class="grid grid-cols-2 gap-4 2xl:grid-cols-4">
           <div class="rounded-2xl border border-slate-200 bg-slate-50 p-4">
             <p class="m-0 text-sm text-slate-500">报告状态</p>
             <div class="mt-3">
@@ -754,8 +818,10 @@ onBeforeUnmount(() => {
             </div>
           </div>
           <div class="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-            <p class="m-0 text-sm text-slate-500">报告 ID</p>
-            <p class="mb-0 mt-3 text-lg font-semibold text-slate-900">#{{ runReport.id }}</p>
+            <p class="m-0 text-sm text-slate-500">责任资源</p>
+            <p class="mb-0 mt-3 break-words text-lg font-semibold text-slate-900">
+              {{ repairSummary?.resourceName || '无需处理' }}
+            </p>
           </div>
           <div class="rounded-2xl border border-slate-200 bg-slate-50 p-4">
             <p class="m-0 text-sm text-slate-500">生成时间</p>
@@ -771,7 +837,7 @@ onBeforeUnmount(() => {
           </div>
         </div>
 
-        <div class="grid grid-cols-2 gap-4">
+        <div class="grid grid-cols-2 gap-4 2xl:grid-cols-4">
           <div
             v-for="item in reportSummaryCards"
             :key="item.label"
@@ -784,24 +850,18 @@ onBeforeUnmount(() => {
           </div>
         </div>
 
-        <div class="grid grid-cols-2 gap-4">
-          <div class="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-            <p class="m-0 text-sm text-slate-500">失败代码</p>
-            <p class="mb-0 mt-3 text-sm font-medium text-slate-900 break-all">
-              {{ runReport.summary.failure?.code ?? '--' }}
-            </p>
-          </div>
-          <div class="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-            <p class="m-0 text-sm text-slate-500">失败摘要</p>
-            <p class="mb-0 mt-3 text-sm font-medium text-slate-900 break-all">
-              {{ runReport.summary.failure?.summary ?? runReport.summary.message ?? '--' }}
+        <div class="grid grid-cols-1 gap-4 lg:grid-cols-3">
+          <div class="rounded-2xl border border-slate-200 bg-slate-50 p-4 lg:col-span-1">
+            <p class="m-0 text-sm text-slate-500">执行结论</p>
+            <p class="mb-0 mt-3 break-words text-sm font-medium leading-6 text-slate-900">
+              {{ reportConclusion }}
             </p>
             <el-button
               v-if="repairSummary"
               class="!mt-3"
               plain
               size="small"
-              @click="navigateToRepairTarget(repairSummary.path, repairSummary.query)"
+              @click="handlePrimaryRepairAction"
             >
               {{ repairSummary.actionLabel }}
             </el-button>
@@ -820,16 +880,27 @@ onBeforeUnmount(() => {
           </div>
         </div>
 
+        <details class="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+          <summary class="cursor-pointer text-sm font-medium text-slate-700">技术详情</summary>
+          <div class="mt-4 grid grid-cols-1 gap-3 text-xs text-slate-600 md:grid-cols-2">
+            <p class="m-0 break-all">报告 ID：#{{ runReport.id }}</p>
+            <p class="m-0 break-all">错误码：{{ runReport.summary.failure?.code ?? '--' }}</p>
+            <p class="m-0 break-all md:col-span-2">
+              原始信息：{{ runReport.summary.failure?.summary ?? runReport.summary.message ?? '--' }}
+            </p>
+          </div>
+        </details>
+
         <div
           v-if="reportArtifactTypeEntries.length > 0"
-          class="grid grid-cols-4 gap-4"
+          class="grid grid-cols-2 gap-4 2xl:grid-cols-4"
         >
           <div
             v-for="[artifactType, count] in reportArtifactTypeEntries"
             :key="artifactType"
             class="rounded-2xl border border-slate-200 bg-slate-50 p-4"
           >
-            <p class="m-0 text-sm text-slate-500">{{ artifactType }}</p>
+            <p class="m-0 text-sm text-slate-500">{{ formatArtifactType(artifactType) }}</p>
             <p class="mb-0 mt-3 text-lg font-semibold text-slate-900">{{ count }}</p>
           </div>
         </div>
@@ -838,7 +909,7 @@ onBeforeUnmount(() => {
           <h4 class="mb-4 mt-0 text-base font-semibold text-slate-900">报告产物</h4>
           <div
             v-if="reportArtifacts.length > 0"
-            class="grid grid-cols-3 gap-4"
+            class="grid grid-cols-1 gap-4 lg:grid-cols-2 2xl:grid-cols-3"
           >
             <div
               v-for="artifact in reportArtifacts"
@@ -847,7 +918,7 @@ onBeforeUnmount(() => {
             >
               <div class="mb-3 flex items-center justify-between">
                 <p class="m-0 font-medium text-slate-900">
-                  {{ artifact.artifactType }}
+                  {{ formatArtifactType(artifact.artifactType) }}
                 </p>
                 <el-button
                   v-if="artifact.mediaObjectId"
@@ -876,10 +947,8 @@ onBeforeUnmount(() => {
               </div>
 
               <div class="space-y-2">
-                <div class="rounded-lg bg-white p-2 border border-slate-200">
-                  <p class="m-0 text-xs text-slate-500">
-                    <span class="font-medium">产物来源</span>
-                  </p>
+                <details class="rounded-lg border border-slate-200 bg-white p-2">
+                  <summary class="cursor-pointer text-xs font-medium text-slate-500">技术详情</summary>
                   <p
                     v-if="artifact.caseRunId !== null"
                     class="mb-0 mt-1 text-xs text-slate-700"
@@ -898,7 +967,7 @@ onBeforeUnmount(() => {
                   >
                     媒体对象：#{{ artifact.mediaObjectId }}
                   </p>
-                </div>
+                </details>
                 <p class="mb-0 text-xs text-slate-400">
                   生成时间：{{ formatDateTime(artifact.createdAt) }}
                 </p>
@@ -919,10 +988,10 @@ onBeforeUnmount(() => {
       />
     </SectionCard>
 
-    <div class="grid grid-cols-[440px_minmax(0,1fr)] gap-6">
+    <div class="grid grid-cols-1 gap-6 2xl:grid-cols-[440px_minmax(0,1fr)]">
       <SectionCard
-        description="点击某个 case-run 可查看对应步骤执行结果。"
-        title="用例执行实例"
+        description="选择一个用例查看步骤结果与证据。"
+        title="用例结果"
       >
         <el-table
           v-loading="loading"
@@ -948,8 +1017,8 @@ onBeforeUnmount(() => {
       </SectionCard>
 
       <SectionCard
-        description="step-results 展示真实执行步骤，并补充截图、Diff 图和下载入口。"
-        title="真实步骤结果"
+        description="按业务步骤查看状态、耗时和截图证据。"
+        title="步骤结果"
       >
         <div
           v-if="currentCaseRun"
@@ -966,15 +1035,24 @@ onBeforeUnmount(() => {
               执行耗时：{{ currentCaseRun.durationMs }} ms
             </p>
             <p class="m-0 text-sm text-slate-500">
-              失败摘要：{{ currentCaseRun.failureSummary }}
+              结果摘要：{{ formatCaseRunSummary(currentCaseRun) }}
             </p>
+            <details
+              v-if="currentCaseRun.failureSummary && (currentCaseRun.status === 'failed' || currentCaseRun.status === 'error')"
+              class="mt-3 rounded-xl border border-slate-200 bg-white p-3"
+            >
+              <summary class="cursor-pointer text-xs font-medium text-slate-600">技术详情</summary>
+              <p class="mb-0 mt-2 break-all text-xs leading-5 text-slate-500">
+                {{ currentCaseRun.failureSummary }}
+              </p>
+            </details>
           </div>
 
           <el-timeline>
             <el-timeline-item
               v-for="step in currentCaseRun.steps"
               :key="step.id"
-              :timestamp="`Step ${step.stepNo}`"
+              :timestamp="`步骤 ${step.stepNo}`"
               placement="top"
             >
               <div class="rounded-2xl border border-slate-200 bg-white p-4">
@@ -988,8 +1066,17 @@ onBeforeUnmount(() => {
                   {{ step.message }}
                 </p>
                 <p class="mb-0 mt-2 text-xs text-slate-400">
-                  类型：{{ step.type }} · 耗时：{{ step.durationMs ?? 0 }} ms
+                  类型：{{ formatStepType(step.type) }} · 耗时：{{ step.durationMs ?? 0 }} ms
                 </p>
+                <details
+                  v-if="step.technicalMessage"
+                  class="mt-3 rounded-xl border border-slate-200 bg-slate-50 p-3"
+                >
+                  <summary class="cursor-pointer text-xs font-medium text-slate-600">技术详情</summary>
+                  <p class="mb-0 mt-2 break-all text-xs leading-5 text-slate-500">
+                    {{ step.technicalMessage }}
+                  </p>
+                </details>
 
                 <OcrEvidencePanel
                   v-if="step.resultMetadata.ocr"
@@ -1001,7 +1088,7 @@ onBeforeUnmount(() => {
                   class="mt-4"
                 >
                   <p class="mb-3 text-sm font-medium text-slate-700">图片对照</p>
-                  <div class="grid grid-cols-3 gap-3">
+                  <div class="grid grid-cols-1 gap-3 xl:grid-cols-3">
                     <div
                       v-for="entry in getStepMediaEntries(step)"
                       :key="`${step.id}-${entry.label}`"
@@ -1036,18 +1123,19 @@ onBeforeUnmount(() => {
                         {{ mediaLoadingMap[entry.mediaObjectId] ? '加载中...' : (mediaErrorMap[entry.mediaObjectId] || '暂无预览') }}
                       </div>
 
-                      <p class="mb-0 mt-2 text-xs text-slate-400">
-                        media #{{ entry.mediaObjectId }}
-                      </p>
+                      <details class="mt-2 text-xs text-slate-400">
+                        <summary class="cursor-pointer">技术详情</summary>
+                        <p class="mb-0 mt-1">媒体对象：#{{ entry.mediaObjectId }}</p>
+                      </details>
                     </div>
                   </div>
                 </div>
 
                 <p
                   v-else-if="step.artifactLabel"
-                  class="mb-0 mt-3 text-xs uppercase tracking-wide text-slate-400"
+                  class="mb-0 mt-3 text-xs text-slate-400"
                 >
-                  artifact: {{ step.artifactLabel }}
+                  {{ step.artifactLabel }}
                 </p>
               </div>
             </el-timeline-item>
@@ -1073,7 +1161,7 @@ onBeforeUnmount(() => {
   >
     <div class="mb-3 flex items-center justify-between gap-3 text-xs text-slate-500">
       <span>
-        {{ currentPreviewItem ? `媒体 #${currentPreviewItem.mediaObjectId}` : '未选择媒体' }}
+        {{ currentPreviewItem?.title ?? '未选择图片' }}
       </span>
       <span v-if="imagePreviewItems.length > 1">
         {{ imagePreviewIndex + 1 }} / {{ imagePreviewItems.length }}

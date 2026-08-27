@@ -1,11 +1,16 @@
 <script setup lang="ts">
 import { reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
+import { ApiError } from '@/api/client'
 import {
   createEnvironmentProfile,
   updateEnvironmentProfile
 } from '@/api/modules/environments'
 import type { EnvironmentProfile } from '@/types/models'
+import {
+  ENVIRONMENT_BASE_URL_MESSAGE,
+  isValidEnvironmentBaseUrl
+} from '@/utils/environment'
 
 const props = defineProps<{
   visible: boolean
@@ -19,6 +24,8 @@ const emit = defineEmits<{
 }>()
 
 const saving = ref(false)
+const baseUrlError = ref('')
+const baseUrlTouched = ref(false)
 
 const form = reactive({
   name: '',
@@ -37,6 +44,25 @@ function resetForm() {
   form.baseUrl = ''
   form.description = ''
   form.status = 'active'
+  baseUrlError.value = ''
+  baseUrlTouched.value = false
+}
+
+function validateBaseUrl() {
+  baseUrlError.value = isValidEnvironmentBaseUrl(form.baseUrl)
+    ? ''
+    : ENVIRONMENT_BASE_URL_MESSAGE
+  return baseUrlError.value === ''
+}
+
+function handleBaseUrlInput(value: string) {
+  form.baseUrl = value
+  if (baseUrlTouched.value) validateBaseUrl()
+}
+
+function handleBaseUrlFocusOut() {
+  baseUrlTouched.value = true
+  validateBaseUrl()
 }
 
 watch(
@@ -48,6 +74,8 @@ watch(
       form.baseUrl = props.profile.baseUrl
       form.description = props.profile.description
       form.status = props.profile.status
+      baseUrlError.value = ''
+      baseUrlTouched.value = false
     } else {
       resetForm()
     }
@@ -59,6 +87,7 @@ async function handleSave() {
     ElMessage.warning('请补齐环境名称和基础地址。')
     return
   }
+  if (!validateBaseUrl()) return
 
   saving.value = true
   try {
@@ -80,6 +109,12 @@ async function handleSave() {
     }
 
     emit('update:visible', false)
+  } catch (error) {
+    if (error instanceof ApiError && error.code === 'ENVIRONMENT_BASE_URL_INVALID') {
+      baseUrlError.value = error.message || ENVIRONMENT_BASE_URL_MESSAGE
+      return
+    }
+    ElMessage.error(error instanceof Error ? error.message : '环境档案保存失败，请稍后重试。')
   } finally {
     saving.value = false
   }
@@ -90,7 +125,7 @@ async function handleSave() {
   <el-dialog
     :model-value="visible"
     :title="mode === 'create' ? '新建环境档案' : '编辑环境档案'"
-    width="520px"
+    width="min(92vw, 520px)"
     @update:model-value="emit('update:visible', $event)"
   >
     <div class="space-y-4">
@@ -100,7 +135,16 @@ async function handleSave() {
       </div>
       <div>
         <label class="mb-2 block text-sm font-medium text-slate-700">基础地址</label>
-        <el-input v-model="form.baseUrl" placeholder="https://example.test" />
+        <el-input
+          :model-value="form.baseUrl"
+          :class="{ 'base-url-input-error': baseUrlError }"
+          placeholder="https://example.test"
+          @focusout="handleBaseUrlFocusOut"
+          @update:model-value="handleBaseUrlInput"
+        />
+        <p v-if="baseUrlError" class="mb-0 mt-1 text-xs text-red-600">
+          {{ baseUrlError }}
+        </p>
       </div>
       <div>
         <label class="mb-2 block text-sm font-medium text-slate-700">状态</label>
@@ -127,3 +171,9 @@ async function handleSave() {
     </template>
   </el-dialog>
 </template>
+
+<style scoped>
+.base-url-input-error :deep(.el-input__wrapper) {
+  box-shadow: 0 0 0 1px #dc2626 inset;
+}
+</style>

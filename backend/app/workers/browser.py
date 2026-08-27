@@ -44,6 +44,7 @@ class BrowserStepResult:
     started_at: datetime
     finished_at: datetime
     duration_ms: int
+    step_name: str | None = None
     error_message: str | None = None
     score_value: float | None = None
     expected_media_object_id: int | None = None
@@ -86,6 +87,7 @@ class InteractionPoint:
 class BrowserStep(Protocol):
     step_no: int
     step_type: str
+    step_name: str
     payload_json: dict
     timeout_ms: int
     template_id: int | None
@@ -297,6 +299,7 @@ class PlaywrightBrowserExecutionAdapter:
                             started_at=started_at,
                             finished_at=finished_at,
                             duration_ms=_duration_ms(started_at, finished_at),
+                            step_name=getattr(step, "step_name", None),
                             error_message=outcome.error_message,
                             score_value=outcome.score_value,
                             expected_media_object_id=outcome.expected_media_object_id,
@@ -346,6 +349,7 @@ class PlaywrightBrowserExecutionAdapter:
                         started_at=started_at,
                         finished_at=finished_at,
                         duration_ms=_duration_ms(started_at, finished_at),
+                        step_name=getattr(steps[0], "step_name", None),
                         error_message=error_message,
                     )
                 )

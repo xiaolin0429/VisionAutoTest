@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { getRunDetail } from '@/api/modules/testRuns'
+import { getRunDetail, getTestRunReport } from '@/api/modules/testRuns'
 
 const client = vi.hoisted(() => ({
   requestData: vi.fn(),
@@ -75,6 +75,7 @@ describe('test run result metadata mapping', (): void => {
           {
             id: 6,
             step_no: 1,
+            step_name: '提交表单',
             step_type: 'click',
             status: 'passed',
             score_value: 0.95,
@@ -151,6 +152,50 @@ describe('test run result metadata mapping', (): void => {
           }
         ]
       }
+    })
+    expect(detail.caseRuns[0].steps[0].name).toBe('提交表单')
+  })
+
+  it('maps a structured report repair target without parsing its summary', async (): Promise<void> => {
+    client.requestData.mockResolvedValue({
+      id: 8,
+      test_run_id: 7,
+      summary_status: 'error',
+      summary_json: {
+        status: 'error',
+        counts: { total: 1, passed: 0, failed: 0, error: 1, cancelled: 0 },
+        failure: {
+          code: 'ENVIRONMENT_BASE_URL_INVALID',
+          summary: '执行环境地址无效',
+          repair_target: {
+            resource_type: 'environment_profile',
+            resource_id: 3,
+            resource_name: '预发环境',
+            route_path: '/environments',
+            step_no: null
+          }
+        },
+        timing: { started_at: null, finished_at: null, duration_ms: null },
+        artifacts: { total: 0, by_type: {} },
+        total_case_count: 1,
+        passed_case_count: 0,
+        failed_case_count: 0,
+        error_case_count: 1,
+        cancelled_case_count: 0,
+        message: null
+      },
+      generated_at: '2026-08-27T00:00:00Z',
+      created_at: '2026-08-27T00:00:00Z'
+    })
+
+    const report = await getTestRunReport(7)
+
+    expect(report?.summary.failure?.repairTarget).toEqual({
+      resourceType: 'environment_profile',
+      resourceId: 3,
+      resourceName: '预发环境',
+      routePath: '/environments',
+      stepNo: null
     })
   })
 })

@@ -12,8 +12,6 @@ from app.models import (
     BaselineRevision,
     Component,
     ComponentStep,
-    DeviceProfile,
-    EnvironmentProfile,
     MediaObject,
     ReportArtifact,
     RunReport,
@@ -29,6 +27,7 @@ from app.models import (
     utc_now,
 )
 from app.services.execution_report import (
+    build_report_read_view,
     build_report_summary,
     create_report_artifact,
     media_content_url,
@@ -185,31 +184,22 @@ def create_test_run(
             message="Test suite not found.",
             status_code=404,
         )
-    if suite.status != "active":
+    readiness = get_test_suite_execution_readiness(
+        db,
+        user=user,
+        test_suite=suite,
+        environment_profile_id=environment_profile_id,
+        device_profile_id=device_profile_id,
+    )
+    if readiness["status"] == "blocked":
+        issues = readiness["issues"]
+        first_issue = issues[0]
         raise ApiError(
-            code="TEST_SUITE_NOT_ACTIVE",
-            message="Test suite must be active before execution.",
+            code=first_issue["code"],
+            message=first_issue["message"],
             status_code=422,
+            details=issues,
         )
-    environment = db.get(EnvironmentProfile, environment_profile_id)
-    if (
-        environment is None
-        or environment.workspace_id != workspace_id
-        or environment.is_deleted
-    ):
-        raise ApiError(
-            code="ENVIRONMENT_PROFILE_NOT_FOUND",
-            message="Environment profile not found.",
-            status_code=404,
-        )
-    if device_profile_id is not None:
-        device = db.get(DeviceProfile, device_profile_id)
-        if device is None or device.workspace_id != workspace_id or device.is_deleted:
-            raise ApiError(
-                code="DEVICE_PROFILE_NOT_FOUND",
-                message="Device profile not found.",
-                status_code=404,
-            )
 
     # ── 普通模式：从套件加载用例 ──────────────────────────────────────────
     if case_items is None:
@@ -223,10 +213,6 @@ def create_test_run(
                 code="TEST_SUITE_EMPTY",
                 message="Test suite must contain at least one test case before execution.",
                 status_code=422,
-            )
-        for suite_case in suite_cases:
-            validate_case_execution_readiness(
-                db, workspace_id=workspace_id, test_case_id=suite_case.test_case_id
             )
         case_items = [(sc.test_case_id, sc.sort_order) for sc in suite_cases]
     else:
@@ -419,6 +405,12 @@ def list_step_results(db: Session, case_run_id: int):
                 "branch_name": step.branch_name,
                 "branch_step_index": step.branch_step_index,
                 "result_metadata_json": step.result_metadata_json,
+                "step_name": (
+                    step.result_metadata_json.get("step_name")
+                    if isinstance(step.result_metadata_json, dict)
+                    and isinstance(step.result_metadata_json.get("step_name"), str)
+                    else None
+                ),
                 "repair_resource_type": repair_resource_type,
                 "repair_resource_id": repair_resource_id,
                 "repair_route_path": repair_route_path,

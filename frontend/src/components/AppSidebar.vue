@@ -3,6 +3,9 @@ import { useRoute } from 'vue-router'
 import { navigationItems } from '@/constants/navigation'
 
 const route = useRoute()
+const emit = defineEmits<{
+  (event: 'navigate'): void
+}>()
 </script>
 
 <template>
@@ -12,10 +15,10 @@ const route = useRoute()
         VisionAutoTest
       </p>
       <h1 class="m-0 text-2xl font-semibold">
-        Frontend MVP
+        回归工作台
       </h1>
       <p class="mb-0 mt-2 text-sm text-slate-400">
-        围绕登录、模板、编排、执行与执行详情构建最小闭环。
+        管理测试资产，发起执行并快速定位问题。
       </p>
     </div>
 
@@ -26,6 +29,7 @@ const route = useRoute()
       active-text-color="#ffffff"
       class="border-none"
       router
+      @select="emit('navigate')"
     >
       <el-menu-item
         v-for="item in navigationItems"
@@ -42,10 +46,10 @@ const route = useRoute()
 
     <div class="mt-auto rounded-2xl border border-slate-800 bg-slate-900 p-4">
       <p class="m-0 text-sm font-medium text-slate-200">
-        当前接入
+        使用提示
       </p>
       <p class="mb-0 mt-2 text-sm leading-6 text-slate-400">
-        默认直连后端 `FastAPI /api/v1` 契约，当前页面以真实接口返回结构做聚合展示。
+        执行前先检查套件、环境与设备组合，失败后可从报告直达责任资源。
       </p>
     </div>
   </aside>

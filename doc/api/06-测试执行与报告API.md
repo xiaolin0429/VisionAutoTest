@@ -47,6 +47,8 @@
 - `rerun_filter`：目前仅支持 `"failed"`，提取状态为 `failed` 或 `error` 的用例执行实例。
 - 重跑模式下 `test_suite_id`、`environment_profile_id`、`device_profile_id` 均可省略，自动继承原批次的配置；若显式传入则覆盖继承值。
 - 新批次的 `description` 自动填充为 `"重跑自 #<原批次ID>"`（调用方未传时）。
+- 在写入 `exec_test_runs` 前，创建接口必须使用与组合 readiness 相同的检查器复核套件、环境和可选设备。
+- 若被阻断，返回 `422`；顶层 `error.code/message` 取第一个阻塞项，`error.details` 为完整 readiness issue 数组，且不得创建批次或用例执行记录。
 
 ### 3.2 查询执行批次列表
 
@@ -130,16 +132,20 @@
 - MVP 首批浏览器执行闭环会产出真实截图证据；执行截图通过 `step-results.actual_media_object_id` 和 `report_artifacts` 关联。
 - `template_assert` 会在 `step-results` 中写入 `expected_media_object_id / actual_media_object_id / diff_media_object_id`，用于定位基准图、实际截图和差异图。
 - `ocr_assert` 会在 `step-results` 中写入 `actual_media_object_id`，用于回溯 OCR 截图证据。
-- `step-results` 额外返回执行后修复定位元信息：`repair_resource_type / repair_resource_id / repair_route_path / repair_step_no`。
-- 修复定位优先级建议为：`template` > `component` > `test_case`，用于前端在失败后直接回跳到最合适的修复资源。
+- `step-results` 额外返回执行时步骤名快照 `step_name`，以及修复定位元信息：`repair_resource_type / repair_resource_id / repair_route_path / repair_step_no`。
+- `step_name` 从 `result_metadata_json.step_name` 提升为顶层可空字段；历史记录缺少快照时返回 `null`。
+- `repair_resource_type` 枚举扩展为 `environment_profile/device_profile/test_suite/test_case/component/template/system`，定位优先级为明确预检资源 > `template` > `component` > `test_case` > `system`。
 - `report.summary_status` 必须与 `test-run.status` 保持一致；报告摘要中的结构化状态不得与执行终态冲突。
 - 报告摘要 `summary_json` 当前固定包含：
   - `status`
   - `counts.total/passed/failed/error/cancelled`
-  - `failure.code/summary`
+  - `failure.code/summary/repair_target`
   - `timing.started_at/finished_at/duration_ms`
   - `artifacts.total/by_type`
 - `summary_json.failure` 在 `failed/error/partial_failed/cancelled` 场景下必须返回稳定可消费的结构；仅 `passed` 场景允许为 `null`。
+- `failure.repair_target` 为可空结构，包含 `resource_type/resource_id/resource_name/route_path/step_no`。对无明确业务资源证据的 `BROWSER_EXECUTION_ERROR/SCREENSHOT_CAPTURE_FAILED/TEST_RUN_EXECUTION_ERROR` 使用 `resource_type=system`，其 `resource_id/route_path/step_no` 为 `null`，`resource_name=平台运行环境`。
+- `GET /test-runs/{test_run_id}/report` 与 `GET /reports/{report_id}` 对历史 `failure` 缺少 `repair_target` 的报告统一生成只读兼容视图，不回写 `summary_json`。
+- 历史错误码为 `BROWSER_EXECUTION_ERROR` 时，仅当批次引用的当前环境可确定 `base_url` 不是合法绝对 `http/https` URL，读取视图才将其归因为 `environment_profile`；环境地址合法或缺少明确证据时必须归为 `system`，不得回退 `test_case`。
 - `case-runs.failure_reason_code` 与 `case-runs.failure_summary` 在 `failed/error/cancelled` 场景下必须稳定返回，前端不应自行从步骤明细反推主失败原因。
 - 当前报告产物类型收口为：
   - `run_screenshot`

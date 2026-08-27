@@ -116,11 +116,42 @@
 
 - 方法：`GET`
 - 路径：`/api/v1/test-suites/{test_suite_id}/execution-readiness`
+- 可选查询参数：`environment_profile_id`、`device_profile_id`
 
 说明：
 
-- 返回指定套件是否满足创建 `test-runs` 的前置条件。
+- 不传 `environment_profile_id` 时，保持现有 `test_suite` 级检查，`scope=test_suite`。
+- 传入 `environment_profile_id` 时，按当前工作空间下实际选择的“套件 + 环境 + 可选设备”组合检查，`scope=execution_selection`。
 - 阻塞项需落到具体资源或步骤配置问题，供前端直接提示修复。
+- 组合门禁的检查顺序为：环境、设备、套件、用例/组件/模板/步骤。
+- 每个 `issues[]` 至少返回 `code/message/resource_type/resource_id/resource_name/route_path/step_no`；定位字段可为 `null`。
+
+组合级返回示例：
+
+```json
+{
+  "scope": "execution_selection",
+  "status": "blocked",
+  "workspace_id": 1,
+  "test_suite_id": 2,
+  "environment_profile_id": 3,
+  "device_profile_id": null,
+  "active_environment_count": 1,
+  "active_test_suite_count": 1,
+  "blocking_issue_count": 1,
+  "issues": [
+    {
+      "code": "ENVIRONMENT_BASE_URL_INVALID",
+      "message": "执行环境地址无效，请填写包含 http:// 或 https:// 的完整地址。",
+      "resource_type": "environment_profile",
+      "resource_id": 3,
+      "resource_name": "预发环境",
+      "route_path": "/environments",
+      "step_no": null
+    }
+  ]
+}
+```
 
 ## 4. 业务规则
 
@@ -153,7 +184,7 @@
 - `template_assert` 仅允许引用当前工作空间下存在已生效基准版本、且 `match_strategy=template` 的模板。
 - `ocr_assert` 默认直接对页面元素截图做 OCR 断言；若显式传入 `template_id`，则该模板必须属于当前工作空间且 `match_strategy=ocr`。
 - 断言不通过记为 `failed`，依赖缺失、载荷非法、OCR/视觉引擎异常记为 `error`。
-- 套件执行就绪检查需要提前暴露以下阻塞项：套件为空、套件未激活、无可用环境、未发布用例、未发布组件、未发布模板、模板缺少当前基准、步骤配置不兼容。
+- 套件执行就绪检查需要提前暴露以下阻塞项：套件为空、套件未激活、环境不存在/未激活/地址非法、设备不存在/参数非法、未发布用例、未发布组件、未发布模板、模板缺少当前基准、步骤配置不兼容。
 
 ## 5. 推荐错误码
 
@@ -166,3 +197,6 @@
 | `STEP_CONFIGURATION_INVALID` | 步骤配置与执行要求不兼容 |
 | `SUITE_CASE_SEQUENCE_INVALID` | 套件用例顺序非法 |
 | `PUBLISHED_VERSION_REQUIRED` | 执行引用了未发布对象 |
+| `ENVIRONMENT_BASE_URL_INVALID` | 组合门禁中所选环境地址非法 |
+| `ENVIRONMENT_PROFILE_NOT_ACTIVE` | 组合门禁中所选环境未启用 |
+| `DEVICE_PROFILE_INVALID` | 组合门禁中所选设备不存在、跨空间或参数非法 |

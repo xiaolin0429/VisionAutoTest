@@ -364,6 +364,8 @@ def get_test_suite(
 def get_test_suite_execution_readiness(
     test_suite_id: int,
     request: Request,
+    environment_profile_id: int | None = Query(None, ge=1),
+    device_profile_id: int | None = Query(None, ge=1),
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
@@ -372,6 +374,8 @@ def get_test_suite_execution_readiness(
         db,
         user=current_user,
         test_suite=suite,
+        environment_profile_id=environment_profile_id,
+        device_profile_id=device_profile_id,
     )
     return success_response(
         request,

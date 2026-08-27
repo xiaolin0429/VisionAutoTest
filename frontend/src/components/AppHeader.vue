@@ -13,9 +13,24 @@ const route = useRoute()
 const authStore = useAuthStore()
 const workspaceStore = useWorkspaceStore()
 const loggingOut = ref(false)
+const emit = defineEmits<{
+  (event: 'toggle-navigation'): void
+}>()
 
 const routeTitle = computed(() => String(route.meta.title ?? 'VisionAutoTest'))
-const routeDescription = computed(() => String(route.meta.description ?? ''))
+const routeDescription = computed(() => {
+  const descriptionMap: Record<string, string> = {
+    dashboard: '掌握当前工作空间的执行健康度与待处理事项。',
+    environments: '管理执行环境、变量与设备档案。',
+    templates: '维护视觉模板、基准版本与忽略区域。',
+    components: '维护可复用的公共步骤组件。',
+    cases: '编排测试用例与业务步骤。',
+    suites: '维护回归套件并检查执行组合。',
+    runs: '筛选执行结果并定位失败或异常。',
+    'run-detail': '查看业务结论、证据与修复动作。'
+  }
+  return descriptionMap[String(route.name ?? '')] ?? String(route.meta.description ?? '')
+})
 
 const selectedWorkspaceId = computed({
   get: () => workspaceStore.currentWorkspaceId ?? undefined,
@@ -59,21 +74,33 @@ async function handleLogout() {
 </script>
 
 <template>
-  <header class="flex items-center justify-between gap-6 border-b border-slate-200 bg-white px-8 py-5">
-    <div>
-      <h2 class="m-0 text-2xl font-semibold text-slate-900">
+  <header class="flex min-w-0 items-center justify-between gap-3 border-b border-slate-200 bg-white px-4 py-4 xl:gap-6 xl:px-8 xl:py-5">
+    <div class="flex min-w-0 items-center gap-3">
+      <el-button
+        aria-label="打开导航"
+        class="xl:!hidden"
+        circle
+        plain
+        @click="emit('toggle-navigation')"
+      >
+        <span aria-hidden="true">☰</span>
+      </el-button>
+      <div class="min-w-0">
+      <h2 class="m-0 truncate text-xl font-semibold text-slate-900 xl:text-2xl">
         {{ routeTitle }}
       </h2>
-      <p class="mb-0 mt-2 text-sm text-slate-500">
+      <p class="mb-0 mt-2 hidden truncate text-sm text-slate-500 2xl:block">
         {{ routeDescription }}
       </p>
+      </div>
     </div>
 
-    <div class="flex items-center gap-4">
+    <div class="flex min-w-0 items-center gap-2 xl:gap-4">
       <el-select
         v-model="selectedWorkspaceId"
-        class="!w-64"
-        :disabled="workspaceStore.workspaces.length === 0"
+        class="!w-44 xl:!w-64"
+        :disabled="workspaceStore.bootstrapStatus === 'loading' || workspaceStore.workspaces.length === 0"
+        :loading="workspaceStore.bootstrapStatus === 'loading'"
         placeholder="请选择工作空间"
       >
         <el-option
@@ -84,11 +111,11 @@ async function handleLogout() {
         />
       </el-select>
 
-      <div class="flex items-center gap-3 rounded-2xl border border-slate-200 px-4 py-2">
+      <div class="hidden items-center gap-3 rounded-2xl border border-slate-200 px-4 py-2 lg:flex">
         <el-avatar class="bg-brand-600">
           {{ authStore.user?.displayName?.slice(0, 1) ?? 'Q' }}
         </el-avatar>
-        <div>
+        <div class="hidden 2xl:block">
           <p class="m-0 text-sm font-medium text-slate-900">
             {{ authStore.user?.displayName ?? '未登录用户' }}
           </p>

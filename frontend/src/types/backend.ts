@@ -67,13 +67,16 @@ export interface ExecutionReadinessIssueReadDTO {
   resource_id: number | null
   resource_name: string | null
   route_path: string | null
+  step_no?: number | null
 }
 
 export interface ExecutionReadinessSummaryReadDTO {
-  scope: 'workspace' | 'test_suite'
+  scope: 'workspace' | 'test_suite' | 'execution_selection'
   status: 'ready' | 'blocked'
   workspace_id: number
   test_suite_id: number | null
+  environment_profile_id?: number | null
+  device_profile_id?: number | null
   active_environment_count: number
   active_test_suite_count: number
   blocking_issue_count: number
@@ -423,6 +426,7 @@ export interface StepResultReadDTO {
   id: number
   case_run_id: number
   step_no: number
+  step_name?: string | null
   step_type: string
   status: string
   score_value: number | null
@@ -438,7 +442,15 @@ export interface StepResultReadDTO {
   branch_name: string | null
   branch_step_index: number | null
   result_metadata_json: StepResultMetadataDTO
-  repair_resource_type: 'template' | 'component' | 'test_case' | null
+  repair_resource_type:
+    | 'environment_profile'
+    | 'device_profile'
+    | 'test_suite'
+    | 'test_case'
+    | 'component'
+    | 'template'
+    | 'system'
+    | null
   repair_resource_id: number | null
   repair_route_path: string | null
   repair_step_no: number | null
@@ -476,6 +488,22 @@ export interface ReportSummaryCountsDTO {
 export interface ReportSummaryFailureDTO {
   code: string | null
   summary: string | null
+  repair_target?: ReportRepairTargetDTO | null
+}
+
+export interface ReportRepairTargetDTO {
+  resource_type:
+    | 'environment_profile'
+    | 'device_profile'
+    | 'test_suite'
+    | 'test_case'
+    | 'component'
+    | 'template'
+    | 'system'
+  resource_id: number | null
+  resource_name: string
+  route_path: string | null
+  step_no: number | null
 }
 
 export interface ReportSummaryTimingDTO {

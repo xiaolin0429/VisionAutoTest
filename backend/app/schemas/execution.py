@@ -85,7 +85,16 @@ class StepResultRead(ORMModel):
     branch_name: str | None = None
     branch_step_index: int | None = None
     result_metadata_json: dict[str, Any] = Field(default_factory=dict)
-    repair_resource_type: Literal["template", "component", "test_case"] | None = None
+    step_name: str | None = None
+    repair_resource_type: Literal[
+        "environment_profile",
+        "device_profile",
+        "test_suite",
+        "test_case",
+        "component",
+        "template",
+        "system",
+    ] | None = None
     repair_resource_id: int | None = None
     repair_route_path: str | None = None
     repair_step_no: int | None = None
@@ -111,9 +120,26 @@ class ReportSummaryCountsRead(BaseModel):
     cancelled: int
 
 
+class ReportRepairTargetRead(BaseModel):
+    resource_type: Literal[
+        "environment_profile",
+        "device_profile",
+        "test_suite",
+        "test_case",
+        "component",
+        "template",
+        "system",
+    ]
+    resource_id: int | None = None
+    resource_name: str
+    route_path: str | None = None
+    step_no: int | None = None
+
+
 class ReportSummaryFailureRead(BaseModel):
     code: str | None = None
     summary: str | None = None
+    repair_target: ReportRepairTargetRead | None = None
 
 
 class ReportSummaryTimingRead(BaseModel):

@@ -88,3 +88,70 @@ def test_workspace_execution_readiness_reports_blocking_issues():
             "ENVIRONMENT_PROFILE_REQUIRED",
             "TEST_SUITE_REQUIRED",
         }
+
+
+def test_environment_and_device_profiles_reject_invalid_execution_configuration():
+    _reset_local_data()
+
+    with app_client() as client:
+        login_resp = client.post(
+            "/api/v1/sessions",
+            json={"username": TEST_ADMIN_USERNAME, "password": TEST_ADMIN_PASSWORD},
+        )
+        token = login_resp.json()["data"]["access_token"]
+        headers = {"Authorization": f"Bearer {token}"}
+        workspace_resp = client.post(
+            "/api/v1/workspaces",
+            json={"workspace_code": "config_guard_ws", "workspace_name": "Config Guard WS"},
+            headers=headers,
+        )
+        workspace_headers = headers | {
+            "X-Workspace-Id": str(workspace_resp.json()["data"]["id"])
+        }
+
+        invalid_environment = client.post(
+            "/api/v1/environment-profiles",
+            json={"profile_name": "invalid", "base_url": "www.feishu.cn"},
+            headers=workspace_headers,
+        )
+        assert invalid_environment.status_code == 422
+        assert invalid_environment.json()["error"]["code"] == "ENVIRONMENT_BASE_URL_INVALID"
+
+        valid_environment = client.post(
+            "/api/v1/environment-profiles",
+            json={
+                "profile_name": "local",
+                "base_url": "  http://localhost:8080/app  ",
+            },
+            headers=workspace_headers,
+        )
+        assert valid_environment.status_code == 201
+        environment_id = valid_environment.json()["data"]["id"]
+        assert valid_environment.json()["data"]["base_url"] == "http://localhost:8080/app"
+
+        invalid_patch = client.patch(
+            f"/api/v1/environment-profiles/{environment_id}",
+            json={"base_url": "ftp://example.com"},
+            headers=workspace_headers,
+        )
+        assert invalid_patch.status_code == 422
+        assert invalid_patch.json()["error"]["code"] == "ENVIRONMENT_BASE_URL_INVALID"
+        unchanged_environment = client.get(
+            f"/api/v1/environment-profiles/{environment_id}",
+            headers=workspace_headers,
+        )
+        assert unchanged_environment.json()["data"]["base_url"] == "http://localhost:8080/app"
+
+        invalid_device = client.post(
+            "/api/v1/device-profiles",
+            json={
+                "profile_name": "broken",
+                "device_type": "web",
+                "viewport_width": 0,
+                "viewport_height": 768,
+                "device_scale_factor": 1,
+            },
+            headers=workspace_headers,
+        )
+        assert invalid_device.status_code == 422
+        assert invalid_device.json()["error"]["code"] == "DEVICE_PROFILE_INVALID"

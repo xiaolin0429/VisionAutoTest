@@ -7,7 +7,10 @@ from sqlalchemy.orm import Session
 
 from app.core.http import ApiError
 from app.models import RunReport, TestCaseRun, TestRun, utc_now
-from app.services.execution_report import build_report_summary
+from app.services.execution_report import (
+    build_report_summary,
+    resolve_report_repair_target,
+)
 
 
 def truncate_failure_summary(message: str | None, *, limit: int = 500) -> str | None:
@@ -161,6 +164,12 @@ def finalize_completed_test_run(
     failure_code, failure_summary = resolve_run_failure(
         case_runs=case_runs, final_status=final_status
     )
+    repair_target = resolve_report_repair_target(
+        db,
+        test_run=test_run,
+        failure_code=failure_code,
+        case_runs=case_runs,
+    )
     update_result: Any = db.execute(
         update(TestRun)
         .where(TestRun.id == test_run.id, TestRun.status == "running")
@@ -199,6 +208,7 @@ def finalize_completed_test_run(
         finished_at=now,
         failure_code=failure_code,
         failure_summary=failure_summary,
+        repair_target=repair_target,
     )
     if report is None:
         db.add(
@@ -282,6 +292,12 @@ def finalize_errored_test_run(
         finished_at=now,
         failure_code=failure_reason_code,
         failure_summary=truncate_failure_summary(error_message),
+        repair_target=resolve_report_repair_target(
+            db,
+            test_run=test_run,
+            failure_code=failure_reason_code,
+            case_runs=list(case_runs),
+        ),
     )
     if report is None:
         db.add(

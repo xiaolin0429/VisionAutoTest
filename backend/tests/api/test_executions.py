@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from copy import deepcopy
 from typing import cast
 
 import pytest
@@ -220,7 +221,10 @@ def test_mvp_backend_smoke_flow(monkeypatch):
         assert step_results_resp.json()["data"][0]["repair_resource_id"] == test_case_id
         assert step_results_resp.json()["data"][0]["repair_route_path"] == "/cases"
         assert step_results_resp.json()["data"][0]["repair_step_no"] == 1
-        assert step_results_resp.json()["data"][0]["result_metadata_json"] == {}
+        assert step_results_resp.json()["data"][0]["step_name"] == "Wait Render"
+        assert step_results_resp.json()["data"][0]["result_metadata_json"] == {
+            "step_name": "Wait Render"
+        }
 
         with SessionLocal() as db:
             report = (
@@ -287,8 +291,180 @@ def test_step_result_metadata_is_persisted_and_returned_by_api(
         assert step_results_response.status_code == 200
         assert (
             step_results_response.json()["data"][0]["result_metadata_json"]
-            == expected_metadata
+            == expected_metadata | {"step_name": "Wait Render"}
         )
+        assert step_results_response.json()["data"][0]["step_name"] == "Wait Render"
+
+
+@pytest.mark.parametrize(
+    ("legacy_base_url", "expected_resource_type"),
+    [
+        ("www.feishu.cn", "environment_profile"),
+        ("https://example.com", "system"),
+    ],
+)
+def test_historical_browser_error_report_gets_non_persistent_repair_view(
+    monkeypatch: pytest.MonkeyPatch,
+    legacy_base_url: str,
+    expected_resource_type: str,
+) -> None:
+    _reset_local_data()
+    from app.db.session import SessionLocal
+    from app.models import EnvironmentProfile, RunReport, TestRun
+
+    _install_fake_browser_adapter(monkeypatch)
+
+    with app_client() as client:
+        workspace_headers, test_run_id = _create_basic_test_run(client)
+
+        with SessionLocal() as db:
+            test_run = cast(TestRun, db.get(TestRun, test_run_id))
+            report = (
+                db.query(RunReport).filter(RunReport.test_run_id == test_run_id).one()
+            )
+            environment = cast(
+                EnvironmentProfile,
+                db.get(EnvironmentProfile, test_run.environment_profile_id),
+            )
+            environment.base_url = legacy_base_url
+            test_run.status = "error"
+            report.summary_status = "error"
+            legacy_summary = deepcopy(report.summary_json)
+            legacy_summary["status"] = "error"
+            legacy_summary["failure"] = {
+                "code": "BROWSER_EXECUTION_ERROR",
+                "summary": "Legacy browser execution error.",
+            }
+            report.summary_json = legacy_summary
+            report_id = report.id
+            environment_id = environment.id
+            environment_name = environment.profile_name
+            db.commit()
+
+        by_run_response = client.get(
+            f"/api/v1/test-runs/{test_run_id}/report",
+            headers=workspace_headers,
+        )
+        by_id_response = client.get(
+            f"/api/v1/reports/{report_id}",
+            headers=workspace_headers,
+        )
+        assert by_run_response.status_code == 200
+        assert by_id_response.status_code == 200
+        by_run_failure = by_run_response.json()["data"]["summary_json"]["failure"]
+        by_id_failure = by_id_response.json()["data"]["summary_json"]["failure"]
+        assert by_id_failure == by_run_failure
+        assert by_run_failure["repair_target"]["resource_type"] == expected_resource_type
+        if expected_resource_type == "environment_profile":
+            assert by_run_failure["repair_target"] == {
+                "resource_type": "environment_profile",
+                "resource_id": environment_id,
+                "resource_name": environment_name,
+                "route_path": "/environments",
+                "step_no": None,
+            }
+        else:
+            assert by_run_failure["repair_target"] == {
+                "resource_type": "system",
+                "resource_id": None,
+                "resource_name": "平台运行环境",
+                "route_path": None,
+                "step_no": None,
+            }
+
+        with SessionLocal() as db:
+            stored_report = (
+                db.query(RunReport).filter(RunReport.id == report_id).one()
+            )
+            assert stored_report.summary_json == legacy_summary
+            assert "repair_target" not in stored_report.summary_json["failure"]
+
+
+def test_execution_selection_readiness_and_creation_share_blockers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _reset_local_data()
+    from app.db.session import SessionLocal
+    from app.models import DeviceProfile, EnvironmentProfile
+
+    _install_fake_browser_adapter(monkeypatch)
+
+    with app_client() as client:
+        workspace_headers, test_run_id = _create_basic_test_run(client)
+        run_detail = client.get(
+            f"/api/v1/test-runs/{test_run_id}", headers=workspace_headers
+        ).json()["data"]
+        test_suite_id = run_detail["test_suite_id"]
+        environment_profile_id = run_detail["environment_profile_id"]
+
+        device_response = client.post(
+            "/api/v1/device-profiles",
+            json={
+                "profile_name": "desktop",
+                "device_type": "web",
+                "viewport_width": 1440,
+                "viewport_height": 900,
+                "device_scale_factor": 1,
+            },
+            headers=workspace_headers,
+        )
+        assert device_response.status_code == 201
+        device_profile_id = device_response.json()["data"]["id"]
+
+        # Simulate historical configuration that predates the stricter save validation.
+        with SessionLocal() as db:
+            environment = db.get(EnvironmentProfile, environment_profile_id)
+            device = db.get(DeviceProfile, device_profile_id)
+            assert environment is not None
+            assert device is not None
+            environment.base_url = "www.feishu.cn"
+            device.device_scale_factor = 0
+            db.commit()
+
+        readiness_response = client.get(
+            f"/api/v1/test-suites/{test_suite_id}/execution-readiness",
+            params={
+                "environment_profile_id": environment_profile_id,
+                "device_profile_id": device_profile_id,
+            },
+            headers=workspace_headers,
+        )
+        assert readiness_response.status_code == 200
+        readiness = readiness_response.json()["data"]
+        assert readiness["scope"] == "execution_selection"
+        assert readiness["environment_profile_id"] == environment_profile_id
+        assert readiness["device_profile_id"] == device_profile_id
+        assert [issue["code"] for issue in readiness["issues"][:2]] == [
+            "ENVIRONMENT_BASE_URL_INVALID",
+            "DEVICE_PROFILE_INVALID",
+        ]
+        assert readiness["issues"][0]["resource_type"] == "environment_profile"
+        assert readiness["issues"][0]["step_no"] is None
+
+        before_total = client.get(
+            "/api/v1/test-runs", headers=workspace_headers
+        ).json()["meta"]["total"]
+        blocked_create = client.post(
+            "/api/v1/test-runs",
+            json={
+                "test_suite_id": test_suite_id,
+                "environment_profile_id": environment_profile_id,
+                "device_profile_id": device_profile_id,
+                "trigger_source": "manual",
+            },
+            headers=workspace_headers | {"Idempotency-Key": "blocked-selection"},
+        )
+        assert blocked_create.status_code == 422
+        error = blocked_create.json()["error"]
+        assert error["code"] == "ENVIRONMENT_BASE_URL_INVALID"
+        assert [issue["code"] for issue in error["details"][:2]] == [
+            "ENVIRONMENT_BASE_URL_INVALID",
+            "DEVICE_PROFILE_INVALID",
+        ]
+        after_total = client.get(
+            "/api/v1/test-runs", headers=workspace_headers
+        ).json()["meta"]["total"]
+        assert after_total == before_total
 
 
 @pytest.mark.parametrize(
@@ -342,7 +518,9 @@ def test_ocr_action_evidence_is_persisted_for_success_and_safe_rejection(
         step_result = step_results_response.json()["data"][0]
 
         assert step_result["status"] == step_status
-        assert step_result["result_metadata_json"] == expected_metadata
+        assert step_result["result_metadata_json"] == expected_metadata | {
+            "step_name": "Wait Render"
+        }
         assert step_result["actual_media_object_id"] is not None
 
         report_response = client.get(
@@ -584,6 +762,7 @@ def test_cancelling_test_run_transitions_to_cancelled(monkeypatch):
             assert (
                 report.summary_json["failure"]["summary"] == "Test run was cancelled."
             )
+            assert report.summary_json["failure"]["repair_target"] is None
 
 
 def test_cancelling_during_finalization_does_not_end_as_passed(monkeypatch):
@@ -843,6 +1022,13 @@ def test_adapter_initialization_failure_marks_test_run_error(monkeypatch):
             assert report.summary_status == "error"
             assert "adapter init failed" in report.summary_json["message"]
             assert report.summary_json["failure"]["code"] == "TEST_RUN_EXECUTION_ERROR"
+            assert report.summary_json["failure"]["repair_target"] == {
+                "resource_type": "system",
+                "resource_id": None,
+                "resource_name": "平台运行环境",
+                "route_path": None,
+                "step_no": None,
+            }
 
 
 def test_component_call_steps_are_expanded_and_executed(monkeypatch):
@@ -1804,6 +1990,15 @@ def test_template_assert_failure_marks_run_failed_and_persists_diff_media(monkey
             report_resp.json()["data"]["summary_json"]["failure"]["summary"]
             == "Template assertion failed."
         )
+        assert report_resp.json()["data"]["summary_json"]["failure"][
+            "repair_target"
+        ] == {
+            "resource_type": "template",
+            "resource_id": template_id,
+            "resource_name": "Fail Template",
+            "route_path": "/templates",
+            "step_no": 1,
+        }
         artifacts_resp = client.get(
             f"/api/v1/reports/{report_resp.json()['data']['id']}/artifacts",
             headers=workspace_headers,

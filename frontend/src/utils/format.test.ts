@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { formatRatio, formatStatusLabel } from './format'
+import { formatPercent, formatRatio, formatStatusLabel } from './format'
 
 describe('format utilities', (): void => {
   it.each<[string, string]>([
@@ -17,5 +17,10 @@ describe('format utilities', (): void => {
     [1, '100%']
   ])('formats ratio %s as "%s"', (ratio: number, expected: string): void => {
     expect(formatRatio(ratio)).toBe(expected)
+  })
+
+  it('renders an unavailable percentage as --', (): void => {
+    expect(formatPercent(null)).toBe('--')
+    expect(formatPercent(29)).toBe('29%')
   })
 })

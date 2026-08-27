@@ -129,7 +129,12 @@ def get_test_run_report(
         raise ApiError(
             code="REPORT_NOT_FOUND", message="Report not found.", status_code=404
         )
-    return success_response(request, dump_model(RunReportRead, report))
+    report_view = execution.build_report_read_view(
+        db,
+        report=report,
+        test_run=test_run,
+    )
+    return success_response(request, dump_model(RunReportRead, report_view))
 
 
 @router.patch("/test-runs/{test_run_id}")
@@ -208,7 +213,12 @@ def get_report(
     report = execution.get_report(db, report_id)
     test_run = execution.get_test_run(db, report.test_run_id)
     execution.require_workspace_access(db, current_user, test_run.workspace_id)
-    return success_response(request, dump_model(RunReportRead, report))
+    report_view = execution.build_report_read_view(
+        db,
+        report=report,
+        test_run=test_run,
+    )
+    return success_response(request, dump_model(RunReportRead, report_view))
 
 
 @router.get("/reports/{report_id}/artifacts")

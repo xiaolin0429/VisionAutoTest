@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import DeviceFormDialog from '@/components/environment/DeviceFormDialog.vue'
 import ProfileFormDialog from '@/components/environment/ProfileFormDialog.vue'
@@ -16,6 +17,7 @@ import {
 } from '@/api/modules/environments'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { formatDateTime } from '@/utils/format'
+import { isValidEnvironmentBaseUrl } from '@/utils/environment'
 import type {
   DeviceProfile,
   EnvironmentProfile,
@@ -23,6 +25,7 @@ import type {
 } from '@/types/models'
 
 const workspaceStore = useWorkspaceStore()
+const route = useRoute()
 const loading = ref(false)
 const variablesLoading = ref(false)
 
@@ -84,11 +87,17 @@ async function loadEnvironmentData() {
     environmentProfiles.value = environments
     deviceProfiles.value = devices
 
-    if (!environments.some((item) => item.id === selectedEnvironmentId.value)) {
+    const routeEnvironmentId = Number(route.query.environmentProfileId)
+    if (Number.isInteger(routeEnvironmentId) && environments.some((item) => item.id === routeEnvironmentId)) {
+      selectedEnvironmentId.value = routeEnvironmentId
+    } else if (!environments.some((item) => item.id === selectedEnvironmentId.value)) {
       selectedEnvironmentId.value = environments[0]?.id ?? null
     }
 
-    if (!devices.some((item) => item.id === selectedDeviceId.value)) {
+    const routeDeviceId = Number(route.query.deviceProfileId)
+    if (Number.isInteger(routeDeviceId) && devices.some((item) => item.id === routeDeviceId)) {
+      selectedDeviceId.value = routeDeviceId
+    } else if (!devices.some((item) => item.id === selectedDeviceId.value)) {
       selectedDeviceId.value = devices[0]?.id ?? null
     }
   } finally {
@@ -248,7 +257,7 @@ onMounted(async () => {
 
 <template>
   <div class="space-y-6">
-    <div class="grid grid-cols-3 gap-4">
+    <div class="grid grid-cols-1 gap-4 md:grid-cols-3">
       <MetricCard
         v-for="metric in metrics"
         :key="metric.label"
@@ -258,7 +267,7 @@ onMounted(async () => {
       />
     </div>
 
-    <div class="grid grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)] gap-6">
+    <div class="grid grid-cols-1 gap-6 2xl:grid-cols-[minmax(0,1.2fr)_minmax(0,1fr)]">
       <SectionCard
         description="环境档案支持新建、编辑、删除，并可下钻维护环境变量。"
         title="环境档案"
@@ -297,8 +306,18 @@ onMounted(async () => {
           <el-table-column
             label="基础地址"
             min-width="220"
-            prop="baseUrl"
-          />
+          >
+            <template #default="{ row }">
+              <div class="space-y-1">
+                <span :class="isValidEnvironmentBaseUrl(row.baseUrl) ? 'text-slate-700' : 'text-red-700'">
+                  {{ row.baseUrl }}
+                </span>
+                <el-tag v-if="!isValidEnvironmentBaseUrl(row.baseUrl)" size="small" type="danger">
+                  配置异常
+                </el-tag>
+              </div>
+            </template>
+          </el-table-column>
           <el-table-column
             label="变量数"
             prop="variableCount"
@@ -449,7 +468,7 @@ onMounted(async () => {
         </div>
       </template>
 
-      <div class="grid grid-cols-3 gap-4">
+      <div class="grid grid-cols-1 gap-4 md:grid-cols-2 2xl:grid-cols-3">
         <button
           v-for="device in deviceProfiles"
           :key="device.id"

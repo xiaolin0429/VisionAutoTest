@@ -18,9 +18,12 @@ import {
   updateTestSuite
 } from '@/api/modules/testSuites'
 import {
+  buildReadinessNavigation,
   canResolveReadinessByNavigation,
   getReadinessActionLabel,
-  getReadinessSuggestion
+  getReadinessSuggestion,
+  readinessIssuesFromErrorDetails,
+  type ExecutionGateState
 } from '@/utils/readiness'
 import { createTestRun } from '@/api/modules/testRuns'
 import { formatDateTime } from '@/utils/format'
@@ -45,7 +48,8 @@ const loading = ref(false)
 const submitting = ref(false)
 const savingSuite = ref(false)
 const savingCases = ref(false)
-const readinessLoading = ref(false)
+const gateState = ref<ExecutionGateState>('idle')
+let readinessRequestId = 0
 
 const suites = ref<TestSuite[]>([])
 const testCases = ref<TestCase[]>([])
@@ -86,6 +90,7 @@ const readinessIssues = computed(() => readinessSummary.value?.issues ?? [])
 const hasBlockingIssues = computed(() => readinessIssues.value.length > 0)
 const hasSuiteSelected = computed(() => currentSuite.value !== null)
 const primaryReadinessMessage = computed(() => readinessIssues.value[0]?.message ?? '')
+const readinessLoading = computed(() => gateState.value === 'checking')
 
 const availableCasesToAdd = computed(() => {
   const selectedIds = new Set(suiteCaseDrafts.value.map((item) => item.testCaseId))
@@ -97,6 +102,7 @@ const canRunSuite = computed(() => {
     hasSuiteSelected.value &&
       !readinessLoading.value &&
       !hasBlockingIssues.value &&
+      gateState.value === 'ready' &&
       runForm.testSuiteId &&
       runForm.environmentProfileId
   )
@@ -118,6 +124,8 @@ function formatRunCreationError(error: unknown) {
   }
 
   const errorMessageMap: Record<string, string> = {
+    ENVIRONMENT_BASE_URL_INVALID: '执行环境地址无效，请填写包含 http:// 或 https:// 的完整地址。',
+    DEVICE_PROFILE_INVALID: '设备档案不可用于本次执行，请检查设备配置。',
     TEST_SUITE_NOT_ACTIVE: '套件未激活，无法执行。',
     PUBLISHED_VERSION_REQUIRED: '存在未发布的用例或组件，请先发布。',
     TEST_SUITE_EMPTY: '套件为空，无法执行。',
@@ -131,19 +139,36 @@ function formatRunCreationError(error: unknown) {
   return errorMessageMap[error.code] ?? error.message
 }
 
-async function inspectSuiteReadiness(suite: TestSuite) {
-  // @param suite Currently selected suite whose execution-readiness summary should be loaded.
-  readinessLoading.value = true
+async function inspectSuiteReadiness() {
+  if (!runForm.testSuiteId || !runForm.environmentProfileId) {
+    readinessRequestId += 1
+    readinessSummary.value = null
+    gateState.value = 'idle'
+    return
+  }
+
+  const requestId = ++readinessRequestId
+  gateState.value = 'checking'
   readinessSummary.value = null
 
   try {
-    readinessSummary.value = await getTestSuiteExecutionReadiness(suite.id)
+    const summary = await getTestSuiteExecutionReadiness(runForm.testSuiteId, {
+      environmentProfileId: runForm.environmentProfileId,
+      deviceProfileId: runForm.deviceProfileId
+    })
+    if (requestId !== readinessRequestId) return
+    readinessSummary.value = summary
+    gateState.value = summary.status === 'ready' ? 'ready' : 'blocked'
   } catch (error) {
+    if (requestId !== readinessRequestId) return
+    const suite = suites.value.find((item) => item.id === runForm.testSuiteId)
     readinessSummary.value = {
-      scope: 'test_suite',
+      scope: 'execution_selection',
       status: 'blocked',
       workspaceId: 0,
-      testSuiteId: suite.id,
+      testSuiteId: runForm.testSuiteId,
+      environmentProfileId: runForm.environmentProfileId,
+      deviceProfileId: runForm.deviceProfileId,
       activeEnvironmentCount: 0,
       activeTestSuiteCount: 0,
       blockingIssueCount: 1,
@@ -152,15 +177,20 @@ async function inspectSuiteReadiness(suite: TestSuite) {
           code: 'READINESS_LOAD_FAILED',
           message: error instanceof Error ? error.message : '执行门禁检查失败，请稍后重试。',
           resourceType: 'test_suite',
-          resourceId: suite.id,
-          resourceName: suite.name,
-          routePath: '/suites'
+          resourceId: suite?.id ?? runForm.testSuiteId,
+          resourceName: suite?.name ?? '',
+          routePath: null,
+          stepNo: null
         }
       ]
     }
-  } finally {
-    readinessLoading.value = false
+    gateState.value = 'check_failed'
   }
+}
+
+function navigateReadinessIssue(issue: ExecutionReadinessSummary['issues'][number]) {
+  const target = buildReadinessNavigation(issue)
+  if (target) void router.push(target)
 }
 
 async function loadPageData() {
@@ -369,7 +399,7 @@ async function loadSuiteDetail(suiteId: number | null) {
   try {
     currentSuite.value = await getTestSuiteDetail(suiteId)
     runForm.testSuiteId = suiteId
-    await inspectSuiteReadiness(currentSuite.value)
+    await inspectSuiteReadiness()
   } finally {
     loading.value = false
   }
@@ -388,17 +418,46 @@ async function handleRun() {
   }
 
   submitting.value = true
+  gateState.value = 'submitting'
 
   try {
     const run = await createTestRun(runForm)
     ElMessage.success(`执行批次 ${run.id} 已创建。`)
     await router.push(`/runs/${run.id}`)
   } catch (error) {
+    const issues =
+      error instanceof ApiError ? readinessIssuesFromErrorDetails(error.details) : []
+    if (issues.length > 0) {
+      readinessSummary.value = {
+        scope: 'execution_selection',
+        status: 'blocked',
+        workspaceId: 0,
+        testSuiteId: runForm.testSuiteId,
+        environmentProfileId: runForm.environmentProfileId,
+        deviceProfileId: runForm.deviceProfileId,
+        activeEnvironmentCount: 0,
+        activeTestSuiteCount: 0,
+        blockingIssueCount: issues.length,
+        issues
+      }
+      gateState.value = 'blocked'
+    } else {
+      gateState.value = 'check_failed'
+    }
     ElMessage.error(formatRunCreationError(error))
   } finally {
     submitting.value = false
   }
 }
+
+watch(
+  () => [runForm.testSuiteId, runForm.environmentProfileId, runForm.deviceProfileId] as const,
+  () => {
+    readinessSummary.value = null
+    gateState.value = runForm.testSuiteId && runForm.environmentProfileId ? 'checking' : 'idle'
+    void inspectSuiteReadiness()
+  }
+)
 
 watch(
   selectedSuiteId,
@@ -415,9 +474,9 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="grid grid-cols-[360px_minmax(0,1fr)] gap-6">
+  <div class="grid grid-cols-1 gap-6 xl:grid-cols-[360px_minmax(0,1fr)]">
     <SectionCard
-      description="套件管理对齐 `test-suites` 与 `/cases` 子资源，支持新建、编辑和编排。"
+      description="创建、维护并编排可重复执行的回归套件。"
       title="套件列表"
     >
       <template #action>
@@ -470,7 +529,7 @@ onMounted(async () => {
 
     <div class="space-y-6">
       <SectionCard
-        description="套件详情通过 `/test-suites/{id}` 与 `/cases` 子资源实时聚合。"
+        description="查看套件状态、用例顺序并维护执行内容。"
         title="套件详情"
       >
         <template #action>
@@ -498,7 +557,7 @@ onMounted(async () => {
           v-if="currentSuite"
           class="space-y-6"
         >
-          <div class="grid grid-cols-4 gap-4">
+          <div class="grid grid-cols-2 gap-4 2xl:grid-cols-4">
             <div class="rounded-2xl border border-slate-200 bg-slate-50 p-4">
               <p class="m-0 text-sm text-slate-500">套件编码</p>
               <p class="mb-0 mt-3 text-lg font-semibold text-slate-900">{{ currentSuite.code }}</p>
@@ -552,7 +611,7 @@ onMounted(async () => {
       </SectionCard>
 
       <SectionCard
-        description="创建执行批次时遵循后端真实 `POST /api/v1/test-runs` 请求体。设备预设为可选项。"
+        description="选择本次使用的环境与设备，检查通过后再创建执行。"
         title="触发执行"
       >
         <div
@@ -563,18 +622,35 @@ onMounted(async () => {
         </div>
 
         <div
-          v-else-if="readinessLoading"
+          v-else-if="gateState === 'idle'"
           class="mb-4 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-500"
         >
-          正在校验当前套件是否满足执行门禁...
+          请选择套件和环境，系统会检查当前组合是否可执行。
         </div>
 
         <div
-          v-else-if="readinessIssues.length > 0"
+          v-else-if="gateState === 'checking'"
+          class="mb-4 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-500"
+        >
+          正在检查当前套件、环境与设备组合...
+        </div>
+
+        <div
+          v-else-if="gateState === 'check_failed'"
+          class="mb-4 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-800"
+        >
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <span>暂时无法完成执行检查，请重试。</span>
+            <el-button plain size="small" @click="inspectSuiteReadiness">重新检查</el-button>
+          </div>
+        </div>
+
+        <div
+          v-else-if="gateState === 'blocked'"
           class="mb-4 rounded-2xl border border-amber-200 bg-amber-50 p-4"
         >
           <p class="m-0 text-sm font-medium text-amber-900">
-            当前套件存在执行门禁风险
+            当前组合暂不可执行
           </p>
           <ul class="mb-0 mt-3 list-disc space-y-2 pl-5 text-sm text-amber-800">
             <li
@@ -585,7 +661,7 @@ onMounted(async () => {
                 v-if="issue.routePath"
                 class="cursor-pointer border-none bg-transparent p-0 text-left text-amber-800 underline-offset-2 hover:underline"
                 type="button"
-                @click="router.push({ path: issue.routePath, query: issue.resourceType === 'template' && issue.resourceId ? { templateId: String(issue.resourceId) } : issue.resourceType === 'test_case' && issue.resourceId ? { testCaseId: String(issue.resourceId) } : issue.resourceType === 'component' && issue.resourceId ? { componentId: String(issue.resourceId) } : {} })"
+                @click="navigateReadinessIssue(issue)"
               >
                 <span class="block">{{ issue.message }}</span>
                 <span class="mt-1 block text-xs text-amber-700">
@@ -596,7 +672,7 @@ onMounted(async () => {
                     v-if="canResolveReadinessByNavigation(issue)"
                     plain
                     size="small"
-                    @click.stop="router.push({ path: issue.routePath, query: issue.resourceType === 'template' && issue.resourceId ? { templateId: String(issue.resourceId) } : issue.resourceType === 'test_case' && issue.resourceId ? { testCaseId: String(issue.resourceId) } : issue.resourceType === 'component' && issue.resourceId ? { componentId: String(issue.resourceId) } : {} })"
+                    @click.stop="navigateReadinessIssue(issue)"
                   >
                     {{ getReadinessActionLabel(issue) }}
                   </el-button>
@@ -622,13 +698,20 @@ onMounted(async () => {
         </div>
 
         <div
-          v-else
+          v-else-if="gateState === 'ready'"
           class="mb-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800"
         >
-          当前套件满足执行门禁，可以创建执行批次。
+          当前组合可执行，可以创建执行批次。
         </div>
 
-        <div class="grid grid-cols-3 gap-4">
+        <div
+          v-else
+          class="mb-4 rounded-2xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-800"
+        >
+          正在创建执行批次，请勿重复提交。
+        </div>
+
+        <div class="grid grid-cols-1 gap-4 lg:grid-cols-3">
           <div>
             <label class="mb-2 block text-sm font-medium text-slate-700">环境档案</label>
             <el-select

@@ -50,7 +50,7 @@ export async function listWorkspaces(): Promise<Workspace[]> {
         role:
           item.owner_user_id === currentUserId
             ? 'workspace_admin'
-            : currentMember?.workspace_role ?? 'workspace_member',
+            : currentMember?.workspace_role ?? null,
         createdAt: item.created_at,
         updatedAt: item.updated_at
       }
@@ -66,6 +66,8 @@ function mapExecutionReadiness(summary: ExecutionReadinessSummaryReadDTO): Execu
     status: summary.status,
     workspaceId: summary.workspace_id,
     testSuiteId: summary.test_suite_id,
+    environmentProfileId: summary.environment_profile_id ?? null,
+    deviceProfileId: summary.device_profile_id ?? null,
     activeEnvironmentCount: summary.active_environment_count,
     activeTestSuiteCount: summary.active_test_suite_count,
     blockingIssueCount: summary.blocking_issue_count,
@@ -75,7 +77,8 @@ function mapExecutionReadiness(summary: ExecutionReadinessSummaryReadDTO): Execu
       resourceType: issue.resource_type,
       resourceId: issue.resource_id,
       resourceName: issue.resource_name ?? '',
-      routePath: issue.route_path
+      routePath: issue.route_path,
+      stepNo: issue.step_no ?? null
     }))
   }
 }

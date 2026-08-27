@@ -16,7 +16,8 @@ import {
   getReadinessActionLabel,
   getReadinessSuggestion
 } from '@/utils/readiness'
-import { formatDateTime } from '@/utils/format'
+import { formatDateTime, formatPercent } from '@/utils/format'
+import { calculateRunMetrics, isAttentionRunStatus } from '@/utils/runMetrics'
 import type {
   ExecutionReadinessSummary,
   EnvironmentProfile,
@@ -72,35 +73,33 @@ async function loadDashboardData() {
 
 const summaryMetrics = computed(() => {
   const recentRun = testRuns.value[0]
-  const attentionRuns = testRuns.value.filter((item) => {
-    return item.status === 'failed' || item.status === 'partial_failed'
-  }).length
+  const attentionRuns = testRuns.value.filter((item) => isAttentionRunStatus(item.status)).length
 
   return [
     {
       label: '当前工作空间',
       value: workspaceStore.currentWorkspace?.name ?? '未选择',
-      hint: '通过工作空间上下文隔离资源与执行数据。'
+      hint: '资源与执行数据均按当前工作空间隔离。'
     },
     {
       label: '模板总数',
       value: templates.value.length,
-      hint: '映射 `templates` 与 `baseline-revisions` 的核心资产。'
+      hint: '当前可维护的视觉模板资产。'
     },
     {
       label: '活跃套件',
       value: testSuites.value.filter((item) => item.status === 'active').length,
-      hint: 'MVP 以可手动触发的回归套件为主。'
+      hint: '可用于组合检查和手动触发。'
     },
     {
       label: '最近执行',
       value: recentRun ? formatDateTime(recentRun.createdAt) : '暂无',
-      hint: '从最近一个 `test-runs` 批次读取。'
+      hint: '最近一次创建执行的时间。'
     },
     {
       label: '待关注批次',
       value: attentionRuns,
-      hint: '统计 failed 与 partial_failed 状态。'
+      hint: '包含失败、部分失败与异常。'
     }
   ]
 })
@@ -122,7 +121,7 @@ const quickActions = [
   },
   {
     title: '触发执行',
-    description: '从套件页手动创建一次 test-run，验证 MVP 闭环。',
+    description: '选择套件、环境与设备，检查通过后开始回归。',
     path: '/suites',
     buttonText: '进入套件管理'
   }
@@ -157,16 +156,7 @@ const releaseReadiness = computed(() => {
 
 const executionTrend = computed(() => {
   const recent10 = testRuns.value.slice(0, 10)
-  const passedCount = recent10.filter((item) => item.status === 'passed').length
-  const failedCount = recent10.filter((item) => item.status === 'failed' || item.status === 'partial_failed').length
-  const passRate = recent10.length > 0 ? Math.round((passedCount / recent10.length) * 100) : 0
-
-  return {
-    total: recent10.length,
-    passed: passedCount,
-    failed: failedCount,
-    passRate
-  }
+  return calculateRunMetrics(recent10)
 })
 
 const pendingTemplates = computed(() => {
@@ -191,10 +181,10 @@ const riskAlerts = computed(() => {
   }
 
   const recentFailedRuns = testRuns.value.slice(0, 5).filter((item) =>
-    item.status === 'failed' || item.status === 'partial_failed'
+    isAttentionRunStatus(item.status)
   )
   if (recentFailedRuns.length >= 3) {
-    alerts.push({ type: 'error', message: '最近 5 次执行中有 3 次及以上失败，需要排查' })
+    alerts.push({ type: 'error', message: '最近 5 次执行中有 3 次及以上失败或异常，需要排查' })
   }
 
   return alerts
@@ -250,7 +240,7 @@ function navigateReadinessIssue(routePath: string | null, resourceType: string, 
       </div>
     </div>
 
-    <div class="grid grid-cols-5 gap-4">
+    <div class="grid grid-cols-2 gap-4 xl:grid-cols-5">
       <MetricCard
         v-for="metric in summaryMetrics"
         :key="metric.label"
@@ -260,12 +250,12 @@ function navigateReadinessIssue(routePath: string | null, resourceType: string, 
       />
     </div>
 
-    <div class="grid grid-cols-2 gap-6">
+    <div class="grid grid-cols-1 gap-6 xl:grid-cols-2">
       <SectionCard
         description="最近 10 次执行的通过率趋势。"
         title="执行趋势"
       >
-        <div class="grid grid-cols-3 gap-4">
+        <div class="grid grid-cols-2 gap-4 2xl:grid-cols-4">
           <div class="rounded-2xl border border-slate-200 bg-slate-50 p-4">
             <p class="m-0 text-sm text-slate-500">总执行次数</p>
             <p class="mb-0 mt-3 text-2xl font-semibold text-slate-900">{{ executionTrend.total }}</p>
@@ -278,10 +268,26 @@ function navigateReadinessIssue(routePath: string | null, resourceType: string, 
             <p class="m-0 text-sm text-red-700">失败次数</p>
             <p class="mb-0 mt-3 text-2xl font-semibold text-red-900">{{ executionTrend.failed }}</p>
           </div>
+          <div class="rounded-2xl border border-orange-200 bg-orange-50 p-4">
+            <p class="m-0 text-sm text-orange-700">部分失败</p>
+            <p class="mb-0 mt-3 text-2xl font-semibold text-orange-900">{{ executionTrend.partialFailed }}</p>
+          </div>
+          <div class="rounded-2xl border border-red-200 bg-red-50 p-4">
+            <p class="m-0 text-sm text-red-700">异常次数</p>
+            <p class="mb-0 mt-3 text-2xl font-semibold text-red-900">{{ executionTrend.error }}</p>
+          </div>
+          <div class="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+            <p class="m-0 text-sm text-slate-500">已取消</p>
+            <p class="mb-0 mt-3 text-2xl font-semibold text-slate-900">{{ executionTrend.cancelled }}</p>
+          </div>
+          <div class="rounded-2xl border border-amber-200 bg-amber-50 p-4">
+            <p class="m-0 text-sm text-amber-700">需关注</p>
+            <p class="mb-0 mt-3 text-2xl font-semibold text-amber-900">{{ executionTrend.attention }}</p>
+          </div>
         </div>
         <div class="mt-4 rounded-2xl border border-blue-200 bg-blue-50 p-4">
           <p class="m-0 text-sm text-blue-700">通过率</p>
-          <p class="mb-0 mt-3 text-3xl font-bold text-blue-900">{{ executionTrend.passRate }}%</p>
+          <p class="mb-0 mt-3 text-3xl font-bold text-blue-900">{{ formatPercent(executionTrend.passRate) }}</p>
         </div>
       </SectionCard>
 
@@ -320,9 +326,9 @@ function navigateReadinessIssue(routePath: string | null, resourceType: string, 
       </SectionCard>
     </div>
 
-    <div class="grid grid-cols-[minmax(0,1.25fr)_minmax(320px,0.75fr)] gap-6">
+    <div class="grid grid-cols-1 gap-6 2xl:grid-cols-[minmax(0,1.25fr)_minmax(320px,0.75fr)]">
       <SectionCard
-        description="从工作台快速进入 MVP 主路径，减少多页面跳转成本。"
+        description="快速进入回归准备、资产维护和执行入口。"
         title="快捷操作"
       >
         <div class="grid grid-cols-1 gap-4 xl:grid-cols-3">
@@ -387,12 +393,12 @@ function navigateReadinessIssue(routePath: string | null, resourceType: string, 
       </SectionCard>
     </div>
 
-    <div class="grid grid-cols-[minmax(0,1fr)_360px] gap-6">
+    <div class="grid grid-cols-1 gap-6 2xl:grid-cols-[minmax(0,1fr)_360px]">
       <SectionCard
         description="统一汇总当前工作空间的执行门禁与阻塞项。"
         title="执行就绪中心"
       >
-        <div class="grid grid-cols-4 gap-4">
+        <div class="grid grid-cols-2 gap-4 2xl:grid-cols-4">
           <div
             v-for="item in releaseReadiness"
             :key="item.label"
@@ -467,7 +473,7 @@ function navigateReadinessIssue(routePath: string | null, resourceType: string, 
               当前角色
             </p>
             <p class="mb-0 mt-3 text-lg font-semibold text-slate-900">
-              {{ workspaceStore.currentWorkspace?.role ?? '--' }}
+              {{ workspaceStore.bootstrapStatus === 'loading' ? '--' : (workspaceStore.currentWorkspace?.role ?? '--') }}
             </p>
           </div>
         </div>

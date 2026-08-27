@@ -26,13 +26,16 @@ class ExecutionReadinessIssueRead(BaseModel):
     resource_id: int | None = None
     resource_name: str | None = None
     route_path: str | None = None
+    step_no: int | None = None
 
 
 class ExecutionReadinessSummaryRead(BaseModel):
-    scope: Literal["workspace", "test_suite"]
+    scope: Literal["workspace", "test_suite", "execution_selection"]
     status: Literal["ready", "blocked"]
     workspace_id: int
     test_suite_id: int | None = None
+    environment_profile_id: int | None = None
+    device_profile_id: int | None = None
     active_environment_count: int = 0
     active_test_suite_count: int = 0
     blocking_issue_count: int = 0

@@ -7,6 +7,7 @@ import type { Workspace } from '@/types/models'
 
 export const useWorkspaceStore = defineStore('workspace', () => {
   const workspaces = ref<Workspace[]>([])
+  const bootstrapStatus = ref<'idle' | 'loading' | 'ready' | 'error'>('idle')
   const currentWorkspaceId = useStorage<number | null>(
     WORKSPACE_STORAGE_KEY,
     null,
@@ -37,14 +38,23 @@ export const useWorkspaceStore = defineStore('workspace', () => {
 
   async function bootstrap() {
     // @returns Resolves after the store has loaded and normalized the current workspace selection.
-    const items = await listWorkspaces()
-    setWorkspaces(items)
+    bootstrapStatus.value = 'loading'
+    workspaces.value = []
+    try {
+      const items = await listWorkspaces()
+      setWorkspaces(items)
+      bootstrapStatus.value = 'ready'
+    } catch (error) {
+      bootstrapStatus.value = 'error'
+      throw error
+    }
   }
 
   function reset() {
     // Clears workspace state when auth/session context is lost.
     workspaces.value = []
     currentWorkspaceId.value = null
+    bootstrapStatus.value = 'idle'
   }
 
   return {
@@ -52,6 +62,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     currentWorkspaceId,
     currentWorkspace,
     hasWorkspace,
+    bootstrapStatus,
     setWorkspaces,
     setCurrentWorkspace,
     bootstrap,
